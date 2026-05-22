@@ -1,0 +1,33 @@
+.heroBanner {
+  padding: 4rem 0;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.heroSlogan {
+  font-size: 1.4rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  margin-top: 0.5rem;
+  margin-bottom: 0;
+  opacity: 0.92;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  display: inline-block;
+  padding: 0.3rem 1.2rem;
+  border-radius: 2rem;
+}
+
+.buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.features {
+  display: flex;
+  align-items: center;
+  padding: 2rem 0;
+  width: 100%;
+}

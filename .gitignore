@@ -1,0 +1,36 @@
+.vscode
+.cursor
+.clangd
+.claude
+build
+build_*
+build-*
+venv
+.cache
+*.pcm
+third_party/*
+!third_party/mbedtls
+!third_party/cJSON
+!third_party/coreHTTP
+!third_party/coreMQTT
+!third_party/steam-sdk
+!third_party/qrcodegen
+!third_party/stb
+!third_party/quirc
+
+# Configuration files (certificates, keys)
+config/*.pem
+config/*.conf
+
+# Mock server
+mock/__pycache__/
+mock/*.pyc
+
+compile_commands.json
+sdkconfig
+
+# Docs site build artifacts
+docs-site/node_modules/
+docs-site/.docusaurus/
+docs-site/build/
+docs-site/yarn-error.log

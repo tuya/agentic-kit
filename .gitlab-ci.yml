@@ -1,0 +1,17 @@
+stages:
+  - pages
+
+pages:
+  stage: pages
+  image: node:22-alpine
+  script:
+    - cd docs-site
+    - npm ci
+    - npm run build
+    - mv build ../public
+  artifacts:
+    paths:
+      - public
+  only:
+    - main
+    - master
