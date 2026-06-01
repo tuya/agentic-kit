@@ -19,6 +19,9 @@ sidebar_position: 1
 ### agentic-kit 代码编译
 
 ```sh
+git clone https://github.com/tuya/agentic-kit.git
+cd agentic-kit
+
 mkdir -p build && cd build
 cmake .. && make
 ```

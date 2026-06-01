@@ -11,8 +11,8 @@ const config: Config = {
     v4: true,
   },
 
-  url: 'https://tuya.github.io',
-  baseUrl: '/agentic-kit/',
+  url: 'https://agentic-kit.tuya.com',
+  baseUrl: '/',
 
   organizationName: 'tuya',
   projectName: 'agentic-kit',
