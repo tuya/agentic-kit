@@ -1,0 +1,82 @@
+---
+title: 系统架构
+sidebar_label: 架构
+sidebar_position: 2
+slug: /architecture
+---
+
+import archImg from './images/agentic-architecture.png';
+
+<head>
+  <style>{`
+    .arch-diagram { margin: 1.5rem 0; overflow-x: auto; }
+    .arch-diagram img { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+    .arch-table th { background: #f6f8fa; }
+    .arch-table tr:nth-child(even) { background: #f9fafb; }
+  `}</style>
+</head>
+
+# 系统架构
+
+Agentic-kit 是 AI 智能设备的端侧 SDK，负责设备与涂鸦云平台之间的 IoT 管理和 AI 实时通信。
+
+<div className="arch-diagram">
+  <img src={archImg} alt="Agentic-kit 系统架构图" />
+</div>
+
+## 模块说明
+
+### IoT 通信模块
+
+负责设备与涂鸦 IoT Core 的连接与管理：
+
+<table className="arch-table">
+  <thead><tr><th>模块</th><th>头文件</th><th>协议</th><th>职责</th></tr></thead>
+  <tbody>
+    <tr><td><strong>iot-client</strong></td><td><code>iot_client.h</code></td><td>HTTP / MQTT</td><td>设备激活、MQTT 长连接、会话令牌获取、数据点上报</td></tr>
+    <tr><td><strong>tuya-ble</strong></td><td><code>tuya_ble_prov.h</code></td><td>BLE</td><td>蓝牙配网（ESP-IDF）</td></tr>
+  </tbody>
+</table>
+
+### RTC 通信模块
+
+负责设备与 AI Foundation 的实时音视频通信：
+
+<table className="arch-table">
+  <thead><tr><th>模块</th><th>头文件</th><th>协议</th><th>职责</th></tr></thead>
+  <tbody>
+    <tr><td><strong>rtc-tcp-client</strong></td><td><code>tuya_ai.h</code></td><td>tRTC (TCP)</td><td>AI 实时交互，源码级集成，PAL 可移植</td></tr>
+    <tr><td><strong>rtc-client</strong></td><td><code>stm_open.h</code></td><td>tRTC (UDP)</td><td>AI 实时交互，预编译库形式，支持多平台</td></tr>
+  </tbody>
+</table>
+
+### 云端组件
+
+<table className="arch-table">
+  <thead><tr><th>组件</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td><strong>IoT Core</strong></td><td>设备注册、激活、数据点管理、MQTT Broker</td></tr>
+    <tr><td><strong>AI Foundation</strong></td><td>Agent 智能体、LLM 大模型推理、Workflow 编排、TTS/ASR</td></tr>
+  </tbody>
+</table>
+
+## 配网方式总览
+
+新设备首次使用前，需要通过配网操作将设备与涂鸦云的 App 账号绑定，并激活授权码（对应架构图中 IoT 通信模块）。当前支持的配网方式：
+
+| | 设备扫 App 二维码 | 设备展示二维码 App 扫 | OpenAPI Token 激活 | BLE 蓝牙配网 |
+|---|---|---|---|---|
+| 依赖涂鸦 App | 是 | 是 | **否** | 是 |
+| 设备硬件要求 | 摄像头 | 屏幕 | 无特殊要求 | BLE |
+| Token 来源 | App 二维码中 | 云端 MQTT 推送 | OpenAPI 返回 | App BLE 传递 |
+| 网络信息传递 | 二维码含 WiFi 凭据 | 设备需自行联网 | 设备需自行联网 | BLE 传递 WiFi 凭据 |
+| 适用场景 | 带摄像头的设备 | 带屏设备 | 自有 App / 产线激活 | ESP32 等带 BLE 的设备 |
+| 对应教程 | [设备扫码配网](./tutorials/scan-by-device) | [App 扫码配网](./tutorials/scan-by-app) | [OpenAPI 配网](./tutorials/openapi-activate) | [BLE 配网](./tutorials/pair-by-ble) |
+
+激活成功后，云端会为设备分配 `devid`、`secret_key`、`local_key`，后续使用 AI SDK 时均需使用这三个字段。
+
+## 数据流概览
+
+1. **配网阶段** — 设备通过 `iot-client`（或 `tuya-ble`）完成注册与激活，云端生成 `devid`、`secret_key`、`local_key`。
+2. **AI 交互阶段** — 设备通过 `rtc-tcp-client` 或 `rtc-client` 使用 tRTC 协议连接 AI Foundation，进行语音对话、图片理解等实时交互。
+3. **IoT 控制阶段** — 设备通过 MQTT 长连接上报数据点、接收云端下发指令。
