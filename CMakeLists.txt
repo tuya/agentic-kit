@@ -147,6 +147,7 @@ set(IOT_CLIENT_SOURCES
     "${IOT_CLIENT_DIR}/src/iot_client.c"
     "${IOT_CLIENT_DIR}/src/iot_client_message.c"
     "${IOT_CLIENT_DIR}/src/iot_dns.c"
+    "${IOT_CLIENT_DIR}/src/iot_dp.c"
     "${IOT_CLIENT_DIR}/src/iot_on_boarding.c"
     "${IOT_CLIENT_DIR}/src/iot_pal_defaults.c"
     "${IOT_CLIENT_DIR}/src/mqtt.c"
@@ -274,6 +275,7 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     agentic_kit_add_iot_test(iot_mqtt_test "${IOT_CLIENT_TESTS_DIR}/mqtt_test.c")
     agentic_kit_add_iot_test(iot_message_test "${IOT_CLIENT_TESTS_DIR}/iot_client_message_test.c")
     agentic_kit_add_iot_test(iot_on_boarding_test "${IOT_CLIENT_TESTS_DIR}/on_boarding_test.c")
+    agentic_kit_add_iot_test(iot_dp_test "${IOT_CLIENT_TESTS_DIR}/iot_dp_test.c")
 
     add_executable(tuya_ble_test
         "${TUYA_BLE_TESTS_DIR}/test_prov.c"

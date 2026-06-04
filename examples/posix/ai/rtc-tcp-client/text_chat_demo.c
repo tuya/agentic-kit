@@ -294,6 +294,9 @@ int main(int argc, char *argv[])
         .env              = PROD,
         .mqtt_disable_tls = false,
         .message_callback = NULL,
+        .schema           = NULL,   /* restart path: fill from persisted storage if used */
+        .schema_id        = NULL,
+        .dp_state         = NULL,
     };
     memcpy((char *)iot_cfg.devid,      devid,      strlen(devid));
     memcpy((char *)iot_cfg.secret_key, secret_key, strlen(secret_key));

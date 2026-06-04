@@ -321,6 +321,9 @@ void app_main(void)
         .env              = PROD,
         .mqtt_disable_tls = false,
         .message_callback = NULL,
+        .schema           = NULL,   /* restart path: fill from persisted storage if used */
+        .schema_id        = NULL,
+        .dp_state         = NULL,
     };
     memcpy((char *)iot_cfg.devid,      DEFAULT_DEVID,      strlen(DEFAULT_DEVID));
     memcpy((char *)iot_cfg.secret_key, DEFAULT_SECRET_KEY, strlen(DEFAULT_SECRET_KEY));

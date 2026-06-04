@@ -47,6 +47,7 @@ const sidebars: SidebarsConfig = {
           items: [
             'guides/audio-format',
             'guides/vad-and-interrupt',
+            'guides/dp-persistence',
             'guides/porting-to-new-platform',
           ],
         },

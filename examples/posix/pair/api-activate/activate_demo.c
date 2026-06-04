@@ -11,11 +11,30 @@
 
 #include "activate_demo.h"
 #include "iot_client.h"
+#include "iot_dp.h"
 
 #include <stdio.h>
 #include <string.h>
 
 #define TAG "api_activate"
+
+/* Cloud set one or more DPs on this device. */
+static void demo_dp_callback(uint8_t dp_id, const iot_dp_value_t *value, void *user_data)
+{
+    (void)user_data;
+    printf("[%s] DP downlink: id=%u type=%d\n", TAG, dp_id, value->type);
+    /* React to the new value here (drive hardware, update UI, ...). */
+}
+
+/* DP state changed — persist the snapshot. The SDK does NOT write storage; the
+ * application owns that. Each callback carries the full state, so dropping
+ * intermediate snapshots (debounce) is safe. */
+static void demo_dp_save_callback(const char *dp_state_json, void *user_data)
+{
+    (void)user_data;
+    printf("[%s] persist DP state: %s\n", TAG, dp_state_json);
+    /* e.g. write dp_state_json to a file / flash / NVS keyed by devid. */
+}
 
 int demo_activate_run(const char *token,
                       const char *uuid, const char *authkey,
@@ -58,6 +77,30 @@ int demo_activate_run(const char *token,
         return -1;
     }
     printf("[%s] Session token acquired (len=%zu)\n", TAG, strlen(session_token));
+
+    /* ---- Minimal DP layer usage ----
+     * The DP registry was built from the activation schema automatically.
+     * Persist client->schema_id / client->schema (and the dp_state snapshots
+     * below) so a later boot can restore via iot_client_config_t. */
+    printf("[%s] schema_id  : %s\n", TAG, client->schema_id);
+    iot_dp_set_callback(client, demo_dp_callback, NULL);
+    iot_dp_set_save_callback(client, demo_dp_save_callback, NULL);
+
+    /* Update a couple of DPs locally, then batch-report the dirty ones. Adjust
+     * the ids/types to match your product schema. */
+    iot_dp_value_t on = { .type = IOT_DP_TYPE_BOOL, .value.boolean = true };
+    if (iot_dp_set(client, 1, &on) == OPRT_OK) {
+        iot_dp_report_all_dirty(client);
+    }
+
+    /* Pull the current state on demand (alternative to the save callback). */
+    char *dp_state = NULL;
+    if (iot_dp_dump_json(client, &dp_state) == OPRT_OK && dp_state) {
+        printf("[%s] DP state snapshot: %s\n", TAG, dp_state);
+        client->pal->free(dp_state);
+    }
+
+    /* Receive downlinks: call iot_client_process(client, timeout) in your loop. */
 
     iot_client_deinit(client);
     return 0;

@@ -94,6 +94,11 @@ typedef struct {
     bool mqtt_auto_connect;        // true = connect MQTT after init/activation; false (default) = caller invokes iot_client_message_connect() manually
     const char *cacert;            // CA cert for all TLS (MQTT/HTTPS/IoT-DNS) (PEM, caller-owned, must outlive client)
     iot_message_callback_t message_callback; // MQTT message callback
+
+    /* ---- DP layer restore (all caller-owned, may be NULL) ---- */
+    const char *schema;            // Persisted DP schema JSON to restore on restart (NULL = none / loose mode)
+    const char *schema_id;         // Persisted schema id (stable key for schema upgrade query)
+    const char *dp_state;          // Persisted DP current state {"dps":{...}} to restore (no dirty, no report)
 } iot_client_config_t;
 
 /**
@@ -116,6 +121,9 @@ typedef struct {
 } iot_on_boarding_config_t;
 
 
+/* Opaque DP-layer context; defined privately in src/iot_dp.c. */
+struct iot_dp_context;
+
 /**
  * @brief IoT client instance structure
  *
@@ -126,7 +134,7 @@ typedef struct {
     char devid[32];                // Device ID assigned after activation
     char secret_key[32];           // Secret key for MQTT authentication
     char local_key[32];            // Local encryption key for LAN communication
-    char schema_id[32];            // Device schema ID (from activation)
+    char schema_id[64];            // Device schema ID (from activation; stable key for schema upgrade)
 
     char *https_url;              // HTTPS endpoint URL for ATOP requests (SDK-owned)
     char *mqtt_url;               // MQTT broker URL (SDK-owned, mqtt:// or mqtts://)
@@ -140,6 +148,8 @@ typedef struct {
     const char *cacert;           // CA certificate for all TLS (MQTT/HTTPS/IoT-DNS) (caller-owned, points to user buffer/flash)
     struct mqtt_client *mqtt;     // Internal MQTT client handle
     iot_message_callback_t message_callback;  // User callback for incoming messages
+
+    struct iot_dp_context *dp;    // DP management layer state (SDK-owned, opaque; NULL when inactive)
  } iot_client_t;
 
 /**

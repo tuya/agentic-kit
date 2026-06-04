@@ -339,6 +339,42 @@ def handle_device_meta_save_request(request_data, config):
         return json.dumps(response, separators=(',', ':'))
 
 
+def handle_schema_newest_get(request_data, config):
+    """Handle newest-schema query (tuya.device.schema.newest.get).
+
+    Returns an empty schema ([] = no update) when the request 'version' equals
+    the sentinel "NOUPDATE"; otherwise returns a fresh schema array (update).
+    """
+    try:
+        request_json = json.loads(request_data)
+        version = request_json.get('version', '')
+
+        if version == 'NOUPDATE':
+            result = []
+        else:
+            result = [
+                {"id": 1, "type": "bool",   "mode": "rw"},
+                {"id": 2, "type": "value",  "mode": "rw", "property": {"min": 0, "max": 1000}},
+                {"id": 3, "type": "enum",   "mode": "rw", "property": {"range": ["white", "warm", "cold"]}},
+                {"id": 7, "type": "string", "mode": "rw", "property": {"maxlen": 32}}
+            ]
+
+        response = {
+            "success": True,
+            "t": int(time.time()),
+            "result": result
+        }
+        return json.dumps(response, separators=(',', ':'))
+    except Exception as e:
+        print(f"❌ Error handling schema newest get request: {e}", file=sys.stderr)
+        return json.dumps({
+            "success": False,
+            "t": int(time.time()),
+            "errorCode": "SCHEMA_NEWEST_FAILED",
+            "errorMsg": str(e)
+        }, separators=(',', ':'))
+
+
 def handle_qrcode_info_request(request_data, config, url_params=None):
     """Handle QR code info request (tuya.device.qrcode.info.get)"""
     try:
@@ -430,6 +466,8 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
                 key = self.config.get('authkey', '').encode('utf-8')
             elif api == 'tuya.device.meta.save':
                 key = self.config.get('sec_key', '').encode('utf-8')
+            elif api == 'tuya.device.schema.newest.get':
+                key = self.config.get('sec_key', '').encode('utf-8')
             else:
                 key = self.config.get('authkey', '').encode('utf-8')
             
@@ -466,6 +504,8 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
                 response_json = handle_qrcode_info_request(decrypted_data, self.config, url_params)
             elif api == 'tuya.device.meta.save':
                 response_json = handle_device_meta_save_request(decrypted_data, self.config)
+            elif api == 'tuya.device.schema.newest.get':
+                response_json = handle_schema_newest_get(decrypted_data, self.config)
             else:
                 response_json = json.dumps({
                     "success": False,

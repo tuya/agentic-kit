@@ -149,4 +149,41 @@ int atop_device_meta_save(const pal_t *pal, const device_meta_save_request_t *re
  */
 int atop_qrcode_info_get(const pal_t *pal, const qrcode_info_request_t *request, qrcode_info_response_t *response);
 
+/**
+ * @brief Newest-schema query request parameters (tuya.device.schema.newest.get).
+ */
+typedef struct {
+    const char *devid;        // Device ID
+    const char *key;          // Device secret key (for signing)
+    const char *schema_id;    // Stable schema id to query
+    const char *version;      // Current local schema version ("" / NULL to always fetch newest)
+    const char *node_id;      // Optional sub-device node id (NULL/"" to omit)
+    const char *host;         // Server host (optional, defaults to TUYA_DEFAULT_HOST)
+    uint16_t port;            // Server port (optional, defaults to TUYA_DEFAULT_PORT)
+    const char *cacert;       // CA certificate PEM content
+} schema_newest_request_t;
+
+/**
+ * @brief Newest-schema query response.
+ */
+typedef struct {
+    char *schema;             // New schema JSON (caller frees via pal->free); NULL when no update
+    bool updated;             // true if a newer schema was returned
+} schema_newest_response_t;
+
+/**
+ * @brief Query the newest device schema (tuya.device.schema.newest.get v1.0).
+ *
+ * @param[in]  request  Request parameters (devid, key, schema_id, version)
+ * @param[out] response Response; .updated=false (and .schema=NULL) when cloud
+ *                      reports no newer schema (empty / []).
+ * @return OPRT_OK on success (including the no-update case), error code on failure.
+ */
+int atop_schema_newest_get(const pal_t *pal, const schema_newest_request_t *request, schema_newest_response_t *response);
+
+/**
+ * @brief Free memory allocated in a schema_newest_response_t.
+ */
+void atop_schema_newest_response_free(const pal_t *pal, schema_newest_response_t *response);
+
 #endif /* ATOP_H */

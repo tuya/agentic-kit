@@ -2,6 +2,7 @@
 #include "mqtt.h"
 #include "cipher_wrapper.h"
 #include "iot_config_defaults.h"
+#include "iot_dp_internal.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -11,7 +12,7 @@ static void mqtt_message_handler(const char *topic, size_t topic_len,
                                  void *user_data)
 {
     iot_client_t *client = (iot_client_t *)user_data;
-    if (!client || !client->message_callback) return;
+    if (!client) return;   /* DP dispatch may run even with no raw message_callback */
 
     uint8_t *decrypted = (uint8_t *)client->pal->malloc(payload_len);
     if (!decrypted) {
@@ -24,10 +25,18 @@ static void mqtt_message_handler(const char *topic, size_t topic_len,
                            (const uint8_t *)client->local_key,
                            decrypted, &decrypted_len);
     if (ret == 0 && decrypted_len > 0) {
-        client->message_callback(topic, topic_len, decrypted, decrypted_len);
+        /* Offer the plaintext to the DP layer first; if it does not consume it,
+         * forward to the user's raw message callback (backward compatible). */
+        if (!iot_dp_dispatch_downlink(client, topic, topic_len, decrypted, decrypted_len)
+            && client->message_callback) {
+            client->message_callback(topic, topic_len, decrypted, decrypted_len);
+        }
     } else {
+        /* Decryption failed: never feed raw ciphertext to the DP parser. */
         log_warn("pv23_decrypt failed (ret=%d), forwarding raw payload", ret);
-        client->message_callback(topic, topic_len, payload, payload_len);
+        if (client->message_callback) {
+            client->message_callback(topic, topic_len, payload, payload_len);
+        }
     }
 
     client->pal->free(decrypted);

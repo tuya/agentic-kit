@@ -1,4 +1,6 @@
 #include "iot_client.h"
+#include "iot_dp.h"
+#include "iot_dp_internal.h"
 #include "iot_on_boarding.h"
 #include "iot_dns.h"
 #include "iot_client_message.h"
@@ -77,6 +79,24 @@ static int parse_host_port(const char *url, char *host_out, size_t host_len, uin
         *port_out = 443;
     }
     return OPRT_OK;
+}
+
+/* Resolve the ATOP host/port for this client. Shared by iot_client_get_session_token()
+ * and the DP-layer schema-update query (declared in iot_dp_internal.h). */
+void iot_client_resolve_atop_host(iot_client_t *client, char *host_out, size_t host_len, uint16_t *port_out)
+{
+    *port_out = IOT_DEFAULT_PORT;
+    if (host_len == 0) return;
+    host_out[0] = '\0';
+    if (client->https_url) {
+        parse_host_port(client->https_url, host_out, host_len, port_out);
+    } else {
+        const char *h = iot_region_to_host(client->region, client->env);
+        if (h) {
+            strncpy(host_out, h, host_len - 1);
+            host_out[host_len - 1] = '\0';
+        }
+    }
 }
 
 static int iot_client_dns_resolve(iot_client_t *client)
@@ -179,6 +199,16 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
     client->cacert = config->cacert;
     client->message_callback = config->message_callback;
 
+    /* DP layer: restore persisted schema_id / schema from config (restart path).
+     * On-boarding paths leave these NULL here and set them after activation. */
+    if (config->schema_id && config->schema_id[0] != '\0') {
+        strncpy(client->schema_id, config->schema_id, sizeof(client->schema_id) - 1);
+        client->schema_id[sizeof(client->schema_id) - 1] = '\0';
+    }
+    if (config->schema && config->schema[0] != '\0') {
+        client->schema = pal_strdup(pal, config->schema);
+    }
+
     if (client->devid[0] != '\0') {
         iot_client_dns_resolve(client);
     }
@@ -218,6 +248,13 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
         }
     }
 
+    /* DP layer: build the registry from the (possibly restored) schema, then
+     * restore persisted DP values without marking dirty / publishing. */
+    iot_dp_rebuild(client);
+    if (config->dp_state && config->dp_state[0] != '\0') {
+        iot_dp_restore_json(client, config->dp_state);
+    }
+
     return client;
 }
 
@@ -227,6 +264,7 @@ IOT_API void iot_client_deinit(iot_client_t *client)
         return;
     }
     iot_client_message_disconnect(client);
+    iot_dp_deinit(client);   /* after disconnect: no more dispatch on the process thread */
     if (client->https_url) {
         client->pal->free(client->https_url);
     }
@@ -304,23 +342,23 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
     client_config.mqtt_auto_connect = config->mqtt_auto_connect;
     client_config.cacert = config->cacert;
     client_config.message_callback = config->message_callback;
+    /* schema / schema_id come from the activation response. iot_client_init()
+     * copies them and rebuilds the DP registry from the schema (dp_state is then
+     * initialized from the schema); first activation has no persisted DP values. */
+    client_config.schema    = ob_resp.schema;
+    client_config.schema_id = ob_resp.schema_id;
+    client_config.dp_state  = NULL;
 
     iot_client_t *client = iot_client_init(&client_config);
+    pal->free(ob_resp.schema);   /* iot_client_init copied it (or failed) */
     if (client == NULL) {
         log_error("iot_client_init failed after on-boarding");
-        if (ob_resp.schema) {
-            pal->free(ob_resp.schema);
-            ob_resp.schema = NULL;
-        }
         return NULL;
     }
 
-    /* Copy additional on-boarding specific fields */
-    strncpy(client->schema_id, ob_resp.schema_id, sizeof(client->schema_id) - 1);
-    if (ob_resp.schema && ob_resp.schema[0] != '\0') {
-        client->schema = pal_strdup(pal, ob_resp.schema);
-    }
-    pal->free(ob_resp.schema);
+    /* First activation: seed schema-derived default DP values (marked dirty) so
+     * the app can report a complete initial state. */
+    iot_dp_init_defaults(client);
 
     return client;
 }
@@ -390,19 +428,23 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
     client_config.mqtt_auto_connect = config->mqtt_auto_connect;
     client_config.cacert = config->cacert;
     client_config.message_callback = config->message_callback;
+    /* schema / schema_id come from the activation response. iot_client_init()
+     * copies them and rebuilds the DP registry from the schema (dp_state is then
+     * initialized from the schema); first activation has no persisted DP values. */
+    client_config.schema    = ob_resp.schema;
+    client_config.schema_id = ob_resp.schema_id;
+    client_config.dp_state  = NULL;
 
     iot_client_t *client = iot_client_init(&client_config);
+    pal->free(ob_resp.schema);   /* iot_client_init copied it (or failed) */
     if (client == NULL) {
         log_error("iot_client_init failed after on-boarding with token");
-        pal->free(ob_resp.schema);
         return NULL;
     }
 
-    strncpy(client->schema_id, ob_resp.schema_id, sizeof(client->schema_id) - 1);
-    if (ob_resp.schema && ob_resp.schema[0] != '\0') {
-        client->schema = pal_strdup(pal, ob_resp.schema);
-    }
-    pal->free(ob_resp.schema);
+    /* First activation: seed schema-derived default DP values (marked dirty) so
+     * the app can report a complete initial state. */
+    iot_dp_init_defaults(client);
 
     return client;
 }
@@ -416,13 +458,8 @@ IOT_API int iot_client_get_session_token(iot_client_t *client, const char *agent
 
     char parsed_host[64] = {0};
     uint16_t parsed_port = IOT_DEFAULT_PORT;
-    const char *host;
-    if (client->https_url) {
-        parse_host_port(client->https_url, parsed_host, sizeof(parsed_host), &parsed_port);
-        host = parsed_host;
-    } else {
-        host = iot_region_to_host(client->region, client->env);
-    }
+    iot_client_resolve_atop_host(client, parsed_host, sizeof(parsed_host), &parsed_port);
+    const char *host = parsed_host[0] ? parsed_host : NULL;
     ai_token_request_t req = {
         .devid = client->devid,
         .key = client->secret_key,

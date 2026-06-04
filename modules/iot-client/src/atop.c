@@ -574,3 +574,143 @@ int atop_ai_token_get(const pal_t *pal, const ai_token_request_t *request, ai_to
               strlen(response->token) >= 4 ? response->token : "----");
     return OPRT_OK;
 }
+
+/* ============================================================================
+ * Newest Schema Query Service Implementation
+ * ============================================================================ */
+
+#define ATOP_SCHEMA_NEWEST_GET "tuya.device.schema.newest.get"
+
+/* Treat NULL / "" / "[]" / "{}" as "no schema returned". */
+static bool schema_str_is_empty(const char *s)
+{
+    return (s == NULL || s[0] == '\0' || strcmp(s, "[]") == 0 || strcmp(s, "{}") == 0);
+}
+
+int atop_schema_newest_get(const pal_t *pal, const schema_newest_request_t *request, schema_newest_response_t *response)
+{
+    if (request == NULL || response == NULL) {
+        log_error("atop_schema_newest_get: request or response is NULL");
+        return OPRT_INVALID_PARAMETER;
+    }
+    if (request->devid == NULL || request->devid[0] == '\0' ||
+        request->key == NULL || request->key[0] == '\0' ||
+        request->schema_id == NULL || request->schema_id[0] == '\0') {
+        log_error("atop_schema_newest_get: devid, key, or schema_id is empty");
+        return OPRT_INVALID_PARAMETER;
+    }
+
+    memset(response, 0, sizeof(schema_newest_response_t));
+
+    uint32_t timestamp = (uint32_t)time(NULL);
+
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        log_error("atop_schema_newest_get: failed to create JSON object");
+        return OPRT_MALLOC_FAILED;
+    }
+    cJSON_AddStringToObject(root, "schemaId", request->schema_id);
+    cJSON_AddStringToObject(root, "version", (request->version != NULL) ? request->version : "");
+    if (request->node_id != NULL && request->node_id[0] != '\0') {
+        cJSON_AddStringToObject(root, "nodeId", request->node_id);
+    }
+    cJSON_AddNumberToObject(root, "t", (double)timestamp);
+
+    char *post_data = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (post_data == NULL) {
+        log_error("atop_schema_newest_get: failed to print JSON");
+        return OPRT_MALLOC_FAILED;
+    }
+
+    log_debug("schema newest get post data:%s", post_data);
+
+    atop_base_request_t atop_request = {
+        .devid = request->devid,
+        .key = request->key,
+        .path = "/d.json",
+        .timestamp = timestamp,
+        .api = ATOP_SCHEMA_NEWEST_GET,
+        .version = "1.0",
+        .data = (void *)post_data,
+        .datalen = strlen(post_data),
+        .user_data = NULL,
+        .host = request->host,
+        .port = request->port,
+        .cacert = request->cacert,
+    };
+
+    atop_base_response_t atop_response = {0};
+    int rt = atop_base_request(pal, &atop_request, &atop_response);
+    cJSON_free(post_data);
+
+    if (rt != OPRT_OK) {
+        log_error("atop_schema_newest_get request error:%d", rt);
+        atop_base_response_free(pal, &atop_response);
+        return rt;
+    }
+
+    cJSON *result = atop_response.result;
+    if (result == NULL) {
+        /* No result object => treat as "no newer schema". */
+        atop_base_response_free(pal, &atop_response);
+        return OPRT_OK;
+    }
+
+    /* The cloud may return the schema as a JSON string, an array, or an object
+     * that wraps it under a "schema" field. Be tolerant of all three. */
+    cJSON *schema_item = result;
+    if (cJSON_IsObject(result)) {
+        cJSON *wrapped = cJSON_GetObjectItem(result, "schema");
+        if (wrapped != NULL) {
+            schema_item = wrapped;
+        }
+    }
+
+    if (cJSON_IsString(schema_item)) {
+        const char *s = schema_item->valuestring;
+        if (!schema_str_is_empty(s)) {
+            response->schema = pal_strdup(pal, s);
+            response->updated = (response->schema != NULL);
+        }
+    } else if (cJSON_IsArray(schema_item)) {
+        if (cJSON_GetArraySize(schema_item) > 0) {
+            char *s = cJSON_PrintUnformatted(schema_item);
+            if (s != NULL) {
+                response->schema = pal_strdup(pal, s);
+                cJSON_free(s);
+                response->updated = (response->schema != NULL);
+            }
+        }
+    } else if (cJSON_IsObject(schema_item)) {
+        if (schema_item->child != NULL) {
+            char *s = cJSON_PrintUnformatted(schema_item);
+            if (s != NULL) {
+                response->schema = pal_strdup(pal, s);
+                cJSON_free(s);
+                response->updated = (response->schema != NULL);
+            }
+        }
+    }
+
+    atop_base_response_free(pal, &atop_response);
+
+    if (response->updated) {
+        log_info("atop_schema_newest_get: newer schema received (%zu bytes)",
+                 strlen(response->schema));
+    } else {
+        log_debug("atop_schema_newest_get: no newer schema");
+    }
+    return OPRT_OK;
+}
+
+void atop_schema_newest_response_free(const pal_t *pal, schema_newest_response_t *response)
+{
+    if (response == NULL) {
+        return;
+    }
+    if (response->schema != NULL) {
+        pal->free(response->schema);
+    }
+    memset(response, 0, sizeof(schema_newest_response_t));
+}
