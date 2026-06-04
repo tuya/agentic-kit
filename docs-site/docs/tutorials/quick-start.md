@@ -22,6 +22,8 @@ sidebar_position: 1
 git clone https://github.com/tuya/agentic-kit.git
 cd agentic-kit
 
+git submodule update --init --recursive
+
 mkdir -p build && cd build
 cmake .. && make
 ```
