@@ -28,7 +28,10 @@ static inline void ctx_unlock(tai_ctx_t *ctx) { ctx->pal->mutex_unlock(ctx->mute
 /* Unified I/O helpers: dispatch to TLS or raw TCP based on disable_tls */
 static inline int ctx_io_send(tai_ctx_t *ctx, const uint8_t *buf, size_t len)
 {
-    if (!ctx->disable_tls) return tai_tls_send(ctx->tls, buf, len);
+    if (!ctx->disable_tls) {
+        int r = tls_write(ctx->tls, buf, len, 3000);
+        return (r == TLS_OK) ? TAI_OK : TAI_ERR_NET;
+    }
 
     /* Raw TCP (test mode): blocking send with 3s total budget. */
     size_t written = 0;
@@ -51,7 +54,11 @@ static inline int ctx_io_recv(tai_ctx_t *ctx, uint8_t *buf, size_t buf_len,
 {
     if (ctx->disable_tls)
         return ctx->pal->tcp_recv(ctx->raw_tcp, buf, buf_len, timeout_ms);
-    return tai_tls_recv(ctx->tls, buf, buf_len, timeout_ms);
+
+    int n = tls_read(ctx->tls, buf, buf_len, timeout_ms);
+    if (n == TLS_ERR_AGAIN) return TAI_ERR_AGAIN;
+    if (n < 0) return TAI_ERR_NET;
+    return n;
 }
 
 static inline void ctx_io_close(tai_ctx_t *ctx)
@@ -59,7 +66,7 @@ static inline void ctx_io_close(tai_ctx_t *ctx)
     if (ctx->disable_tls) {
         if (ctx->raw_tcp) { ctx->pal->tcp_close(ctx->raw_tcp); ctx->raw_tcp = NULL; }
     } else {
-        if (ctx->tls) { tai_tls_close(ctx->tls); ctx->tls = NULL; }
+        if (ctx->tls) { tls_close(ctx->tls); ctx->tls = NULL; }
     }
 }
 
@@ -281,7 +288,15 @@ int tai_connect(tai_ctx_t *ctx)
         }
         TAI_LOGI(ctx->pal, TAG, "TCP connected (disable_tls mode)");
     } else {
-        ctx->tls = tai_tls_connect(ctx->host, ctx->port, ctx->tls_sni, ctx->pal);
+        tls_config_t tcfg = {
+            .host            = ctx->host,
+            .port            = ctx->port,
+            .sni             = ctx->tls_sni,
+            .verify          = TLS_VERIFY_OPTIONAL,  /* non-ESP: optional, matches legacy */
+            .use_cert_bundle = true,                 /* ESP-IDF: attach esp_crt_bundle */
+            .pal             = ctx->pal,
+        };
+        ctx->tls = tls_connect(&tcfg);
         if (!ctx->tls) {
             TAI_LOGE(ctx->pal, TAG, "TLS connect failed to %s:%u", ctx->host, ctx->port);
             return TAI_ERR_TLS;
@@ -887,9 +902,9 @@ int tai_send_mcp_response(tai_ctx_t *ctx, const char *json_rpc_response)
  * Drives recv + dispatch in a loop, sends periodic pings, detects pong
  * timeouts.  Auto-started by tai_connect(), stopped by tai_disconnect().
  *
- * Locking: the mbedTLS read/write mutex now lives inside tai_tls_send /
- * tai_tls_recv (granularity = a single ssl_* call), so the worker no longer
- * needs to wrap recv+dispatch in ctx_lock.  rx_buf / frag_buf are touched
+ * Locking: the mbedTLS read/write mutex now lives inside the shared TLS module
+ * (tls_write / tls_read, granularity = a single ssl_* call), so the worker no
+ * longer needs to wrap recv+dispatch in ctx_lock.  rx_buf / frag_buf are touched
  * only from this thread, and dispatch state mutated by callbacks
  * (event_open, session_open, connected) is single-int / advisory.
  * ========================================================================= */

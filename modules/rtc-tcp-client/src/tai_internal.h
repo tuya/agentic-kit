@@ -14,10 +14,8 @@
 #include "tuya_ai.h"
 #include "pal.h"
 #include "log.h"
-#include "mbedtls/ctr_drbg.h"
 
-/* Forward declaration for internal TLS handle */
-typedef struct tai_tls tai_tls_t;
+#include "tls.h"
 
 /* =========================================================================
  * Logging macros — routed through the global log facade.
@@ -221,8 +219,8 @@ struct tai_ctx {
     uint8_t encrypt_key[32];
     uint8_t sign_key[32];
 
-    /* TLS handle (internal, owned by tai_tls.c) */
-    tai_tls_t *tls;
+    /* TLS handle (owned by the shared common/tls module) */
+    tls_t *tls;
 
     /* Raw TCP handle (used when disable_tls=1, testing only) */
     void *raw_tcp;
@@ -408,20 +406,6 @@ int tai_crypto_derive_keys(uint8_t proto_ver,
                             uint8_t out_encrypt_key[32],
                             uint8_t out_sign_key[32],
                             const pal_t *pal);
-
-/* Accessor for the shared DRBG context (used by tai_tls.c) */
-mbedtls_ctr_drbg_context *tai_crypto_get_drbg(void);
-
-/*
- * tai_tls.c
- */
-tai_tls_t *tai_tls_connect(const char *host, uint16_t port,
-                            const char *sni, const pal_t *pal);
-int        tai_tls_send(tai_tls_t *tls, const uint8_t *buf, size_t len);
-int        tai_tls_recv(tai_tls_t *tls, uint8_t *buf, size_t buf_len,
-                         uint32_t timeout_ms);
-void       tai_tls_close(tai_tls_t *tls);
-void      *tai_tls_get_tcp_handle(tai_tls_t *tls);
 
 /*
  * tai_pkt_log.c

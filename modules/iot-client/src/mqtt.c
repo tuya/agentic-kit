@@ -20,30 +20,14 @@
 #define MQTT_RECV_TIMEOUT_MS 1000U
 #endif
 
-// mbedtls headers for TLS support
-#include "mbedtls/version.h"
-#include "mbedtls/ssl.h"
-#include "mbedtls/entropy.h"
-#include "mbedtls/ctr_drbg.h"
-#include "mbedtls/error.h"
-#include "mbedtls/net_sockets.h"
-#include "mbedtls/debug.h"
-
-// mbedtls runtime state — allocated on demand for TLS connections only.
-// In TCP-only mode (mqtt_disable_tls=true) this stays NULL, saving ~3.3 KB.
-typedef struct {
-    mbedtls_ssl_context ssl;
-    mbedtls_ssl_config ssl_conf;
-    mbedtls_entropy_context entropy;
-    mbedtls_ctr_drbg_context ctr_drbg;
-    mbedtls_x509_crt ca_cert;
-} mqtt_tls_state_t;
+// Shared TLS transport (mbedTLS lives entirely inside common/tls).
+#include "tls.h"
 
 // Network context structure definition with TLS support
 struct NetworkContext {
     void *tcp_handle;
     bool use_tls;
-    mqtt_tls_state_t *tls;       // NULL when use_tls is false
+    tls_t *tls;                  // NULL when use_tls is false
     struct mqtt_client *client;  // Pointer to parent mqtt_client for callback access
 };
 
@@ -52,7 +36,6 @@ struct NetworkContext {
 #define MAX_USERNAME_LEN    32
 #define MAX_PASSWORD_LEN    20
 #define MAX_TOPIC_LEN       64
-#define X509_VERIFY_BUF_LEN 512
 #define MQTT_QOS_RECORD_COUNT 4
 
 // MQTT client structure
@@ -101,17 +84,13 @@ static int32_t transport_send(NetworkContext_t *pNetworkContext,
     }
 
     if (pNetworkContext->use_tls) {
-        int ret = mbedtls_ssl_write(&pNetworkContext->tls->ssl, pBuffer, bytesToSend);
-        if (ret == MBEDTLS_ERR_SSL_WANT_WRITE || ret == MBEDTLS_ERR_SSL_WANT_READ) {
-            return 0;
-        }
-        if (ret < 0) {
-            char err_buf[64];
-            mbedtls_strerror(ret, err_buf, sizeof(err_buf));
-            log_error("TLS write error: %s (-%#x)", err_buf, -ret);
+        int r = tls_write(pNetworkContext->tls, (const uint8_t *)pBuffer,
+                          bytesToSend, 30000 /* 30s */);
+        if (r != TLS_OK) {
+            log_error("TLS write error");
             return OPRT_COMMUNICATION_ERROR;
         }
-        return ret;
+        return (int32_t)bytesToSend;
     } else {
         if (!pNetworkContext->tcp_handle) {
             return OPRT_COMMUNICATION_ERROR;
@@ -138,20 +117,16 @@ static int32_t transport_recv(NetworkContext_t *pNetworkContext,
     }
 
     if (pNetworkContext->use_tls) {
-        int ret = mbedtls_ssl_read(&pNetworkContext->tls->ssl, pBuffer, bytesToRecv);
-        if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
+        int n = tls_read(pNetworkContext->tls, (uint8_t *)pBuffer, bytesToRecv,
+                         MQTT_RECV_TIMEOUT_MS);
+        if (n == TLS_ERR_AGAIN) {
             return OPRT_OK;
         }
-        if (ret == MBEDTLS_ERR_SSL_TIMEOUT) {
-            return OPRT_OK;
-        }
-        if (ret < 0) {
-            char err_buf[64];
-            mbedtls_strerror(ret, err_buf, sizeof(err_buf));
-            log_error("TLS read error: %s (-%#x)", err_buf, -ret);
+        if (n < 0) {
+            log_error("TLS read error");
             return OPRT_COMMUNICATION_ERROR;
         }
-        return ret;
+        return n;   // >0 bytes, or 0 on peer close / no data
     } else {
         if (!pNetworkContext->tcp_handle) {
             return OPRT_COMMUNICATION_ERROR;
@@ -205,203 +180,32 @@ static void *connect_to_broker(mqtt_client *client) {
     return handle;
 }
 
-static int tls_send(void *ctx, const unsigned char *buf, size_t len)
-{
-    NetworkContext_t *network_ctx = (NetworkContext_t *)ctx;
-    int ret = network_ctx->client->pal->tcp_send(network_ctx->tcp_handle, buf, len, 0);
-    if (ret == PAL_ERR_AGAIN) {
-        return MBEDTLS_ERR_SSL_WANT_WRITE;
-    }
-    if (ret < 0) {
-        return MBEDTLS_ERR_NET_SEND_FAILED;
-    }
-    return ret;
-}
-
-static int tls_recv_timeout(void *ctx, unsigned char *buf, size_t len, uint32_t timeout)
-{
-    NetworkContext_t *network_ctx = (NetworkContext_t *)ctx;
-    int ret = network_ctx->client->pal->tcp_recv(network_ctx->tcp_handle, buf, len, timeout);
-    if (ret == PAL_ERR_AGAIN) {
-        return timeout == 0 ? MBEDTLS_ERR_SSL_WANT_READ : MBEDTLS_ERR_SSL_TIMEOUT;
-    }
-    if (ret < 0) {
-        return MBEDTLS_ERR_NET_RECV_FAILED;
-    }
-    return ret;
-}
-
-// Returns: 0 on success, OPRT_TLS_HANDSHAKE_FAILED on TLS error, OPRT_COMMUNICATION_ERROR on other errors
+// Returns: OPRT_OK on success, OPRT_TLS_HANDSHAKE_FAILED on failure.
 static int connect_to_broker_tls(NetworkContext_t *network_ctx, const char *host, int port, const char *cacert) {
-    int ret;
-    int result = OPRT_COMMUNICATION_ERROR;
-
     bool has_cacert = (cacert && cacert[0] != '\0');
     if (!has_cacert) {
         log_warn("No CA certificate provided - server verification disabled");
     }
 
-    network_ctx->tls = network_ctx->client->pal->malloc(sizeof(mqtt_tls_state_t));
-    if (!network_ctx->tls) {
-        log_error("Failed to allocate TLS state (%zu bytes)", sizeof(mqtt_tls_state_t));
-        return OPRT_MALLOC_FAILED;
-    }
-    mqtt_tls_state_t *tls = network_ctx->tls;
-
-    mbedtls_ssl_init(&tls->ssl);
-    mbedtls_ssl_config_init(&tls->ssl_conf);
-    mbedtls_x509_crt_init(&tls->ca_cert);
-    mbedtls_ctr_drbg_init(&tls->ctr_drbg);
-    mbedtls_entropy_init(&tls->entropy);
-
-    const char *pers = "mqtt_client";
-    ret = mbedtls_ctr_drbg_seed(&tls->ctr_drbg, mbedtls_entropy_func, &tls->entropy,
-                                (const unsigned char *)pers, strlen(pers));
-    if (ret != 0) {
-        log_error("Failed to seed RNG: -%#x", -ret);
-        result = OPRT_TLS_HANDSHAKE_FAILED;
-        goto cleanup;
-    }
-
-    if (has_cacert) {
-        const char *pem_header = "-----BEGIN CERTIFICATE-----";
-        if (strstr(cacert, pem_header) != NULL) {
-            ret = mbedtls_x509_crt_parse(&tls->ca_cert,
-                                         (const unsigned char *)cacert,
-                                         strlen(cacert) + 1);
-        } else {
-            size_t pem_len = strlen(cacert) + 64 + 2;
-            char *pem_buf = network_ctx->client->pal->malloc(pem_len);
-            if (pem_buf) {
-                memset(pem_buf, 0, pem_len);
-                snprintf(pem_buf, pem_len,
-                         "-----BEGIN CERTIFICATE-----\n%s\n-----END CERTIFICATE-----\n",
-                         cacert);
-                ret = mbedtls_x509_crt_parse(&tls->ca_cert,
-                                             (const unsigned char *)pem_buf,
-                                             strlen(pem_buf) + 1);
-                network_ctx->client->pal->free(pem_buf);
-            } else {
-                ret = OPRT_MALLOC_FAILED;
-            }
-        }
-        if (ret != 0) {
-            log_error("Failed to parse CA certificate: -%#x", -ret);
-            result = OPRT_TLS_HANDSHAKE_FAILED;
-            goto cleanup;
-        }
-        log_info("Loaded CA certificate");
-    }
-
-    network_ctx->tcp_handle = network_ctx->client->pal->tcp_connect(host, (uint16_t)port);
-    if (!network_ctx->tcp_handle) {
-        log_error("Failed to connect to %s:%d", host, port);
-        goto cleanup;
-    }
-    log_info("TCP connection established to %s:%d", host, port);
-
-    ret = mbedtls_ssl_config_defaults(&tls->ssl_conf,
-                                     MBEDTLS_SSL_IS_CLIENT,
-                                     MBEDTLS_SSL_TRANSPORT_STREAM,
-                                     MBEDTLS_SSL_PRESET_DEFAULT);
-    if (ret != 0) {
-        log_error("Failed to set SSL config defaults: -%#x", -ret);
-        result = OPRT_TLS_HANDSHAKE_FAILED;
-        goto cleanup;
-    }
-
-#if MBEDTLS_VERSION_MAJOR >= 3
-    mbedtls_ssl_conf_min_tls_version(&tls->ssl_conf, MBEDTLS_SSL_VERSION_TLS1_2);
-    mbedtls_ssl_conf_max_tls_version(&tls->ssl_conf, MBEDTLS_SSL_VERSION_TLS1_2);
-#else
-    mbedtls_ssl_conf_min_version(&tls->ssl_conf, MBEDTLS_SSL_MAJOR_VERSION_3,
-                                 MBEDTLS_SSL_MINOR_VERSION_3);
-    mbedtls_ssl_conf_max_version(&tls->ssl_conf, MBEDTLS_SSL_MAJOR_VERSION_3,
-                                 MBEDTLS_SSL_MINOR_VERSION_3);
-#endif
-
-    static const int ciphersuites[] = {
-        MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-        MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-        0
+    tls_config_t cfg = {
+        .host         = host,
+        .port         = (uint16_t)port,
+        .sni          = host,
+        .cacert       = has_cacert ? cacert : NULL,
+        .verify       = TLS_VERIFY_NONE,   // no CA -> no verification (legacy behaviour)
+        .force_tls12  = true,
+        .ciphersuites = tls_ciphersuites_tuya_default(),
+        .pal          = network_ctx->client->pal,
     };
-    mbedtls_ssl_conf_ciphersuites(&tls->ssl_conf, ciphersuites);
-    log_info("Configured TLS 1.2 with ECDHE-{ECDSA,RSA}-AES128-GCM-SHA256");
 
-    if (has_cacert) {
-        mbedtls_ssl_conf_authmode(&tls->ssl_conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-        mbedtls_ssl_conf_ca_chain(&tls->ssl_conf, &tls->ca_cert, NULL);
-    } else {
-        mbedtls_ssl_conf_authmode(&tls->ssl_conf, MBEDTLS_SSL_VERIFY_NONE);
+    network_ctx->tls = tls_connect(&cfg);
+    if (!network_ctx->tls) {
+        log_error("Failed to establish TLS connection to %s:%d", host, port);
+        return OPRT_TLS_HANDSHAKE_FAILED;
     }
-
-    mbedtls_ssl_conf_rng(&tls->ssl_conf, mbedtls_ctr_drbg_random, &tls->ctr_drbg);
-
-    ret = mbedtls_ssl_setup(&tls->ssl, &tls->ssl_conf);
-    if (ret != 0) {
-        log_error("Failed to setup SSL: -%#x", -ret);
-        result = OPRT_TLS_HANDSHAKE_FAILED;
-        goto cleanup;
-    }
-
-    ret = mbedtls_ssl_set_hostname(&tls->ssl, host);
-    if (ret != 0) {
-        log_error("Failed to set hostname: -%#x", -ret);
-        result = OPRT_TLS_HANDSHAKE_FAILED;
-        goto cleanup;
-    }
-
-    mbedtls_ssl_conf_read_timeout(&tls->ssl_conf, MQTT_RECV_TIMEOUT_MS);
-    mbedtls_ssl_set_bio(&tls->ssl, network_ctx,
-                       tls_send, NULL, tls_recv_timeout);
-
-    log_info("Starting TLS handshake...");
-    while ((ret = mbedtls_ssl_handshake(&tls->ssl)) != 0) {
-        if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
-            char err_buf[64];
-            mbedtls_strerror(ret, err_buf, sizeof(err_buf));
-            log_error("TLS handshake failed: %s (-%#x)", err_buf, -ret);
-            result = OPRT_TLS_HANDSHAKE_FAILED;
-            goto cleanup;
-        }
-    }
-
-    const char *version = mbedtls_ssl_get_version(&tls->ssl);
-    const char *cipher = mbedtls_ssl_get_ciphersuite(&tls->ssl);
-    log_info("TLS handshake successful - Version: %s, Cipher: %s", version, cipher);
-
-    if (has_cacert) {
-        uint32_t flags = mbedtls_ssl_get_verify_result(&tls->ssl);
-        if (flags != 0) {
-            char *vrfy_buf = (char *)network_ctx->client->pal->malloc(X509_VERIFY_BUF_LEN);
-            if (vrfy_buf) {
-                mbedtls_x509_crt_verify_info(vrfy_buf, X509_VERIFY_BUF_LEN, "  ! ", flags);
-                log_error("Certificate verification failed:\n%s", vrfy_buf);
-                network_ctx->client->pal->free(vrfy_buf);
-            }
-            result = OPRT_TLS_HANDSHAKE_FAILED;
-            goto cleanup;
-        }
-        log_info("Certificate verification passed");
-    }
-
-    log_info("TLS connection established to %s:%d", host, port);
     network_ctx->use_tls = true;
+    log_info("TLS connection established to %s:%d", host, port);
     return OPRT_OK;
-
-cleanup:
-    if (network_ctx->tcp_handle) {
-        network_ctx->client->pal->tcp_close(network_ctx->tcp_handle);
-        network_ctx->tcp_handle = NULL;
-    }
-    mbedtls_x509_crt_free(&tls->ca_cert);
-    mbedtls_ssl_free(&tls->ssl);
-    mbedtls_ssl_config_free(&tls->ssl_conf);
-    mbedtls_ctr_drbg_free(&tls->ctr_drbg);
-    mbedtls_entropy_free(&tls->entropy);
-    network_ctx->client->pal->free(network_ctx->tls);
-    network_ctx->tls = NULL;
-    return result;
 }
 
 static void tls_cleanup(NetworkContext_t *ctx)
@@ -409,17 +213,9 @@ static void tls_cleanup(NetworkContext_t *ctx)
     if (!ctx->tls) {
         return;
     }
-    if (ctx->tcp_handle) {
-        ctx->client->pal->tcp_close(ctx->tcp_handle);
-        ctx->tcp_handle = NULL;
-    }
-    mbedtls_x509_crt_free(&ctx->tls->ca_cert);
-    mbedtls_ssl_free(&ctx->tls->ssl);
-    mbedtls_ssl_config_free(&ctx->tls->ssl_conf);
-    mbedtls_ctr_drbg_free(&ctx->tls->ctr_drbg);
-    mbedtls_entropy_free(&ctx->tls->entropy);
-    ctx->client->pal->free(ctx->tls);
+    tls_close(ctx->tls);   // sends close_notify, closes the socket, frees state
     ctx->tls = NULL;
+    ctx->tcp_handle = NULL;
 }
 
 static void mqtt_event_callback(MQTTContext_t *pMqttContext,

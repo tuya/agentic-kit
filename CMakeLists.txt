@@ -96,14 +96,19 @@ target_include_directories(core_mqtt PUBLIC
 )
 
 # -----------------------------------------------------------------------------
-# Common library (process-wide log facade, etc.)
+# Common library (process-wide log facade, shared TLS transport, etc.)
 # -----------------------------------------------------------------------------
 set(COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/common")
 
 add_library(agentic_kit_common STATIC
     "${COMMON_DIR}/log.c"
+    "${COMMON_DIR}/tls.c"
 )
-target_include_directories(agentic_kit_common PUBLIC "${COMMON_DIR}")
+target_include_directories(agentic_kit_common PUBLIC
+    "${COMMON_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/pal"   # tls.c / tls.h need pal.h
+)
+target_link_libraries(agentic_kit_common PUBLIC ${AGENTIC_KIT_MBEDTLS_TARGETS})
 
 # -----------------------------------------------------------------------------
 # PAL (Platform Abstraction Layer)
@@ -128,7 +133,6 @@ set(AI_TCP_SOURCES
     "${AI_TCP_DIR}/src/tai_packet.c"
     "${AI_TCP_DIR}/src/tai_pkt_log.c"
     "${AI_TCP_DIR}/src/tai_protocol.c"
-    "${AI_TCP_DIR}/src/tai_tls.c"
     "${AI_TCP_DIR}/src/tai_transport.c"
 )
 
@@ -138,7 +142,7 @@ target_include_directories(tuya_ai_tcp PUBLIC
     "${PAL_DIR}"
     "${COMMON_DIR}"
 )
-target_link_libraries(tuya_ai_tcp PUBLIC agentic_kit_pal agentic_kit_common ${AGENTIC_KIT_MBEDTLS_TARGETS} Threads::Threads)
+target_link_libraries(tuya_ai_tcp PUBLIC agentic_kit_pal agentic_kit_common Threads::Threads)
 
 # -----------------------------------------------------------------------------
 # iot-client module
@@ -169,9 +173,8 @@ target_include_directories(tuya_iot_client PUBLIC
 )
 target_link_libraries(tuya_iot_client PUBLIC
     ${AGENTIC_KIT_CJSON_TARGET}
-    ${AGENTIC_KIT_MBEDTLS_TARGETS}
     agentic_kit_pal
-    agentic_kit_common
+    agentic_kit_common          # provides mbedTLS transitively (shared TLS lives here)
     core_http
     core_mqtt
     Threads::Threads
@@ -235,8 +238,7 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
         "${PAL_DIR}"
     )
     target_link_libraries(tai_unit_tests PRIVATE
-        agentic_kit_pal
-        ${AGENTIC_KIT_MBEDTLS_TARGETS}
+        agentic_kit_pal          # pulls agentic_kit_common -> mbedTLS transitively
         Threads::Threads
     )
     add_test(NAME tai_unit_tests COMMAND tai_unit_tests)
@@ -253,8 +255,7 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
         "${PAL_DIR}"
     )
     target_link_libraries(tai_integration_tests PRIVATE
-        agentic_kit_pal
-        ${AGENTIC_KIT_MBEDTLS_TARGETS}
+        agentic_kit_pal          # pulls agentic_kit_common -> mbedTLS transitively
         Threads::Threads
     )
     add_test(NAME tai_integration_tests COMMAND tai_integration_tests)

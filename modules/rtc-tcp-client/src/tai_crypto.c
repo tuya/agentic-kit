@@ -35,12 +35,6 @@ static int ensure_drbg(void)
     return 0;
 }
 
-mbedtls_ctr_drbg_context *tai_crypto_get_drbg(void)
-{
-    if (ensure_drbg() != 0) return NULL;
-    return &g_drbg;
-}
-
 /* =========================================================================
  * tai_hmac_sha256
  * ========================================================================= */
