@@ -14,6 +14,7 @@
 #include "tuya_ai.h"
 #include "pal.h"
 #include "log.h"
+#include "mbedtls/ctr_drbg.h"
 
 /* Forward declaration for internal TLS handle */
 typedef struct tai_tls tai_tls_t;
@@ -409,8 +410,6 @@ int tai_crypto_derive_keys(uint8_t proto_ver,
                             const pal_t *pal);
 
 /* Accessor for the shared DRBG context (used by tai_tls.c) */
-struct mbedtls_ctr_drbg_context;
-typedef struct mbedtls_ctr_drbg_context mbedtls_ctr_drbg_context;
 mbedtls_ctr_drbg_context *tai_crypto_get_drbg(void);
 
 /*

@@ -21,7 +21,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
 #include <unistd.h>
 #include <sys/time.h>
 
@@ -35,9 +34,9 @@ extern const pal_t *tai_pal_posix(void);
 
 /* -- Defaults ----------------------------------------------------------- */
 
-#define DEFAULT_DEVID      "6c7cfcabf3cfb30bc1edww"
-#define DEFAULT_SECRET_KEY ">df698G^Ia;T(ikA"
-#define DEFAULT_LOCAL_KEY  "<]'1Dvt'mF#jXIXZ"
+#define DEFAULT_DEVID      "6cd370251e8be96de8vwoe"
+#define DEFAULT_SECRET_KEY "[SPT;N:b@)wPzK/)"
+#define DEFAULT_LOCAL_KEY  "#d[<4y*N.vE]RAAG"
 
 /* -- Audio constants ---------------------------------------------------- */
 
@@ -157,9 +156,6 @@ typedef struct {
     int64_t       audio_end_us;
 } demo_ctx_t;
 
-static volatile int g_running = 1;
-static void on_sigint(int sig) { (void)sig; g_running = 0; }
-
 /* -- TAI callbacks ------------------------------------------------------ */
 
 static void on_text(tai_ctx_t *ctx, const char *text, size_t len,
@@ -217,7 +213,6 @@ static void on_disconnect(tai_ctx_t *ctx, uint16_t code, void *ud)
     demo_ctx_t *dc = (demo_ctx_t *)ud;
     fprintf(stderr, "\n[TAI disconnected: code=%u]\n", (unsigned)code);
     dc->got_done = 1;
-    g_running    = 0;
 }
 
 /* -- Minimal JSON helpers (same as other examples) ---------------------- */
@@ -300,18 +295,16 @@ static char *json_get_object(const char *json, const char *key)
 static char *b64_decode(const char *encoded, size_t *out_len)
 {
     size_t elen = strlen(encoded);
-    size_t dlen = 0;
-    if (mbedtls_base64_decode(NULL, 0, &dlen,
-                               (const unsigned char *)encoded, elen) != MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL)
-        return NULL;
-    char *out = (char *)malloc(dlen + 1);
+    size_t max_dlen = (elen * 3) / 4 + 4;
+    char *out = (char *)malloc(max_dlen + 1);
     if (!out) return NULL;
-    if (mbedtls_base64_decode((unsigned char *)out, dlen, &dlen,
+    size_t dlen = 0;
+    if (mbedtls_base64_decode((unsigned char *)out, max_dlen, &dlen,
                                (const unsigned char *)encoded, elen) != 0) {
         free(out);
         return NULL;
     }
-    out[dlen] = ' ';
+    out[dlen] = '\0';
     if (out_len) *out_len = dlen;
     return out;
 }
@@ -459,9 +452,6 @@ static void opus_stream_free(opus_stream_t *s)
 
 int main(int argc, char *argv[])
 {
-    signal(SIGINT,  on_sigint);
-    signal(SIGTERM, on_sigint);
-
     const char *input_wav  = (argc >= 2) ? argv[1] : NULL;
     const char *devid      = (argc >= 3) ? argv[2] : DEFAULT_DEVID;
     const char *secret_key = (argc >= 4) ? argv[3] : DEFAULT_SECRET_KEY;
@@ -687,7 +677,7 @@ int main(int argc, char *argv[])
             goto cleanup;
         }
 
-        for (size_t i = 0; i < opus.n_pkts && rc == TAI_OK && g_running; i++) {
+        for (size_t i = 0; i < opus.n_pkts && rc == TAI_OK; i++) {
             rc = tai_send_audio_chunk(ctx,
                                       opus.buf + opus.pkt_offs[i],
                                       opus.pkt_lens[i]);
@@ -725,7 +715,7 @@ int main(int argc, char *argv[])
     fflush(stdout);
 
     int waited = 0;
-    while (g_running && !dc.got_done && waited < MAX_WAIT_MS) {
+    while (!dc.got_done && waited < MAX_WAIT_MS) {
         usleep(100 * 1000);
         waited += 100;
     }

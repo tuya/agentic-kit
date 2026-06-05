@@ -104,21 +104,21 @@ else()
 endif()
 
 # -- ai / rtc-tcp-client ----------------------------------------------------
-add_executable(tai_text_query_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/text_query_demo.c")
-target_link_libraries(tai_text_query_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
-
-add_executable(tai_edu_threaded_chat_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/edu_threaded_chat_demo.c")
-target_link_libraries(tai_edu_threaded_chat_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
+add_executable(tai_text_chat_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/text_chat_demo.c")
+target_link_libraries(tai_text_chat_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
 
 add_executable(tai_edu_camera_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/edu_camera_demo.c")
 target_link_libraries(tai_edu_camera_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
 
+add_executable(tai_mcp_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/mcp_demo.c")
+target_link_libraries(tai_mcp_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
+
 find_library(OPUS_LIBRARY opus)
 find_path(OPUS_INCLUDE_DIR opus/opus.h)
 if(OPUS_LIBRARY AND OPUS_INCLUDE_DIR)
-    add_executable(tai_opus_chat_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/opus_chat_demo.c")
-    target_include_directories(tai_opus_chat_demo PRIVATE "${OPUS_INCLUDE_DIR}")
-    target_link_libraries(tai_opus_chat_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal "${OPUS_LIBRARY}")
+    add_executable(tai_audio_chat_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/audio_chat_demo.c")
+    target_include_directories(tai_audio_chat_demo PRIVATE "${OPUS_INCLUDE_DIR}")
+    target_link_libraries(tai_audio_chat_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal "${OPUS_LIBRARY}")
 else()
-    message(STATUS "libopus not found; skipping tai_opus_chat_demo")
+    message(STATUS "libopus not found; skipping tai_audio_chat_demo")
 endif()
