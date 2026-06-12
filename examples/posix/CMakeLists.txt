@@ -84,6 +84,14 @@ add_executable(scan_by_device_pair_demo
 target_include_directories(scan_by_device_pair_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/pair/scan-by-device")
 target_link_libraries(scan_by_device_pair_demo PRIVATE tuya_iot_client stb_image quirc)
 
+# -- dp-management -----------------------------------------------------------
+add_executable(dp_management_demo
+    "${CMAKE_CURRENT_SOURCE_DIR}/dp-management/dp_management_demo.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/dp-management/dp_management_demo_main.c"
+)
+target_include_directories(dp_management_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/dp-management")
+target_link_libraries(dp_management_demo PRIVATE tuya_iot_client)
+
 # -- ai / rtc-client (prebuilt lib, optional) --------------------------------
 if(TARGET tuya_steam_client)
     add_executable(chat_demo
