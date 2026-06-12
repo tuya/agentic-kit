@@ -7,6 +7,7 @@ Multimodal device-side SDK for connecting smart hardware to the Tuya AI platform
 - Voice/text conversation with low latency
 - Image understanding and generation
 - Device-side MCP (Model Context Protocol) support
+- Device data point (DP) management: schema validation, local cache, batch reporting, downlink callbacks, state persistence
 - Platform and chip agnostic: macOS, Linux, FreeRTOS (ESP32), MIPS, ARM
 - Global deployment with multiple data center regions
 
@@ -16,7 +17,7 @@ Multimodal device-side SDK for connecting smart hardware to the Tuya AI platform
 |--------|--------|-------------|
 | RTC TCP Client | `tuya_ai.h` | tRTC (Tuya RTC protocol), TCP implementation, fullly open sourced with PAL portability |
 | RTC Client | `stm_open.h` | tRTC (Tuya RTC protocol), UDP implementation, pre-compiled static library |
-| IoT Client | `iot_client.h` | Device activation, MQTT, session token |
+| IoT Client | `iot_client.h`, `iot_dp.h` | Device activation, MQTT, session token; Data Point (DP) management (schema validation / cache / up- & downlink / persistence) |
 | Tuya BLE | `tuya_ble_nimble.h` | BLE provisioning (ESP-IDF) |
 
 ## Prerequisites
@@ -51,13 +52,16 @@ Then run:
 
 ```sh
 # Voice/text chat (RTC TCP Client)
-./build/tai_chat_demo
+./build/tai_text_chat_demo
 
 # Device scan QR pairing
 ./build/scan_by_device_pair_demo
 
 # App scan QR pairing
 ./build/scan_by_app_pair_demo
+
+# Device data point (DP) management
+./build/dp_management_demo
 ```
 
 ## Project Structure
@@ -66,7 +70,7 @@ Then run:
 modules/
   rtc-tcp-client/     # tRTC TCP implementation (open source)
   rtc-client/         # tRTC UDP implementation (pre-compiled libs)
-  iot-client/         # Device activation, MQTT, token
+  iot-client/         # Device activation, MQTT, token, Data Point (DP) management
   tuya-ble/           # BLE provisioning
 examples/
   posix/              # macOS/Linux examples
