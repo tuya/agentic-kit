@@ -64,6 +64,11 @@ const config: Config = {
           label: '涂鸦开发者',
           position: 'right',
         },
+        {
+          href: 'https://github.com/tuya/agentic-kit',
+          label: 'GitHub',
+          position: 'right',
+        },
       ],
     },
     footer: {
