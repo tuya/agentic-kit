@@ -27,5 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     and is not enforced by the device SDK — the device may set/report any DP.
 - **POSIX `dp_management_demo` example** demonstrating the DP layer end to end (connect,
   restore, report, downlink, persist).
+- **MCP `mcp_example` example** demonstrating MCP tool integration with the agentic-kit
+  framework.
 
 [0.2.0]: https://github.com/tuya/agentic-kit/compare/v0.1.0...v0.2.0
