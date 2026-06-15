@@ -48,6 +48,7 @@ const sidebars: SidebarsConfig = {
             'guides/audio-format',
             'guides/vad-and-interrupt',
             'guides/dp-persistence',
+            'guides/device-mcp',
             'guides/porting-to-new-platform',
           ],
         },
