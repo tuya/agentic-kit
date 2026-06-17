@@ -24,7 +24,13 @@ set(ENABLE_PROGRAMS OFF CACHE BOOL "Disable mbedTLS programs" FORCE)
 set(ENABLE_TESTING OFF CACHE BOOL "Disable cJSON tests" FORCE)
 set(ENABLE_CJSON_TEST OFF CACHE BOOL "Disable cJSON tests" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
-add_compile_options($<$<COMPILE_LANG_AND_ID:C,AppleClang>:-Wno-error=unterminated-string-initialization>)
+# Don't let the vendored mbedTLS treat its own compiler warnings as errors:
+# its warning flags (e.g. -Werror=unterminated-string-initialization) are not
+# portable across compilers and break the build on some AppleClang versions.
+set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "Disable mbedTLS -Werror" FORCE)
+# Tolerate unknown -W options so a compiler that doesn't recognise a flag warns
+# instead of erroring (older/newer AppleClang differ on which warnings exist).
+add_compile_options($<$<COMPILE_LANG_AND_ID:C,AppleClang>:-Wno-unknown-warning-option>)
 
 function(agentic_kit_require_dependency name)
     string(TOLOWER "${name}" name_lc)

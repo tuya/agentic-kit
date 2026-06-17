@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+    paths-ignore:
+      - 'docs-site/**'
+      - '**.md'
+  pull_request:
+    branches: [master, main]
+    paths-ignore:
+      - 'docs-site/**'
+      - '**.md'
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Python deps shared by all jobs (mirrors the GitLab PIP_DEPS variable):
+#   jsonschema, jinja2          -> mbedtls build-time PSA codegen
+#   pycryptodome, cryptography  -> iot-client test mock servers
+env:
+  PIP_DEPS: "jsonschema jinja2 pycryptodome cryptography"
+
+jobs:
+  build-test:
+    name: build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Python deps
+        run: pip install $PIP_DEPS
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPython3_EXECUTABLE=$(which python3)
+
+      - name: Build
+        run: cmake --build build -j 4
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --no-tests=error --timeout 180
+
+  sanitizers:
+    name: sanitizers (ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Python deps
+        run: pip install $PIP_DEPS
+
+      - name: Configure (ASan + UBSan)
+        run: >
+          cmake -S . -B build-asan
+          -DCMAKE_BUILD_TYPE=Debug
+          -DPython3_EXECUTABLE=$(which python3)
+          -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -g -O1"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build
+        run: cmake --build build-asan -j 4
+
+      - name: Test
+        env:
+          # Leak detection is off for now (third-party libs/mocks); memory
+          # errors and UB still abort the run.
+          ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build-asan --output-on-failure --no-tests=error --timeout 240
+
+  examples:
+    name: build POSIX examples
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # jsonschema + jinja2 are needed for the mbedtls build-time codegen that
+      # runs while building the library the examples link against.
+      - name: Install Python deps
+        run: pip install $PIP_DEPS
+
+      # libopus enables the optional tai_audio_chat_demo; without it that
+      # single demo is skipped by CMake (the rest still build).
+      - name: Install libopus
+        run: sudo apt-get update && sudo apt-get install -y libopus-dev
+
+      # examples/posix fetches qrcodegen / quirc / stb via FetchContent at
+      # configure time, and links the prebuilt rtc-client lib (linux-gnu-amd64).
+      - name: Configure
+        run: cmake -S examples/posix -B build-examples -DPython3_EXECUTABLE=$(which python3)
+
+      - name: Build
+        run: cmake --build build-examples -j 4

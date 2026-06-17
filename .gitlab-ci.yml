@@ -1,9 +1,106 @@
+# GitLab CI for agentic-kit.
+#
+# Conventions follow the iot-sdk pipeline (build / test stages, ${BUILD_IMAGE},
+# manual submodule init, build artifacts handed to downstream jobs).
+#
+# ${BUILD_IMAGE} is a group-level CI/CD variable pointing at the shared Debian
+# build image (cmake, gcc, python3, valgrind, git). It must be defined in the
+# project/group CI settings, same as iot-sdk.
+
 stages:
+  - build
+  - test
+  - memory-leak
   - pages
+
+variables:
+  GIT_SUBMODULE_STRATEGY: none
+  CMAKE_BUILD_DIR: build
+  # Python deps installed into the venv in every job:
+  #   jsonschema, jinja2        -> mbedtls build-time PSA codegen
+  #   pycryptodome, cryptography -> iot-client test mock servers
+  PIP_DEPS: "jsonschema jinja2 pycryptodome cryptography"
+
+build:
+  stage: build
+  image: ${BUILD_IMAGE}
+  before_script:
+    - git submodule sync --recursive
+    - git submodule update --init --recursive
+    # Activate the venv before configure so Python3_EXECUTABLE is baked to the
+    # venv interpreter (mbedtls codegen + the test job both reuse it).
+    - python3 -m venv venv
+    - . venv/bin/activate
+    - pip install -q ${PIP_DEPS}
+  script:
+    - cmake --version
+    - cmake -B ${CMAKE_BUILD_DIR} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPython3_EXECUTABLE=$(which python3)
+    - cmake --build ${CMAKE_BUILD_DIR} -j$(nproc)
+  artifacts:
+    paths:
+      - ${CMAKE_BUILD_DIR}/
+    expire_in: 1 hour
+
+test:
+  stage: test
+  image: ${BUILD_IMAGE}
+  needs:
+    - build
+  before_script:
+    # Recreate the venv at the same path the build job baked into the test
+    # binaries (Python3_EXECUTABLE), with the mock dependencies installed.
+    - python3 -m venv venv
+    - . venv/bin/activate
+    - pip install -q ${PIP_DEPS}
+  script:
+    # cd into the build dir rather than using `--test-dir` (the CI image's
+    # ctest does not honour that flag and would silently find no tests).
+    - cd ${CMAKE_BUILD_DIR}
+    - ctest --output-on-failure --timeout 180
+
+test:memory-leak:
+  stage: memory-leak
+  image: ${BUILD_IMAGE}
+  needs:
+    - build
+    - test
+  script:
+    - |
+      set +e
+      FAILED=0
+      VG=modules/iot-client/test/run_valgrind_check.sh
+      chmod +x "$VG"
+      # Leak-check the pure (no-subprocess) binaries, grouped by module:
+      #   rtc-tcp-client : tai_unit_tests, tai_integration_tests
+      #   iot-client     : iot_cipher_test
+      # rtc-client is a prebuilt closed lib (headers + libstm.a) with no offline
+      # test, so there is nothing to leak-check for it here. The mock-driven iot
+      # tests are covered by the `test` job; under valgrind their Python
+      # handshakes would time out.
+      for t in tai_unit_tests tai_integration_tests iot_cipher_test; do
+        echo "==================== valgrind: ${t} ===================="
+        "$VG" "./${CMAKE_BUILD_DIR}/${t}" 2>&1 | tee "valgrind-${t}.log"
+        rc=${PIPESTATUS[0]}
+        if [ "$rc" -ne 0 ]; then
+          echo "x ${t}: leak/valgrind failure (rc=${rc})"
+          FAILED=1
+        else
+          echo "ok ${t}: clean"
+        fi
+      done
+      exit $FAILED
+  artifacts:
+    when: on_failure
+    paths:
+      - valgrind-*.log
+    expire_in: 1 week
+  allow_failure: false
 
 pages:
   stage: pages
   image: node:22-alpine
+  # Docs deploy is independent of the C build/test — run it without waiting.
+  needs: []
   script:
     - cd docs-site
     - npm ci
@@ -12,6 +109,5 @@ pages:
   artifacts:
     paths:
       - public
-  only:
-    - main
-    - master
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"'
