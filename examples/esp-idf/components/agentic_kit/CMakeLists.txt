@@ -19,6 +19,7 @@ set(AK_SRCS
     ${AK_DIR}/modules/iot-client/src/iot_client.c
     ${AK_DIR}/modules/iot-client/src/iot_client_message.c
     ${AK_DIR}/modules/iot-client/src/iot_dns.c
+    ${AK_DIR}/modules/iot-client/src/iot_dp.c
     ${AK_DIR}/modules/iot-client/src/iot_on_boarding.c
     ${AK_DIR}/modules/iot-client/src/mqtt.c
 
