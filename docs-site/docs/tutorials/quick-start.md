@@ -69,12 +69,20 @@ idf.py flash monitor
 编译成功后，在 `examples/posix/` 目录下运行（POSIX 平台示例）：
 
 ```sh
-# 语音聊天示例
-./build/chat_demo
+# --- AI 实时交互：rtc-tcp-client（源码，推荐）---
+./build/tai_text_chat_demo                 # 文本对话
+./build/tai_audio_chat_demo input.wav      # 语音对话（需 libopus；省略文件则发文字问候，WAV 须为单声道 16-bit）
+./build/tai_edu_camera_demo res/test.jpg   # 拍照识物 + TTS
+./build/tai_mcp_demo                       # 设备 MCP（initialize 握手 + 工具调用）
+
+# --- AI 实时交互：rtc-client（预编译库，stm_open API）---
+./build/chat_demo                          # 语音聊天
 
 # 设备扫码配网示例（默认使用 res/qr.jpg）
 ./build/scan_by_device_pair_demo
 ```
+
+> 上述 AI demo 均内置默认设备凭据，可直接运行；要用自己的设备时，多数 demo 支持追加 `[devid] [secret_key] [local_key]` 参数。`tai_audio_chat_demo` 仅在检测到 libopus 时才会编译。
 
 ## 项目结构
 

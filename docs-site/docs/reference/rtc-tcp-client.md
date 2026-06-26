@@ -178,6 +178,7 @@ sidebar_position: 1
 |------|------|------|
 | `ping_interval_ms` | `uint32_t` | Ping 间隔（0 = 默认 60000ms） |
 | `ping_timeout_ms` | `uint32_t` | Ping 超时（0 = 默认 90000ms） |
+| `connect_timeout_ms` | `uint32_t` | 连接超时（0 = 默认 5000ms）。分别约束 `tai_connect` 的两个串行等待阶段：先是 TLS 握手，再是服务端 SessionNew 应答。任一阶段超时即判定连接失败，因此 `tai_connect` 最坏耗时约为该值的 2 倍（握手 + 应答）。 |
 
 ### 3.7 测试配置
 
@@ -205,26 +206,96 @@ sidebar_position: 1
 
 **回调签名：**
 
+每个回调接收**单个** `const` 消息结构体指针 + `user_data`（不再是旧的多参数形式）。
+
 ```c
-void (*on_audio)(tai_ctx_t *ctx,
-                 const uint8_t *data, size_t len,
-                 uint32_t sample_rate, uint16_t frame_duration,
-                 void *user_data);
-
-void (*on_text)(tai_ctx_t *ctx,
-                const char *text, size_t len,
-                uint8_t stream_flag,    // TAI_STREAM_*
-                void *user_data);
-
-void (*on_event)(tai_ctx_t *ctx,
-                 uint16_t event_type,   // TAI_EVT_*
-                 const uint8_t *data, size_t len,
-                 void *user_data);
-
-void (*on_disconnect)(tai_ctx_t *ctx,
-                      uint16_t error_code,
-                      void *user_data);
+void (*on_audio)     (tai_ctx_t *ctx, const tai_audio_msg_t      *msg, void *user_data);
+void (*on_text)      (tai_ctx_t *ctx, const tai_text_msg_t       *msg, void *user_data);
+void (*on_event)     (tai_ctx_t *ctx, const tai_event_msg_t      *msg, void *user_data);
+void (*on_disconnect)(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *user_data);
 ```
+
+### 接收消息结构体
+
+`tai_audio_msg_t`（音频回调）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `data` | `const uint8_t *` | Opus 帧 / PCM 字节 |
+| `len` | `size_t` | 数据字节数 |
+| `codec` | `uint8_t` | `TAI_AUDIO_OPUS` / `TAI_AUDIO_PCM` / 0=未知 |
+| `sample_rate` | `uint32_t` | 采样率（Hz），0=未知 |
+| `frame_duration` | `uint16_t` | 每 Opus 帧时长（ms） |
+| `stream_flag` | `uint8_t` | `TAI_STREAM_*`（取自媒体头） |
+| `data_id` | `uint16_t` | 数据 ID：`AUDIO_DOWN`(2) / `AUDIO_AUX`(7) |
+| `event_id` | `const char *` | turn id（借用）；无则为 `""` |
+| `timestamp_ms` | `uint64_t` | 流起始时间戳（媒体头） |
+
+`tai_text_msg_t`（文本回调）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `text` | `const char *` | UTF-8 文本，**非** NUL 结尾 |
+| `len` | `size_t` | 文本字节数 |
+| `stream_flag` | `uint8_t` | `TAI_STREAM_*` |
+| `data_id` | `uint16_t` | 数据 ID：`TAI_DATA_ID_TEXT_DOWN`(4) |
+| `seq` | `uint32_t` | 每事件内文本序号（varint） |
+| `event_id` | `const char *` | turn id（借用）；无则为 `""` |
+
+`tai_event_msg_t`（事件回调）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `event_type` | `uint16_t` | `TAI_EVT_*` |
+| `data` | `const uint8_t *` | 事件负载（通常为 JSON） |
+| `len` | `size_t` | 负载字节数 |
+| `event_id` | `const char *` | attr 61（借用）；无则为 `""` |
+
+`tai_disconnect_msg_t`（断连回调）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `reason` | `uint8_t` | `TAI_DISCONNECT_*`（见下表） |
+| `close_code` | `uint16_t` | 服务端关闭码（SESSION/CONNECTION）；其他情况为 0 |
+| `detail` | `uint8_t` | `TAI_TRANSPORT_*` / `TAI_PROTO_ERR_*`（见下表）；其他情况为 0 |
+| `connection_alive` | `uint8_t` | 仅当 `reason==SESSION_CLOSE` 时为 1 |
+| `session_id` | `char[64]` | 值拷贝；无则为 `""` |
+
+:::warning 生命周期
+`msg` 以及其内部所有指针（`data` / `text` / `event_id` 等）**仅在回调执行期间有效**——SDK 从不堆分配它们。如需在回调返回后保留，请自行拷贝。
+:::
+
+#### 断连原因（`reason`）
+
+| 宏 | 值 | 说明 |
+|----|---|------|
+| `TAI_DISCONNECT_SESSION_CLOSE` | 0 | 服务端 SessionClose；链路可能仍存活（`connection_alive==1`） |
+| `TAI_DISCONNECT_CONNECTION_CLOSE` | 1 | 服务端 ConnectionClose；worker 停止 |
+| `TAI_DISCONNECT_TRANSPORT` | 2 | worker 检测到传输层故障 |
+| `TAI_DISCONNECT_PROTOCOL` | 3 | fail-fast：解析/行为错误 |
+
+#### `detail`（当 `reason==TRANSPORT`）
+
+| 宏 | 值 | 说明 |
+|----|---|------|
+| `TAI_TRANSPORT_PING_TIMEOUT` | 1 | Ping 超时 |
+| `TAI_TRANSPORT_EOF` | 2 | 对端关闭（EOF） |
+| `TAI_TRANSPORT_NET_ERROR` | 3 | 网络错误 |
+
+#### `detail`（当 `reason==PROTOCOL`）
+
+| 宏 | 值 | 说明 |
+|----|---|------|
+| `TAI_PROTO_ERR_BAD_VERSION` | 1 | 未知帧首字节（错位） |
+| `TAI_PROTO_ERR_HMAC` | 2 | 帧 HMAC 校验失败 |
+| `TAI_PROTO_ERR_FRAME_DECODE` | 3 | 帧头解码失败 |
+| `TAI_PROTO_ERR_FRAG` | 4 | 孤立 MIDDLE/LAST、溢出、超大 |
+| `TAI_PROTO_ERR_PKT_DECODE` | 5 | 应用包 / 属性块格式错误 |
+| `TAI_PROTO_ERR_UNKNOWN_PKT` | 6 | 未知包类型（严格模式） |
+| `TAI_PROTO_ERR_EVENT` | 7 | 事件解包失败 / 未知事件类型 |
+| `TAI_PROTO_ERR_MEDIA_HDR` | 8 | 媒体/文本头截断 |
+| `TAI_PROTO_ERR_UNEXPECTED` | 9 | 包合法但状态错误（行为错误） |
+| `TAI_PROTO_ERR_OVERSIZED` | 10 | 入站帧超出 rx_buf |
 
 ---
 
@@ -289,12 +360,25 @@ int tai_connect(tai_ctx_t *ctx);
 void tai_disconnect(tai_ctx_t *ctx);
 ```
 
-停止后台接收线程，发送 SessionClose + ConnectionClose，关闭 TLS 连接。
+先停止并 join 后台接收线程，再发送一个 best-effort 的 SessionClose，最后关闭传输（TLS / TCP）。
 
 **行为：**
-- 阻塞直到后台线程退出
+- 阻塞直到后台线程退出（join）
 - 调用后不可再发送数据
 - 之后应调用 `tai_ctx_deinit`
+- **不可**在回调中调用（会 join 自身所在的 worker 线程，导致自死锁）；如需从回调中触发断连，请用 `tai_request_disconnect`
+
+---
+
+### `tai_request_disconnect`
+
+```c
+void tai_request_disconnect(tai_ctx_t *ctx);
+```
+
+请求后台 worker 停止，但**不** join、**不**拆除连接。可从**任意**线程调用，包括从接收回调内部调用（与 `tai_disconnect` 不同）。worker 会在下一轮循环退出。
+
+**用途：** 在回调中安全地触发断连。调用后，拥有 context 的线程仍需调用 `tai_disconnect()` 来 join worker、发送 SessionClose 并释放资源。
 
 ---
 
@@ -486,5 +570,6 @@ free(mem);
 
 - `tai_send_*` 函数是线程安全的，可以从任意线程调用
 - 所有回调在同一个后台接收线程中按序调用
-- 不要在回调中调用 `tai_disconnect` 或 `tai_ctx_deinit`（会死锁）
-- 如需在回调中触发断连，应通过设置标志位由其他线程执行
+- 回调中**可以**调用 `tai_send_*()`（不持有锁）
+- 回调中**不可**调用 `tai_connect`、`tai_disconnect` 或 `tai_ctx_deinit`（它们会 join worker 线程，导致自死锁）
+- 如需在回调中触发断连，应调用 `tai_request_disconnect()`，再由拥有 context 的线程调用 `tai_disconnect()`

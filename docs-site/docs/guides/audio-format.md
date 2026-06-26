@@ -107,12 +107,13 @@ cfg.session_attrs_json =
 
 ```c
 // RTC TCP Client
-void on_audio(tai_ctx_t *ctx, const uint8_t *data, size_t len,
-              uint32_t sample_rate, uint16_t frame_duration, void *ud)
+void on_audio(tai_ctx_t *ctx, const tai_audio_msg_t *msg, void *ud)
 {
-    // sample_rate 和 frame_duration 由云端返回
-    // 如果请求了 Opus 下行，data 为 Opus 编码帧，需解码后播放
-    // 如果请求了 PCM 下行，data 为原始 PCM 数据，可直接播放
+    // msg->codec / msg->sample_rate / msg->frame_duration 由云端返回
+    // 如果请求了 Opus 下行，msg->data 为 Opus 编码帧，需解码后播放
+    // 如果请求了 PCM 下行，msg->data 为原始 PCM 数据，可直接播放
+    // msg->len 为本帧字节数
+    // 注意：msg 及其内部指针仅在回调期间有效，需保留时请自行拷贝
 }
 ```
 

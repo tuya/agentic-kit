@@ -124,11 +124,10 @@ static const mcp_tool_t k_tools[] = {
 在 `on_event` 回调中监听 `TAI_EVT_MCP_CMD`，将请求分发给处理函数：
 
 ```c
-static void on_event(tai_ctx_t *ctx, uint16_t event_type,
-                     const uint8_t *data, size_t len, void *ud)
+static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *ud)
 {
-    if (event_type == TAI_EVT_MCP_CMD) {
-        handle_mcp_request(ctx, (const char *)data, len);
+    if (msg->event_type == TAI_EVT_MCP_CMD) {
+        handle_mcp_request(ctx, (const char *)msg->data, msg->len);
     }
 }
 ```

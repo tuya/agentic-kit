@@ -1,18 +1,17 @@
 /*
- * examples/opus_chat/main.c -- Opus audio chat demo (iot-sdk + TAI).
+ * audio_chat_demo.c -- Opus audio chat demo using the rtc-tcp-client library.
  *
  * Reads a WAV file, encodes the PCM to Opus frames, sends them to the
- * Tuya AI server via ai-tcp-sdk, and writes the received TTS audio to
- * an output PCM file.  tai_connect() auto-starts the background receive
- * thread, so the main thread only sends data and sleeps.
+ * Tuya AI server, and writes the received TTS audio to an output PCM file.
+ * tai_connect() auto-starts the background receive thread, so the main thread
+ * only sends data and sleeps.
  *
- * Build (from ai-tcp-sdk root, with iot-sdk at ../iot-sdk):
- *   cmake -B build -DTAI_PAL_OPENSSL=ON -DTAI_BUILD_EXAMPLES=ON \
- *         -DTAI_IOT_CHAT=ON -DTAI_OPUS_CHAT=ON
- *   cmake --build build
+ * Build (requires libopus; the target is skipped if libopus is not found):
+ *   cmake -S examples/posix -B build -DAGENTIC_KIT_BUILD_EXAMPLES=ON
+ *   cmake --build build --target tai_audio_chat_demo
  *
  * Usage:
- *   ./build/tai_opus_chat <input.wav> [devid] [secret_key] [local_key]
+ *   ./build/tai_audio_chat_demo <input.wav> [devid] [secret_key] [local_key]
  *
  * If no WAV file is given, falls back to a text greeting.
  * WAV must be mono 16-bit signed (any sample rate; auto-resampled to 16 kHz).
@@ -467,7 +466,7 @@ int main(int argc, char *argv[])
     if (input_wav && (input_wav[0] == '\0' || strcmp(input_wav, "-") == 0))
         input_wav = NULL;
 
-    printf("=== tai_opus_chat demo (worker-thread mode) ===\n");
+    printf("=== tai_audio_chat demo (worker-thread mode) ===\n");
     printf("Device ID : %s\n", devid);
     printf("Input WAV : %s\n\n", input_wav ? input_wav : "(text mode)");
 

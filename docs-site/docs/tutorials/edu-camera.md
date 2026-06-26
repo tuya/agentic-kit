@@ -8,6 +8,10 @@ sidebar_position: 3
 
 > 对应示例：`examples/posix/ai/rtc-client/`
 
+:::tip 推荐：源码版 rtc-tcp-client
+本章基于预编译库版 rtc-client（`stm_open_*` API）。涂鸦推荐的源码集成路径是 rtc-tcp-client（`tuya_ai.h`），对应 demo 为 `./build/tai_edu_camera_demo res/test.jpg`，其 API 见 [rtc-tcp-client 参考](../reference/rtc-tcp-client.md)。
+:::
+
 本章介绍图片理解示例的功能与实现。该示例演示了如何通过 Agentic-kit 实现图片理解功能——发送一张图片和文本 prompt 给 AI，接收结构化 JSON 结果和 TTS 语音回复。
 
 ## 功能概述

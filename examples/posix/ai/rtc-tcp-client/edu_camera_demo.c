@@ -1,8 +1,8 @@
 /*
- * examples/edu_camera/main.c -- Image-understanding demo (iot-sdk + TAI).
+ * edu_camera_demo.c -- Image-understanding demo using the rtc-tcp-client library.
  *
- * Mirrors agentic-kit-demo/demo/ai/edu_camera_demo.c but drives the Tuya AI
- * Foundation TCP library (ai-tcp-sdk) instead of the steam-sdk (UDP/STM).
+ * Sends a text prompt + image to the Tuya AI Foundation in one event and
+ * receives a streamed text + TTS-audio response.
  *
  * Flow:
  *   1. iot_client_init()                  -- authenticate device with Tuya cloud
@@ -14,12 +14,12 @@
  *   7. Print latency stats                -- first-text / first-audio / audio-done
  *   8. tai_disconnect() + cleanup
  *
- * Build (from ai-tcp-sdk root, with iot-sdk at ../iot-sdk):
- *   cmake -B build -DTAI_PAL_OPENSSL=ON -DTAI_IOT_CHAT=ON
- *   cmake --build build
+ * Build:
+ *   cmake -S examples/posix -B build -DAGENTIC_KIT_BUILD_EXAMPLES=ON
+ *   cmake --build build --target tai_edu_camera_demo
  *
  * Usage:
- *   ./build/tai_edu_camera [img_path] [prompt] [audio_path] [devid] [secret_key] [local_key]
+ *   ./build/tai_edu_camera_demo [img_path] [prompt] [audio_path] [devid] [secret_key] [local_key]
  *
  * Defaults: test.jpg / "image_recognition" / output_tts.pcm / built-in device
  */

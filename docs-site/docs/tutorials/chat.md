@@ -8,6 +8,10 @@ sidebar_position: 2
 
 > 对应示例：`examples/posix/ai/rtc-client/`
 
+:::tip 推荐：源码版 rtc-tcp-client
+本章基于预编译库版 rtc-client（`stm_open_*` API）。涂鸦推荐的源码集成路径是 rtc-tcp-client（`tuya_ai.h`），对应 demo 为 `./build/tai_text_chat_demo`（文本）与 `./build/tai_audio_chat_demo input.wav`（语音）。其 API 见 [rtc-tcp-client 参考](../reference/rtc-tcp-client.md)。
+:::
+
 本章介绍语音聊天示例的功能与实现。该示例演示了如何通过 Agentic-kit 实现与 AI 的语音或文本聊天，并将 AI 返回的 TTS 音频保存到本地文件。
 
 ## 功能概述

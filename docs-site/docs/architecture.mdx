@@ -60,6 +60,18 @@ Agentic-kit 是 AI 智能设备的端侧 SDK，负责设备与涂鸦云平台之
   </tbody>
 </table>
 
+### 公共组件 / common
+
+被 IoT 与 RTC 两条协议栈共享的底层基础库。此前各模块各自维护的 TLS 实现已统一收敛到此处（如 rtc-tcp-client 的 `src/tai_tls.c` 已删除）：
+
+<table className="arch-table">
+  <thead><tr><th>组件</th><th>源文件</th><th>职责</th></tr></thead>
+  <tbody>
+    <tr><td><strong>共享 TLS</strong></td><td><code>common/tls.c</code></td><td>基于 mbedTLS 的 TLS-over-TCP 传输层，由 IoT（MQTT / HTTP）与 RTC（rtc-tcp-client）两栈共用</td></tr>
+    <tr><td><strong>共享 RNG</strong></td><td><code>common/rng.c</code></td><td>进程级唯一的 CTR-DRBG 随机数发生器，在启动时一次性播种，供全 SDK 复用</td></tr>
+  </tbody>
+</table>
+
 ## 配网方式总览
 
 新设备首次使用前，需要通过配网操作将设备与涂鸦云的 App 账号绑定，并激活授权码（对应架构图中 IoT 通信模块）。当前支持的配网方式：

@@ -90,8 +90,14 @@ UDP实现版本有非常好的弱网性能支持, 即使在网络条件很差的
 
 **RTC TCP Client：**
 - 使用长连接 + Ping/Pong 保活，不依赖 session_token
-- 如果连接断开（`on_disconnect` 回调），重新调用 `tai_connect()` 即可
+- 如果连接断开（`on_disconnect` 回调），由持有 `tai_ctx_t` 的线程重新调用 `tai_connect()` 即可
 - 连接刷新由协议内部自动处理（`CONNECTION_REFRESH_REQ/RESP`）
+
+:::caution 不要在回调里重连
+所有回调都运行在后台工作线程上。**绝对不要**在回调（包括 `on_disconnect`）内部调用 `tai_connect()` / `tai_disconnect()` / `tai_ctx_deinit()`——这些函数会 join 工作线程，导致自死锁（self-deadlock）。
+
+正确做法：回调里只设置一个标志位（或调用 `tai_request_disconnect()`），然后由持有 `tai_ctx_t` 的线程在回调返回后依次执行 `tai_disconnect()` + `tai_connect()` 完成重连。
+:::
 
 ## 设备需要什么样的网络条件？
 
