@@ -538,7 +538,7 @@ static int test_report_roundtrip(void)
     strncpy(client->devid, TEST_DEVID, sizeof(client->devid) - 1);
     strncpy(client->secret_key, TEST_SECRET_KEY, sizeof(client->secret_key) - 1);
     strncpy(client->local_key, TEST_LOCAL_KEY, sizeof(client->local_key) - 1);
-    client->mqtt_url = MSG_MOCK_URL;
+    snprintf(client->mqtt_url, sizeof(client->mqtt_url), "%s", MSG_MOCK_URL);
     client->cacert = g_cacert;
     client->message_callback = msg_callback;
     client->schema = pal_strdup(pal, TEST_SCHEMA);
@@ -567,7 +567,7 @@ out:
     iot_client_message_disconnect(client);
     iot_dp_deinit(client);
     if (client->schema) pal->free(client->schema);
-    client->mqtt_url = NULL;
+    client->mqtt_url[0] = '\0';
     client->cacert = NULL;
     pal->free(client);
     return rc;
@@ -584,7 +584,7 @@ static int test_schema_check_update(void)
     strncpy(client->devid, TEST_DEVID, sizeof(client->devid) - 1);
     strncpy(client->secret_key, TEST_SECRET_KEY, sizeof(client->secret_key) - 1);
     strncpy(client->schema_id, "dp_test_schema", sizeof(client->schema_id) - 1);
-    client->https_url = pal_strdup(pal, ATOP_MOCK_URL);
+    snprintf(client->https_url, sizeof(client->https_url), "%s", ATOP_MOCK_URL);
     client->cacert = g_cacert;
     /* Start with an OLD schema carrying live values, to prove the upgrade keeps them. */
     client->schema = pal_strdup(pal,
@@ -617,7 +617,6 @@ static int test_schema_check_update(void)
     rc = 0;
 out:
     iot_dp_deinit(client);
-    if (client->https_url) pal->free(client->https_url);
     if (client->schema) pal->free(client->schema);
     client->cacert = NULL;
     pal->free(client);

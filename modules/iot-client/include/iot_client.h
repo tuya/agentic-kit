@@ -124,8 +124,11 @@ typedef struct {
 } iot_on_boarding_config_t;
 
 
-/* Opaque DP-layer context; defined privately in src/iot_dp.c. */
+/* Opaque DP-layer context; defined privately in src/iot_dp.c. Its storage is
+ * inlined into iot_client_t (dp_storage below) to avoid a per-session heap
+ * allocation; iot_dp.c _Static_asserts that the real struct fits. */
 struct iot_dp_context;
+#define IOT_DP_CONTEXT_STORAGE 128
 
 /**
  * @brief IoT client instance structure
@@ -139,8 +142,8 @@ struct iot_dp_context;
     char local_key[32];            // Local encryption key for LAN communication
     char schema_id[64];            // Device schema ID (from activation; stable key for schema upgrade)
 
-    char *https_url;              // HTTPS endpoint URL for ATOP requests (SDK-owned)
-    char *mqtt_url;               // MQTT broker URL (SDK-owned, mqtt:// or mqtts://)
+    char https_url[64];           // HTTPS endpoint URL for ATOP (inline; "" = unresolved)
+    char mqtt_url[64];            // MQTT broker URL (inline, mqtt://|mqtts://; "" = unresolved)
     char *schema;                 // Device schema JSON (dynamically allocated)
 
     iot_region_t region;           // Server region (CN, US, EU, IN)
@@ -153,7 +156,8 @@ struct iot_dp_context;
     struct mqtt_client *mqtt;     // Internal MQTT client handle
     iot_message_callback_t message_callback;  // User callback for incoming messages
 
-    struct iot_dp_context *dp;    // DP management layer state (SDK-owned, opaque; NULL when inactive)
+    struct iot_dp_context *dp;    // DP layer state; points into dp_storage, NULL when inactive
+    void *dp_storage[IOT_DP_CONTEXT_STORAGE / sizeof(void *)]; // inline storage for *dp (no heap)
  } iot_client_t;
 
 /**

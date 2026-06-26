@@ -304,12 +304,13 @@ static void put_b64(char *buf, size_t cap, size_t *pos,
                     const uint8_t *data, size_t len)
 {
     size_t src_limit = len > 192 ? 192 : len;
-    char tmp[260];
-    b64enc(data, src_limit, tmp, sizeof(tmp));
-    if (len > 192)
-        bput(buf, cap, pos, "\"%s...\"", tmp);
-    else
-        bput(buf, cap, pos, "\"%s\"", tmp);
+    /* Encode straight into the output buffer -- no intermediate stack copy.
+     * This runs on the receive-worker stack, so keep the frame small; b64enc
+     * already honours the remaining capacity and NUL-terminates. */
+    if (*pos + 1 < cap) buf[(*pos)++] = '"';
+    *pos += b64enc(data, src_limit, buf + *pos, cap > *pos ? cap - *pos : 0);
+    if (len > 192) bput(buf, cap, pos, "...");
+    if (*pos + 1 < cap) buf[(*pos)++] = '"';
 }
 
 /* Write one attribute value */
@@ -467,19 +468,21 @@ static void put_payload(char *buf, size_t cap, size_t *pos,
 /* =========================================================================
  * tai_log_packet
  * ========================================================================= */
-/* Heap-allocated formatting buffer; tuned to fit a typical structured log
- * line after string/base64 truncation in put_jstr / put_b64.  Long fields
- * are truncated gracefully when this fills. */
-#define TAI_LOG_BUF_SIZE 512
+/* Stack formatting buffer (lives on the caller's stack -- the receive worker or
+ * the sender thread); tuned to fit a typical structured log line after
+ * string/base64 truncation in put_jstr / put_b64.  Long fields are truncated
+ * gracefully when this fills. */
+#define TAI_LOG_BUF_SIZE 1024
 
-void tai_log_packet(const pal_t *pal, uint8_t proto_ver,
+void tai_log_packet(uint8_t proto_ver,
                     int is_send,
                     uint8_t pkt_type,
                     const tai_attr_t *attrs, int attr_count,
                     const uint8_t *payload, size_t payload_len)
 {
     /* Skip keepalive noise */
-    if (pkt_type == TAI_PKT_PING || pkt_type == TAI_PKT_PONG) return;
+    if (pkt_type == TAI_PKT_PING || pkt_type == TAI_PKT_PONG)
+        return;
 
     /* --- Decide effective log level / volume for media streams ----------
      *
@@ -552,8 +555,9 @@ void tai_log_packet(const pal_t *pal, uint8_t proto_ver,
         }
     }
 
-    char *buf = (char *)pal->malloc(TAI_LOG_BUF_SIZE);
-    if (!buf) return;
+    /* Written strictly sequentially via bput() and NUL-terminated at buf[pos]
+     * below, so no zero-init is needed (avoids a memset on the log hot path). */
+    char buf[TAI_LOG_BUF_SIZE];
     size_t cap = TAI_LOG_BUF_SIZE - 1;
     size_t pos = 0;
 
@@ -579,5 +583,4 @@ void tai_log_packet(const pal_t *pal, uint8_t proto_ver,
     buf[pos] = '\0';
 
     log_emit(log_level, "[" TAG "] %s:  %s", dir, buf);
-    pal->free(buf);
 }

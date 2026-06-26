@@ -183,12 +183,9 @@ http_client_status_t http_client_request(const http_client_request_t *request,
         use_tls = false;
     }
 
-    // Allocate network context
-    struct HTTPNetworkContext *network_ctx = (struct HTTPNetworkContext *)pal->malloc(sizeof(struct HTTPNetworkContext));
-    if (!network_ctx) {
-        log_error("Failed to allocate network context");
-        return HTTP_CLIENT_ERROR;
-    }
+    // Network context lives on the stack (call-local, never returned).
+    struct HTTPNetworkContext network_ctx_buf;
+    struct HTTPNetworkContext *network_ctx = &network_ctx_buf;
 
     network_ctx->tcp_handle = NULL;
     network_ctx->use_tls = false;
@@ -211,7 +208,6 @@ http_client_status_t http_client_request(const http_client_request_t *request,
 
     if (connect_ret != 0) {
         log_error("Failed to connect to %s:%d", request->host, request->port);
-        pal->free(network_ctx);
         return (connect_ret == OPRT_TLS_HANDSHAKE_FAILED) ? HTTP_CLIENT_TLS_ERROR : HTTP_CLIENT_ERROR;
     }
 
@@ -223,15 +219,18 @@ http_client_status_t http_client_request(const http_client_request_t *request,
         .pNetworkContext = (NetworkContext_t *)network_ctx
     };
 
-    // Prepare request headers buffer (allocate on heap to avoid stack overflow)
+    // One block holds both the request-header and response buffers (both alive
+    // through HTTPClient_Send) -- one allocation instead of two.
     #define REQUEST_HEADER_BUFFER_SIZE 1024
-    uint8_t *request_header_buffer = (uint8_t *)pal->malloc(REQUEST_HEADER_BUFFER_SIZE);
-    if (!request_header_buffer) {
-        log_error("Failed to allocate request header buffer");
+    #define RESPONSE_BUFFER_SIZE 4096
+    uint8_t *http_buf = (uint8_t *)pal->malloc(REQUEST_HEADER_BUFFER_SIZE + RESPONSE_BUFFER_SIZE);
+    if (!http_buf) {
+        log_error("Failed to allocate HTTP buffers");
         disconnect(network_ctx);
-        pal->free(network_ctx);
         return HTTP_CLIENT_ERROR;
     }
+    uint8_t *request_header_buffer = http_buf;
+    uint8_t *response_buffer       = http_buf + REQUEST_HEADER_BUFFER_SIZE;
     HTTPRequestHeaders_t request_headers = {
         .pBuffer = request_header_buffer,
         .bufferLen = REQUEST_HEADER_BUFFER_SIZE,
@@ -253,9 +252,8 @@ http_client_status_t http_client_request(const http_client_request_t *request,
     HTTPStatus_t http_status = HTTPClient_InitializeRequestHeaders(&request_headers, &request_info);
     if (http_status != HTTPSuccess) {
         log_error("Failed to initialize request headers: %d", http_status);
-        pal->free(request_header_buffer);
+        pal->free(http_buf);
         disconnect(network_ctx);
-        pal->free(network_ctx);
         return HTTP_CLIENT_ERROR;
     }
 
@@ -268,23 +266,12 @@ http_client_status_t http_client_request(const http_client_request_t *request,
                                           strlen(request->headers[i].value));
         if (http_status != HTTPSuccess) {
             log_error("Failed to add header %s: %d", request->headers[i].key, http_status);
-            pal->free(request_header_buffer);
+            pal->free(http_buf);
             disconnect(network_ctx);
-            pal->free(network_ctx);
             return HTTP_CLIENT_ERROR;
         }
     }
 
-    // Prepare response buffer (allocate on heap to avoid stack overflow)
-    #define RESPONSE_BUFFER_SIZE 4096
-    uint8_t *response_buffer = (uint8_t *)pal->malloc(RESPONSE_BUFFER_SIZE);
-    if (!response_buffer) {
-        log_error("Failed to allocate response buffer");
-        pal->free(request_header_buffer);
-        disconnect(network_ctx);
-        pal->free(network_ctx);
-        return HTTP_CLIENT_ERROR;
-    }
     HTTPResponse_t http_response = {
         .pBuffer = response_buffer,
         .bufferLen = RESPONSE_BUFFER_SIZE,
@@ -330,11 +317,9 @@ http_client_status_t http_client_request(const http_client_request_t *request,
             } else {
                 log_error("Failed to allocate response body buffer");
                 ret_status = HTTP_CLIENT_ERROR;
-                disconnect(network_ctx);
-                pal->free(network_ctx);
                 response->internal = NULL;
-                pal->free(request_header_buffer);
-                pal->free(response_buffer);
+                pal->free(http_buf);
+                disconnect(network_ctx);
                 return ret_status;
             }
         }
@@ -363,10 +348,8 @@ http_client_status_t http_client_request(const http_client_request_t *request,
         }
 
     }
-    pal->free(request_header_buffer);
-    pal->free(response_buffer);
+    pal->free(http_buf);
     disconnect(network_ctx);
-    pal->free(network_ctx);
     return ret_status;
 }
 

@@ -90,7 +90,7 @@ void iot_client_resolve_atop_host(iot_client_t *client, char *host_out, size_t h
     *port_out = IOT_DEFAULT_PORT;
     if (host_len == 0) return;
     host_out[0] = '\0';
-    if (client->https_url) {
+    if (client->https_url[0] != '\0') {
         parse_host_port(client->https_url, host_out, host_len, port_out);
     } else {
         const char *h = iot_region_to_host(client->region, client->env);
@@ -130,20 +130,23 @@ static int iot_client_dns_resolve(iot_client_t *client)
         if (strcmp(dns_resp.endpoints[i].key, mqtt_dns_key) == 0) {
             const char *scheme = client->mqtt_disable_tls ? "mqtt" : "mqtts";
             const char *addr = dns_resp.endpoints[i].addr;
-            size_t url_len = strlen(scheme) + 3 + strlen(addr) + 1;
-            char *mqtt_url = (char *)client->pal->malloc(url_len);
-            if (mqtt_url) {
-                int sn = snprintf(mqtt_url, url_len, "%s://%s", scheme, addr);
-                if (sn < 0 || (size_t)sn >= url_len) {
-                    client->pal->free(mqtt_url);
-                } else {
-                    client->mqtt_url = mqtt_url;
-                    log_info("IoT DNS %s: %s", mqtt_dns_key, mqtt_url);
-                }
+            int sn = snprintf(client->mqtt_url, sizeof(client->mqtt_url),
+                              "%s://%s", scheme, addr);
+            if (sn < 0 || (size_t)sn >= sizeof(client->mqtt_url)) {
+                client->mqtt_url[0] = '\0';   /* too long: leave unresolved */
+                log_warn("IoT DNS %s url too long, ignored", mqtt_dns_key);
+            } else {
+                log_info("IoT DNS %s: %s", mqtt_dns_key, client->mqtt_url);
             }
         } else if (strcmp(dns_resp.endpoints[i].key, "httpsUrl") == 0) {
-            client->https_url = pal_strdup(client->pal, dns_resp.endpoints[i].addr);
-            log_info("IoT DNS httpsUrl: %s", dns_resp.endpoints[i].addr);
+            const char *addr = dns_resp.endpoints[i].addr;
+            int sn = snprintf(client->https_url, sizeof(client->https_url), "%s", addr);
+            if (sn < 0 || (size_t)sn >= sizeof(client->https_url)) {
+                client->https_url[0] = '\0';
+                log_warn("IoT DNS httpsUrl too long, ignored");
+            } else {
+                log_info("IoT DNS httpsUrl: %s", client->https_url);
+            }
         }
     }
     iot_dns_url_config_response_free(client->pal, &dns_resp);
@@ -225,7 +228,7 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
         iot_client_dns_resolve(client);
     }
 
-    if (client->mqtt_url && config->mqtt_auto_connect) {
+    if (client->mqtt_url[0] != '\0' && config->mqtt_auto_connect) {
         int ret = iot_client_message_connect(client);
         if (ret != OPRT_OK) {
             log_error("MQTT connect failed: %d", ret);
@@ -239,7 +242,7 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
         char meta_host[64] = {0};
         uint16_t meta_port = IOT_DEFAULT_PORT;
         const char *host;
-        if (client->https_url) {
+        if (client->https_url[0] != '\0') {
             parse_host_port(client->https_url, meta_host, sizeof(meta_host), &meta_port);
             host = meta_host;
         } else {
@@ -286,12 +289,6 @@ IOT_API void iot_client_deinit(iot_client_t *client)
     }
     iot_client_message_disconnect(client);
     iot_dp_deinit(client);   /* after disconnect: no more dispatch on the process thread */
-    if (client->https_url) {
-        client->pal->free(client->https_url);
-    }
-    if (client->mqtt_url) {
-        client->pal->free(client->mqtt_url);
-    }
     if (client->schema) {
         client->pal->free(client->schema);
     }
