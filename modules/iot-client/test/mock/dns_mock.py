@@ -20,6 +20,11 @@ from urllib.parse import urlparse, parse_qs
 
 class ReusableHTTPServer(HTTPServer):
     allow_reuse_address = True
+    # Larger listen backlog: this server is single-threaded and does the TLS
+    # handshake inline in the accept loop, so under load (CI) the default
+    # backlog of 5 can saturate and a client connect() times out. A deep
+    # backlog absorbs transient accept-loop stalls.
+    request_queue_size = 128
 
 MOCK_HOST = "127.0.0.1"
 MOCK_PORT = 8198

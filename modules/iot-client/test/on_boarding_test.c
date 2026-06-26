@@ -4,6 +4,12 @@
 #include <signal.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <sys/select.h>
 
 #include "iot_on_boarding.h"
 #include "iot_client.h"
@@ -125,6 +131,61 @@ static void stop_mock(pid_t *pid, const char *name)
         waitpid(*pid, NULL, 0);
         *pid = -1;
     }
+}
+
+/* Wait until 127.0.0.1:port accepts a TCP connection, up to timeout_ms. The
+ * mocks are fork+exec'd Python servers; a blind sleep raced their startup on a
+ * loaded CI box (the first real test connect could hit a not-yet-draining accept
+ * loop and time out ~8s). A non-blocking connect probe is used so a momentarily
+ * saturated backlog can't hang the probe itself. Returns 0 once connectable. */
+static int wait_for_port(uint16_t port, int timeout_ms)
+{
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port   = htons(port);
+    inet_pton(AF_INET, MOCK_DNS_HOST, &addr.sin_addr);
+
+    const int step_ms = 50;
+    for (int waited = 0; waited <= timeout_ms; waited += step_ms) {
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd >= 0) {
+            int fl = fcntl(fd, F_GETFL, 0);
+            fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+            int rc = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+            if (rc == 0) { close(fd); return 0; }
+            if (rc < 0 && errno == EINPROGRESS) {
+                fd_set wfds; FD_ZERO(&wfds); FD_SET(fd, &wfds);
+                struct timeval tv = { .tv_sec = 0, .tv_usec = 300 * 1000 };
+                if (select(fd + 1, NULL, &wfds, NULL, &tv) > 0) {
+                    int err = 0; socklen_t len = sizeof(err);
+                    getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len);
+                    if (err == 0) { close(fd); return 0; }
+                }
+            }
+            close(fd);
+        }
+        usleep(step_ms * 1000);
+    }
+    return -1;
+}
+
+/* Barrier: don't start the tests until all three mocks are accepting. */
+static int wait_for_mocks(void)
+{
+    if (wait_for_port(MOCK_DNS_PORT, 15000) != 0) {
+        fprintf(stderr, "DNS mock (%u) never became connectable\n", MOCK_DNS_PORT);
+        return -1;
+    }
+    if (wait_for_port(MOCK_MQTT_PORT, 15000) != 0) {
+        fprintf(stderr, "MQTT mock (%u) never became connectable\n", MOCK_MQTT_PORT);
+        return -1;
+    }
+    if (wait_for_port(MOCK_ATOP_PORT, 15000) != 0) {
+        fprintf(stderr, "ATOP mock (%u) never became connectable\n", MOCK_ATOP_PORT);
+        return -1;
+    }
+    return 0;
 }
 
 /* ---------- Test: NULL parameter validation ---------- */
@@ -322,7 +383,15 @@ int main(void)
         pal->free(g_cacert);
         return 1;
     }
-    sleep(2);
+    /* Wait until every mock is actually accepting before the first test connects
+     * (replaces a blind sleep that raced mock startup on a loaded CI box). */
+    if (wait_for_mocks() != 0) {
+        stop_mock(&dns_mock_pid, "DNS mock");
+        stop_mock(&mqtt_mock_pid, "MQTT mock");
+        stop_mock(&atop_mock_pid, "ATOP mock");
+        pal->free(g_cacert);
+        return 1;
+    }
 
     RUN_TEST(test_on_boarding_null_params);
     RUN_TEST(test_on_boarding_with_token_null_config);

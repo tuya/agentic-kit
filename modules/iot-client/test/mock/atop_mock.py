@@ -49,6 +49,11 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 class ReusableHTTPServer(HTTPServer):
     allow_reuse_address = True
+    # Larger listen backlog: this server is single-threaded and does the TLS
+    # handshake inline in the accept loop, so under load (CI) the default
+    # backlog of 5 can saturate and a client connect() times out. A deep
+    # backlog absorbs transient accept-loop stalls.
+    request_queue_size = 128
 
 # Try to import from Cryptodome first (pycryptodome), then fall back to Crypto (pycrypto)
 try:

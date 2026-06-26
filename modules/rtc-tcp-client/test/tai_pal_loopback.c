@@ -384,6 +384,8 @@ static void lb_sleep_ms(uint32_t ms)
     nanosleep(&ts, NULL);
 }
 
+static uint64_t lb_time_ms(void);   /* defined below; used for a real-time recv timeout */
+
 static int lb_tcp_recv(void *tcp, uint8_t *buf, size_t buf_len,
                        uint32_t timeout_ms)
 {
@@ -411,11 +413,13 @@ static int lb_tcp_recv(void *tcp, uint8_t *buf, size_t buf_len,
     pthread_mutex_unlock(&g_state_mtx);
     if (timeout_ms > cap) timeout_ms = cap;
 
-    /* Poll in ~1ms slices until timeout. */
-    uint32_t waited = 0;
-    while (waited < timeout_ms) {
+    /* Poll in ~1ms slices until the timeout elapses, bounded by REAL elapsed
+     * time, not slice count. Under scheduling load a 1ms sleep can overrun, so
+     * counting iterations (waited++ per slice) would massively overshoot the
+     * requested timeout -- a 2s request blocked ~15s on a loaded CI box. */
+    uint64_t deadline = lb_time_ms() + timeout_ms;
+    while (lb_time_ms() < deadline) {
         lb_sleep_ms(1);
-        waited++;
 
         pthread_mutex_lock(&g_state_mtx);
         eof = g_eof;
