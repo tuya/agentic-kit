@@ -235,9 +235,13 @@ static void  pal_free(void *p)     { vPortFree(p); }
  * ------------------------------------------------------------------------- */
 static void *pal_mutex_create(void)
 {
-    /* Recursive mutex: same thread can lock multiple times.  Required by
-     * the SDK's locking model (e.g. tai_send_text holds ctx_mutex and may
-     * recursively re-enter through user callbacks). */
+    /* Recursive mutex: the same thread can lock it multiple times. This is
+     * REQUIRED, not an optimisation: iot-client's DP layer locks ctx->mutex in
+     * iot_dp_schema_check_update() and, while holding it, calls
+     * iot_dp_rebuild()/restore_json()/init_defaults() which each re-lock the
+     * same mutex (see modules/iot-client/src/iot_dp.c). A plain mutex would
+     * deadlock there. (tai-client and the TLS yield mutex do NOT rely on
+     * recursion -- only the DP schema-update path does.) */
     return (void *)xSemaphoreCreateRecursiveMutex();
 }
 static void pal_mutex_lock(void *m)
@@ -281,7 +285,7 @@ static void thread_shim(void *arg)
 
 static int pal_thread_create(void **handle, void *(*func)(void *), void *arg)
 {
-    fr_thread_t *t = (fr_thread_t *)pvPortMalloc(sizeof(fr_thread_t));
+    fr_thread_t *t = (fr_thread_t *)pal_malloc(sizeof(fr_thread_t));
     if (!t) return -1;
     t->func = func;
     t->arg  = arg;

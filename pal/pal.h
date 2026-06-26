@@ -88,7 +88,10 @@ typedef struct pal {
     void  (*free)(void *ptr);
 
     /* --- Mutex -----------------------------------------------------------
-     * mutex_create: allocate and initialise a recursive mutex; return handle.
+     * mutex_create: allocate and initialise a RECURSIVE mutex (the same thread
+     *   may lock it more than once); return handle. Recursion is REQUIRED, not
+     *   optional: iot-client's DP schema-update path locks ctx->mutex and, while
+     *   holding it, re-locks via nested helpers -- a plain mutex deadlocks there.
      * mutex_lock / mutex_unlock: standard lock / unlock.
      * mutex_destroy: release resources.
      */

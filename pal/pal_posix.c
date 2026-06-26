@@ -195,6 +195,9 @@ static void  pal_free(void *p)     { free(p); }
  * ------------------------------------------------------------------------- */
 static void *pal_mutex_create(void)
 {
+    /* Recursive is REQUIRED, not optional: iot-client's DP schema-update path
+     * locks ctx->mutex and re-locks it via nested helpers (see iot_dp.c /
+     * pal.h). A non-recursive mutex would deadlock there. */
     pthread_mutex_t *m = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t));
     if (!m) return NULL;
     pthread_mutexattr_t attr;
