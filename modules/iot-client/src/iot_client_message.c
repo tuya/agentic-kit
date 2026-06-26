@@ -21,7 +21,7 @@ static void mqtt_message_handler(const char *topic, size_t topic_len,
     }
 
     size_t decrypted_len = 0;
-    int ret = pv23_decrypt(payload, payload_len,
+    int ret = pv23_decrypt(client->pal, payload, payload_len,
                            (const uint8_t *)client->local_key,
                            decrypted, &decrypted_len);
     if (ret == 0 && decrypted_len > 0) {
@@ -151,7 +151,7 @@ int iot_client_message_publish(iot_client_t *client,
     }
 
     size_t encrypted_len = 0;
-    int ret = pv23_encrypt(data, data_len,
+    int ret = pv23_encrypt(client->pal, data, data_len,
                            (const uint8_t *)client->local_key,
                            encrypted, &encrypted_len);
     if (ret != 0) {

@@ -120,13 +120,17 @@ static int32_t transport_recv(NetworkContext_t *pNetworkContext,
         int n = tls_read(pNetworkContext->tls, (uint8_t *)pBuffer, bytesToRecv,
                          MQTT_RECV_TIMEOUT_MS);
         if (n == TLS_ERR_AGAIN) {
-            return OPRT_OK;
+            return OPRT_OK;   // no data within timeout: coreMQTT polls again
         }
-        if (n < 0) {
-            log_error("TLS read error");
+        if (n <= 0) {
+            // n<0: TLS error. n==0: graceful peer close_notify — tls_read maps
+            // no-data to TLS_ERR_AGAIN, so 0 here always means the peer closed.
+            // Must surface as an error: returning 0 would look like an idle poll
+            // and the dead link would only be noticed at the keepalive timeout.
+            log_error("TLS read error/closed (n=%d)", n);
             return OPRT_COMMUNICATION_ERROR;
         }
-        return n;   // >0 bytes, or 0 on peer close / no data
+        return n;   // >0 bytes
     } else {
         if (!pNetworkContext->tcp_handle) {
             return OPRT_COMMUNICATION_ERROR;

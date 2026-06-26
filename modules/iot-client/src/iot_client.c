@@ -6,6 +6,7 @@
 #include "iot_client_message.h"
 #include "cipher_wrapper.h"
 #include "iot_config_defaults.h"
+#include "rng.h"
 
 #include "atop.h"
 #include "cJSON.h"
@@ -155,6 +156,14 @@ int iot_init(const pal_t *pal)
         return OPRT_INVALID_PARAMETER;
     }
     set_pal(pal);
+    /* Eager-seed the shared DRBG before any worker threads spawn. Every TLS
+     * handshake (mqtt/http) and every AES-GCM nonce depends on it; rng_bytes()
+     * fails closed if seeding failed, so surface the failure here rather than
+     * letting it resurface later as opaque handshake / nonce errors. */
+    if (rng_init(pal) != 0) {
+        log_error("iot_init: RNG seed failed (no strong entropy source?)");
+        return OPRT_COMMUNICATION_ERROR;
+    }
 
     cJSON_Hooks hooks = { .malloc_fn = pal->malloc, .free_fn = pal->free };
     cJSON_InitHooks(&hooks);

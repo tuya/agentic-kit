@@ -33,6 +33,7 @@ extern "C" {
  * Constants -- Packet types (Section 3)
  * ========================================================================= */
 #define TAI_PKT_CLIENT_HELLO             1
+#define TAI_PKT_AUTHENTICATE_RESPONSE    3   /* server's auth result for ClientHello */
 #define TAI_PKT_PING                     4
 #define TAI_PKT_PONG                     5
 #define TAI_PKT_CONNECTION_CLOSE         6
@@ -143,6 +144,83 @@ typedef struct tai_attr {
 typedef struct tai_ctx tai_ctx_t;
 
 /* =========================================================================
+ * Receive-message structs  (SDK-filled, app read-only)
+ *
+ * Every receive callback takes ONE const message pointer + user_data. The
+ * struct AND every pointer inside it (data/text/event_id) are valid ONLY for
+ * the callback's duration — copy to retain. The SDK never heap-allocates these.
+ *
+ * ABI: the SDK zero-fills the struct before populating; new fields are appended
+ * before _reserved. Forward-safe only when the SDK is at least as new as the
+ * app; otherwise statically link or version-lock.
+ * ========================================================================= */
+
+/* --- Audio --------------------------------------------------------------- */
+typedef struct tai_audio_msg {
+    const uint8_t *data;            /* Opus frame / PCM bytes; callback-lifetime */
+    size_t         len;
+    uint8_t        codec;           /* TAI_AUDIO_OPUS / TAI_AUDIO_PCM / 0=unknown */
+    uint32_t       sample_rate;     /* Hz, 0 if unknown                          */
+    uint16_t       frame_duration;  /* ms per Opus frame                         */
+    uint8_t        stream_flag;     /* TAI_STREAM_* (from the media header)       */
+    uint16_t       data_id;         /* Data ID: AUDIO_DOWN(2) / AUDIO_AUX(7)      */
+    const char    *event_id;        /* turn id, borrowed; "" if none             */
+    uint64_t       timestamp_ms;    /* stream-start ts (media header)            */
+    uint8_t        _reserved[8];
+} tai_audio_msg_t;
+
+/* --- Text ---------------------------------------------------------------- */
+typedef struct tai_text_msg {
+    const char    *text;            /* UTF-8, NOT NUL-terminated; callback-lifetime */
+    size_t         len;
+    uint8_t        stream_flag;     /* TAI_STREAM_*                              */
+    uint16_t       data_id;         /* Data ID: TAI_DATA_ID_TEXT_DOWN(4)         */
+    uint32_t       seq;             /* per-event text seq (varint)               */
+    const char    *event_id;        /* turn id, borrowed; "" if none             */
+    uint8_t        _reserved[8];
+} tai_text_msg_t;
+
+/* --- Event (generic) ----------------------------------------------------- */
+typedef struct tai_event_msg {
+    uint16_t       event_type;      /* TAI_EVT_*                                 */
+    const uint8_t *data;            /* event payload (often JSON); callback-life */
+    size_t         len;
+    const char    *event_id;        /* attr 61, borrowed; "" if absent           */
+    uint8_t        _reserved[8];
+} tai_event_msg_t;
+
+/* --- Disconnect ---------------------------------------------------------- */
+#define TAI_DISCONNECT_SESSION_CLOSE     0  /* server SessionClose; link may persist */
+#define TAI_DISCONNECT_CONNECTION_CLOSE  1  /* server ConnectionClose; worker stops  */
+#define TAI_DISCONNECT_TRANSPORT         2  /* worker-detected transport fault       */
+#define TAI_DISCONNECT_PROTOCOL          3  /* fail-fast: parse/behaviour error       */
+
+/* `detail` sub-reason when reason==TRANSPORT */
+#define TAI_TRANSPORT_PING_TIMEOUT  1
+#define TAI_TRANSPORT_EOF           2
+#define TAI_TRANSPORT_NET_ERROR     3
+/* `detail` sub-reason when reason==PROTOCOL (which fail-fast check tripped) */
+#define TAI_PROTO_ERR_BAD_VERSION   1  /* unknown frame leading byte (desync)       */
+#define TAI_PROTO_ERR_HMAC          2  /* frame HMAC mismatch                       */
+#define TAI_PROTO_ERR_FRAME_DECODE  3  /* frame header decode failed                */
+#define TAI_PROTO_ERR_FRAG          4  /* orphan MIDDLE/LAST, overflow, oversized   */
+#define TAI_PROTO_ERR_PKT_DECODE    5  /* application packet / attr block malformed */
+#define TAI_PROTO_ERR_UNKNOWN_PKT   6  /* unknown packet type (strict)              */
+#define TAI_PROTO_ERR_EVENT         7  /* event unpack failed / unknown event type  */
+#define TAI_PROTO_ERR_MEDIA_HDR     8  /* media/text header truncated               */
+#define TAI_PROTO_ERR_UNEXPECTED    9  /* valid packet, wrong state (behaviour)     */
+#define TAI_PROTO_ERR_OVERSIZED    10  /* inbound frame exceeds rx_buf (see note)   */
+
+typedef struct tai_disconnect_msg {
+    uint8_t  reason;                /* TAI_DISCONNECT_*                          */
+    uint16_t close_code;            /* server close code (SESSION/CONNECTION); 0 else */
+    uint8_t  detail;                /* TAI_TRANSPORT_* / TAI_PROTO_ERR_*; else 0 */
+    uint8_t  connection_alive;      /* 1 only for SESSION_CLOSE                   */
+    char     session_id[64];        /* value copy; "" if N/A                     */
+    uint8_t  _reserved[8];
+} tai_disconnect_msg_t;
+
+/* =========================================================================
  * Configuration
  * =========================================================================
  * Fill this struct before calling tai_ctx_init().
@@ -185,29 +263,29 @@ typedef struct tai_config {
     /* --- Platform --- */
     const pal_t *pal;
 
+    /* --- Confirmed connect (0 = default 5000 ms) ---
+     * Bounds each of tai_connect's two sequential waits: first the TLS handshake,
+     * then the server's SessionNew acknowledgement. Either phase failing to
+     * complete within this budget fails the connect. Worst-case tai_connect wall
+     * time is therefore up to ~2x this value (handshake + ack). */
+    uint32_t connect_timeout_ms;
+
     /* --- Receive callbacks ---
-     * All callbacks are invoked from the background receive thread.
-     * on_audio: called for each decoded audio chunk (PCM or Opus bytes).
-     * on_text:  called for each text fragment; stream_flag is TAI_STREAM_*.
-     * on_event: called for all other events (MCPCmd, ChatBreak, ServerVAD...).
-     * on_disconnect: called when the server closes the connection.
-     * user_data: passed unchanged to every callback.
+     * All fire on the background worker thread. Each takes ONE const message
+     * pointer + user_data; the msg and every pointer inside it are valid ONLY
+     * for the call — copy to retain (see the *_msg_t structs above).
+     *
+     * A callback MAY call tai_send_*() (no lock is held), but MUST NOT call
+     * tai_connect / tai_disconnect / tai_ctx_deinit — those join this very
+     * (worker) thread and deadlock. To end the session from a callback, call
+     * tai_request_disconnect() and let the owning thread call tai_disconnect().
+     * Callbacks run synchronously in the receive loop, so they must return
+     * promptly — a blocking callback stalls receiving and keepalive.
      */
-    void (*on_audio)(tai_ctx_t *ctx,
-                     const uint8_t *data, size_t len,
-                     uint32_t sample_rate, uint16_t frame_duration,
-                     void *user_data);
-    void (*on_text) (tai_ctx_t *ctx,
-                     const char *text, size_t len,
-                     uint8_t stream_flag,
-                     void *user_data);
-    void (*on_event)(tai_ctx_t *ctx,
-                     uint16_t event_type,
-                     const uint8_t *data, size_t len,
-                     void *user_data);
-    void (*on_disconnect)(tai_ctx_t *ctx,
-                          uint16_t error_code,
-                          void *user_data);
+    void (*on_audio)     (tai_ctx_t *ctx, const tai_audio_msg_t      *msg, void *user_data);
+    void (*on_text)      (tai_ctx_t *ctx, const tai_text_msg_t       *msg, void *user_data);
+    void (*on_event)     (tai_ctx_t *ctx, const tai_event_msg_t      *msg, void *user_data);
+    void (*on_disconnect)(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *user_data);
     void *user_data;
 
 } tai_config_t;
@@ -225,9 +303,20 @@ void        tai_ctx_deinit(tai_ctx_t *ctx);
  * Returns TAI_OK or TAI_ERR_*. */
 int         tai_connect(tai_ctx_t *ctx);
 
-/* Disconnect: stop background thread, send SessionClose + ConnectionClose,
- * then close TLS. */
+/* Disconnect: stop and JOIN the background thread, send SessionClose, close
+ * TLS, release the connection.
+ * MUST be called from a thread OTHER than the receive callbacks: it joins the
+ * worker thread, so calling it from inside a callback (which runs on that
+ * worker) self-deadlocks. To end the session from a callback, use
+ * tai_request_disconnect() and let the owning thread call this. */
 void        tai_disconnect(tai_ctx_t *ctx);
+
+/* Request the background worker to stop, WITHOUT joining it. Safe to call from
+ * ANY thread, including from inside a receive callback (unlike tai_disconnect).
+ * The worker winds down on its next loop; the connection is NOT torn down here.
+ * The owning thread must still call tai_disconnect() afterwards to join the
+ * worker, send SessionClose, and release resources. */
+void        tai_request_disconnect(tai_ctx_t *ctx);
 
 /* =========================================================================
  * Sending data

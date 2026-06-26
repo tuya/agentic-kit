@@ -44,40 +44,37 @@ static volatile int g_done = 0;
 
 /* -- Callbacks ---------------------------------------------------------- */
 
-static void on_text(tai_ctx_t *ctx, const char *text, size_t len,
-                    uint8_t stream_flag, void *ud)
+static void on_text(tai_ctx_t *ctx, const tai_text_msg_t *msg, void *ud)
 {
     (void)ctx; (void)ud;
-    printf("%.*s", (int)len, text);
+    printf("%.*s", (int)msg->len, msg->text);
     fflush(stdout);
-    if (stream_flag == TAI_STREAM_END || stream_flag == TAI_STREAM_ONE_SHOT)
+    if (msg->stream_flag == TAI_STREAM_END || msg->stream_flag == TAI_STREAM_ONE_SHOT)
         printf("\n");
 }
 
-static void on_audio(tai_ctx_t *ctx, const uint8_t *data, size_t len,
-                     uint32_t sample_rate, uint16_t frame_duration, void *ud)
+static void on_audio(tai_ctx_t *ctx, const tai_audio_msg_t *msg, void *ud)
 {
-    (void)ctx; (void)data; (void)len; (void)ud;
-    (void)sample_rate; (void)frame_duration;
+    (void)ctx; (void)msg; (void)ud;
 }
 
-static void on_event(tai_ctx_t *ctx, uint16_t event_type,
-                     const uint8_t *data, size_t len, void *ud)
+static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *ud)
 {
-    (void)data; (void)len; (void)ud;
-    if (event_type == TAI_EVT_END) {
+    (void)ud;
+    if (msg->event_type == TAI_EVT_END) {
         g_done = 1;
-    } else if (event_type == TAI_EVT_MCP_CMD) {
+    } else if (msg->event_type == TAI_EVT_MCP_CMD) {
         tai_send_mcp_response(ctx,
             "{\"jsonrpc\":\"2.0\",\"id\":1,"
             "\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"\"}]}}");
     }
 }
 
-static void on_disconnect(tai_ctx_t *ctx, uint16_t code, void *ud)
+static void on_disconnect(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *ud)
 {
     (void)ctx; (void)ud;
-    ESP_LOGW(TAG, "Disconnected: code=%u", (unsigned)code);
+    ESP_LOGW(TAG, "Disconnected: reason=%u close_code=%u",
+             (unsigned)msg->reason, (unsigned)msg->close_code);
     g_done = 1;
 }
 

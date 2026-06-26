@@ -68,21 +68,56 @@
  * Buffer-size compile-time knobs
  * Reduce these for memory-constrained targets (e.g. ESP32 without PSRAM).
  *
- * tx_app_buf is used for control packets (hello, session, event, ping).
- * Media packets (image, audio, text) that exceed this size are sent via
- * heap-allocated buffers obtained through the PAL malloc/free callbacks.
+ * Send path (§6): media packets (audio / image / large text / MCP JSON) are
+ * streamed scatter-gather — only a small header is built (tx_hdr_buf) and the
+ * caller's payload is signed + sent zero-copy, so there is NO large TX buffer.
+ * Control packets (hello, session, event start/end, ping) are still assembled
+ * contiguously in tx_ctrl_buf because their attribute block can carry the user
+ * session/event JSON (escaped) — which must fit, hence the kilobyte sizing.
  * ========================================================================= */
-#ifndef TAI_RX_BUF_SIZE
-#  define TAI_RX_BUF_SIZE        65536U
+
+/* Maximum bytes per transport fragment payload. Used both to fragment OUTBOUND
+ * packets and — crucially — advertised to the server in ClientHello as
+ * TAI_ATTR_MAX_FRAGMENT_LEN, so the server must not send an inbound fragment
+ * whose frame exceeds rx_buf (see TAI_RX_BUF_SIZE). Smaller = less RX RAM but
+ * more frames (per-frame 5+sig overhead) for large payloads. */
+#ifndef TAI_MAX_FRAGMENT_PAYLOAD
+#  define TAI_MAX_FRAGMENT_PAYLOAD  4096U
 #endif
+
+/* RX sliding-window buffer. Sized to EXACTLY one maximum wire frame —
+ * 5 (frame header) + TAI_MAX_FRAGMENT_PAYLOAD (max fragment) + 32 (max HMAC) —
+ * so it is derived, not independently tunable. NOTE: zero headroom. This relies
+ * on the server honouring the TAI_ATTR_MAX_FRAGMENT_LEN we advertise: an inbound
+ * frame larger than this cannot be assembled, so the receive loop stalls and the
+ * connection is torn down by the liveness timeout. There is also no batching —
+ * the worker processes at most one max-size frame per recv pass. */
+#define TAI_RX_BUF_SIZE   (TAI_MAX_FRAGMENT_PAYLOAD + 37U)
+
+/* Fragment reassembly buffer. A transport-fragmented packet (FRAG_FIRST..LAST)
+ * is reassembled here before the whole packet is decoded, so this bounds the
+ * largest INBOUND application packet (not fragment): it must be >= the largest
+ * downstream packet the server may send (a big Event / MCP-command / context
+ * JSON). A packet that reassembles larger is fail-fast (TAI_PROTO_ERR_FRAG).
+ * 32000 ≈ 7 max fragments. */
 #ifndef TAI_FRAG_BUF_SIZE
-#  define TAI_FRAG_BUF_SIZE     131072U
+#  define TAI_FRAG_BUF_SIZE     32000U
 #endif
-#ifndef TAI_TX_APP_BUF_SIZE
-#  define TAI_TX_APP_BUF_SIZE    65536U
+/* Control-packet assembly buffer. Must hold the largest control application
+ * packet — dominated by the session/event JSON escaped into attr 111. The
+ * SessionNew / EventStart packet is roughly 2*strlen(JSON) + ~115 bytes of
+ * framing/attrs, so the session/event JSON must satisfy that bound or
+ * SessionNew/EventStart returns TAI_ERR_MEM. Default 1024 ≈ 4x the largest
+ * packet the bundled examples build (~260 B) and fits JSON up to ~700 chars;
+ * raise it (e.g. 2048/4096) for richer session configs. */
+#ifndef TAI_TX_CTRL_BUF_SIZE
+#  define TAI_TX_CTRL_BUF_SIZE   1024U
 #endif
-#ifndef TAI_TX_FRAME_BUF_SIZE
-#  define TAI_TX_FRAME_BUF_SIZE  65600U   /* = max frame: 5 hdr + 65535 + 60 slack */
+/* Scatter-gather header buffer: [5-byte frame header][app header] for one
+ * frame. Bounds the application header (pkt byte + attr block + media/text
+ * header); the streamed payload is never copied here. */
+#ifndef TAI_TX_HDR_BUF_SIZE
+#  define TAI_TX_HDR_BUF_SIZE    256U
 #endif
 
 /* Maximum attributes decoded from a single packet */
@@ -90,8 +125,25 @@
 #  define TAI_MAX_ATTRS  32
 #endif
 
-/* Maximum bytes per transport fragment */
-#define TAI_MAX_FRAGMENT_PAYLOAD  32000U
+/* Max wall-clock the receive worker spends draining buffered frames before
+ * yielding to periodic ping / pong-timeout / shutdown checks. Bounds keepalive
+ * and shutdown latency under a sustained downstream flood; any leftover bytes
+ * stay buffered and are processed on the next loop iteration. */
+#ifndef TAI_DRAIN_BUDGET_MS
+#  define TAI_DRAIN_BUDGET_MS  150U
+#endif
+
+/* Upper bound on a single idle receive-block in the worker loop. The worker
+ * would otherwise block until the next ping is due (up to ping_interval_ms,
+ * default 60 s); capping it bounds how long tai_disconnect (running=0) waits for
+ * the worker to notice and exit, without depending on the PAL to cap its own
+ * recv timeout. Idle cost: the worker wakes ~1000/cap times per second to
+ * re-check; it does not affect inbound-data latency (recv returns as soon as
+ * bytes arrive). */
+#ifndef TAI_WORKER_POLL_CAP_MS
+#  define TAI_WORKER_POLL_CAP_MS  2000U
+#endif
+
 
 /* =========================================================================
  * Attribute type codes  (Appendix A)
@@ -194,9 +246,14 @@ struct tai_ctx {
     uint8_t  connected;
     uint8_t  session_open;
     uint8_t  event_open;
+    uint8_t  disconnect_emitted;         /* single-point: terminal on_disconnect fired this connection */
+    uint8_t  connecting;                 /* 1 during tai_connect's ack wait: suppress on_disconnect */
     uint16_t seq;                        /* outbound sequence counter */
     uint32_t event_seq;                  /* per-event text sequence counter */
     uint64_t last_pong_ms;               /* updated by dispatch on PONG */
+    uint64_t last_rx_ms;                 /* updated on any successful recv  */
+    int      session_ack;                /* confirmed-connect: -1=pending, 0=OK, >0=err */
+    uint32_t connect_timeout_ms;         /* SessionNew-ack wait in tai_connect */
     char     session_id[64];
     char     event_id[64];
 
@@ -213,6 +270,10 @@ struct tai_ctx {
     uint32_t rx_audio_sample_rate;
     uint16_t rx_audio_frame_duration;  /* ms */
     uint16_t rx_audio_frame_size;      /* bytes per Opus packet */
+    uint8_t  rx_audio_codec;           /* TAI_AUDIO_* from audio-params f[0]; 0=unknown */
+
+    /* Received turn id (attr 61) backing callback msg->event_id; "" if none */
+    char     rx_event_id[64];
 
     /* Crypto material */
     uint8_t encrypt_random[32];
@@ -229,12 +290,11 @@ struct tai_ctx {
      * serialises sender threads across multi-packet sequences. */
     void *mutex;
 
-    /* Receive callbacks */
-    void (*on_audio)(tai_ctx_t *, const uint8_t *, size_t,
-                     uint32_t, uint16_t, void *);
-    void (*on_text) (tai_ctx_t *, const char *, size_t, uint8_t, void *);
-    void (*on_event)(tai_ctx_t *, uint16_t, const uint8_t *, size_t, void *);
-    void (*on_disconnect)(tai_ctx_t *, uint16_t, void *);
+    /* Receive callbacks (struct-based; see tuya_ai.h) */
+    void (*on_audio)     (tai_ctx_t *, const tai_audio_msg_t      *, void *);
+    void (*on_text)      (tai_ctx_t *, const tai_text_msg_t       *, void *);
+    void (*on_event)     (tai_ctx_t *, const tai_event_msg_t      *, void *);
+    void (*on_disconnect)(tai_ctx_t *, const tai_disconnect_msg_t *, void *);
     void *user_data;
 
     /* RX linear buffer (sliding-window: bytes always at buf[0]) */
@@ -246,9 +306,16 @@ struct tai_ctx {
     size_t  frag_len;
     uint8_t frag_state;                  /* 0=idle, 1=assembling */
 
-    /* TX scratch buffers (serialise + frame before sending) */
-    uint8_t tx_app_buf[TAI_TX_APP_BUF_SIZE];
-    uint8_t tx_frame_buf[TAI_TX_FRAME_BUF_SIZE];
+    /* TX buffers (§6). Every packet — control and media — streams scatter-
+     * gather through send_app_sg: tx_hdr_buf holds the [5-byte frame header]
+     * [optional app header] for one merged write; the payload is signed and
+     * sent zero-copy from the caller's buffer; tx_sig holds the per-frame
+     * signature computed before any byte goes on the wire. tx_ctrl_buf
+     * assembles a control packet (its attribute block can carry the user
+     * session/event JSON) which is then sent as that zero-copy payload. */
+    uint8_t tx_ctrl_buf[TAI_TX_CTRL_BUF_SIZE];
+    uint8_t tx_hdr_buf[TAI_TX_HDR_BUF_SIZE];
+    uint8_t tx_sig[32];
 
     /* Background worker thread (auto-started by tai_connect) */
     void           *thread_handle;
@@ -357,6 +424,23 @@ int tai_unpack_event(uint8_t proto_ver,
 int tai_pack_media_hdr(uint8_t proto_ver, uint16_t data_id,
                         uint8_t stream_flag, uint64_t ts_ms,
                         uint8_t *buf, size_t buf_size);
+int tai_unpack_media_hdr(const uint8_t *buf, size_t len,
+                         uint16_t *data_id, uint8_t *stream_flag, uint64_t *ts_ms);
+
+/* Build a tai_disconnect_msg_t (copying ctx->session_id, setting
+ * connection_alive for SESSION_CLOSE) and fire ctx->on_disconnect once.
+ * Shared by the worker (single-point) and dispatch (SESSION_CLOSE, inline). */
+void tai_emit_disconnect(tai_ctx_t *ctx, uint8_t reason,
+                         uint8_t detail, uint16_t close_code);
+
+/* Fail-fast cause, RETURNED up the receive chain (dispatch -> process_app_packet
+ * -> tai_process_rx) to the worker, which owns the run loop and fires a single
+ * on_disconnect. Lower layers never touch connection-lifecycle state:
+ *   TAI_OK (0)                     no fatal — keep going
+ *   1 .. 0xFFFF (TAI_PROTO_ERR_*)  PROTOCOL fail-fast detail
+ *   TAI_RX_PEER_CLOSE | code       server CONNECTION_CLOSE; low 16 bits = close code
+ */
+#define TAI_RX_PEER_CLOSE  0x10000
 int tai_pack_text_hdr(uint8_t proto_ver, uint16_t data_id,
                        uint8_t stream_flag, uint32_t seq,
                        uint8_t *buf, size_t buf_size);
@@ -382,13 +466,19 @@ int    tai_frame_verify(const uint8_t *raw_frame, size_t frame_len,
                          uint8_t sig_len,
                          const uint8_t sign_key[32],
                          const pal_t *pal);
-int    tai_frame_fragment(const uint8_t *app_bytes, size_t app_len,
-                           uint16_t *seq_counter,
-                           const uint8_t sign_key[32], uint8_t sig_len,
-                           const pal_t *pal,
-                           uint8_t *scratch, size_t scratch_size,
-                           int (*send_fn)(const uint8_t *, size_t, void *),
-                           void *arg);
+
+/* A scatter-gather segment. The logical byte stream of a (fragment of a) frame
+ * is the concatenation segs[0] || segs[1] || … — used by the streaming send
+ * path to sign and emit a frame without first assembling it contiguously. */
+typedef struct { const uint8_t *p; size_t len; } tai_seg_t;
+
+/* HMAC (Section 6.4) over the logical concatenation of segs[0..nseg). Produces
+ * byte-for-byte the same signature as signing that concatenation contiguously:
+ * total <= 64 signs the whole stream, else signs logical [0,32) + [total-32,
+ * total). out_sig must have room for sig_len bytes. */
+int    tai_frame_hmac_sg(const tai_seg_t *segs, int nseg,
+                         const uint8_t sign_key[32], uint8_t sig_len,
+                         uint8_t *out_sig);
 
 /*
  * tai_crypto.c
@@ -399,7 +489,7 @@ int tai_hmac_sha256(const uint8_t *key, size_t key_len,
 int tai_hkdf_sha256(const uint8_t *ikm, size_t ikm_len,
                     const uint8_t *salt, size_t salt_len,
                     uint8_t *out, size_t out_len);
-int tai_random_bytes(uint8_t *buf, size_t len);
+int tai_random_bytes(const pal_t *pal, uint8_t *buf, size_t len);
 int tai_crypto_derive_keys(uint8_t proto_ver,
                             const uint8_t *ikm,  size_t ikm_len,
                             const uint8_t *encrypt_random, size_t rand_len,
@@ -433,25 +523,25 @@ int tai_proto_build_event_end    (tai_ctx_t *ctx,
                                   uint8_t *buf, size_t buf_size);
 int tai_proto_build_event_chat_break(tai_ctx_t *ctx,
                                       uint8_t *buf, size_t buf_size);
-int tai_proto_build_audio(tai_ctx_t *ctx,
-                           uint16_t data_id, uint8_t stream_flag,
-                           uint8_t codec, uint8_t channels,
-                           uint8_t bit_depth, uint32_t sample_rate,
-                           const uint8_t *pcm, size_t pcm_len,
-                           uint8_t *buf, size_t buf_size);
-int tai_proto_build_text (tai_ctx_t *ctx,
-                           uint16_t data_id, uint8_t stream_flag, uint32_t seq,
-                           const char *text, size_t text_len,
-                           uint8_t *buf, size_t buf_size);
-int tai_proto_build_image(tai_ctx_t *ctx,
-                           uint16_t data_id, uint8_t stream_flag,
-                           uint8_t format, uint16_t width, uint16_t height,
-                           const uint8_t *data, size_t data_len,
-                           uint8_t *buf, size_t buf_size);
+/* Header-only builders for the scatter-gather send path (§6): each writes only
+ * [pkt byte][attr block][media/text header] into buf; the large payload (pcm /
+ * text / image / json) stays in the caller's buffer and is streamed separately
+ * by send_app_sg — no payload copy, no malloc. */
+int tai_proto_build_audio_hdr(tai_ctx_t *ctx,
+                              uint16_t data_id, uint8_t stream_flag,
+                              uint8_t codec, uint8_t channels,
+                              uint8_t bit_depth, uint32_t sample_rate,
+                              size_t pcm_len,
+                              uint8_t *buf, size_t buf_size);
+int tai_proto_build_text_hdr(tai_ctx_t *ctx,
+                             uint16_t data_id, uint8_t stream_flag, uint32_t seq,
+                             uint8_t *buf, size_t buf_size);
+int tai_proto_build_image_hdr(tai_ctx_t *ctx,
+                              uint16_t data_id, uint8_t stream_flag,
+                              uint8_t format, uint16_t width, uint16_t height,
+                              uint8_t *buf, size_t buf_size);
+int tai_proto_build_mcp_hdr(tai_ctx_t *ctx, uint8_t *buf, size_t buf_size);
 int tai_proto_build_ping (tai_ctx_t *ctx, uint8_t *buf, size_t buf_size);
-int tai_proto_build_mcp_response(tai_ctx_t *ctx,
-                                  const char *json_rpc,
-                                  uint8_t *buf, size_t buf_size);
 int tai_proto_dispatch   (tai_ctx_t *ctx,
                            uint8_t pkt_type,
                            const tai_attr_t *attrs, int attr_count,
@@ -473,6 +563,7 @@ static inline uint16_t tai_next_seq(tai_ctx_t *ctx) {
 static inline const char *tai_pkt_type_name(uint8_t t) {
     switch (t) {
     case TAI_PKT_CLIENT_HELLO:             return "ClientHello";
+    case TAI_PKT_AUTHENTICATE_RESPONSE:    return "AuthResp";
     case TAI_PKT_PING:                     return "Ping";
     case TAI_PKT_PONG:                     return "Pong";
     case TAI_PKT_CONNECTION_CLOSE:         return "ConnClose";

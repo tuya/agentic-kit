@@ -7,13 +7,12 @@
 
 #include "tls.h"
 #include "log.h"
+#include "rng.h"
 
 #include <string.h>
 #include <stdio.h>
 
 #include "mbedtls/ssl.h"
-#include "mbedtls/ctr_drbg.h"
-#include "mbedtls/entropy.h"
 #include "mbedtls/x509_crt.h"
 #include "mbedtls/error.h"
 #include "mbedtls/net_sockets.h"
@@ -36,32 +35,17 @@ struct tls_conn {
 };
 
 /* =========================================================================
- * Process-wide DRBG -- lazily seeded, shared by every connection's handshake.
+ * RNG callback for the TLS handshake.
  *
- * The guard mutex is created on first use.  Both current consumers issue their
- * first tls_connect() before spawning the threads that later share a
- * connection, so the one-time guard creation itself is never contended.
+ * Forwards to the shared process-wide CTR-DRBG (common/rng.c), which mbedTLS
+ * seeds once from the platform entropy source and then expands cheaply -- the
+ * right shape for the many f_rng calls a handshake makes. The f_rng ctx carries
+ * the pal (set via mbedtls_ssl_conf_rng below) so rng_bytes() can lock the DRBG.
  * ========================================================================= */
-static mbedtls_entropy_context  g_entropy;
-static mbedtls_ctr_drbg_context g_drbg;
-static int                      g_drbg_ready = 0;
-static void                    *g_drbg_lock  = NULL;
-
-static mbedtls_ctr_drbg_context *tls_drbg(const pal_t *pal)
+static int tls_rng(void *ctx, unsigned char *buf, size_t len)
 {
-    if (!g_drbg_lock) g_drbg_lock = pal->mutex_create();
-    if (g_drbg_lock) pal->mutex_lock(g_drbg_lock);
-    if (!g_drbg_ready) {
-        mbedtls_entropy_init(&g_entropy);
-        mbedtls_ctr_drbg_init(&g_drbg);
-        static const unsigned char pers[] = "agentic_kit_tls";
-        if (mbedtls_ctr_drbg_seed(&g_drbg, mbedtls_entropy_func, &g_entropy,
-                                  pers, sizeof(pers) - 1) == 0) {
-            g_drbg_ready = 1;
-        }
-    }
-    if (g_drbg_lock) pal->mutex_unlock(g_drbg_lock);
-    return g_drbg_ready ? &g_drbg : NULL;
+    const pal_t *pal = (const pal_t *)ctx;
+    return rng_bytes(pal, buf, len) == 0 ? 0 : -1;
 }
 
 const int *tls_ciphersuites_tuya_default(void)
@@ -152,13 +136,15 @@ tls_t *tls_connect(const tls_config_t *cfg)
             size_t pem_len = strlen(cfg->cacert) + 64 + 2;
             char *pem = (char *)pal->malloc(pem_len);
             if (!pem) goto fail;
-            memset(pem, 0, pem_len);
-            snprintf(pem, pem_len,
+            /* snprintf NUL-terminates and returns the body length, so there is
+             * no need to pre-zero the buffer or re-strlen it. */
+            int wn = snprintf(pem, pem_len,
                      "-----BEGIN CERTIFICATE-----\n%s\n-----END CERTIFICATE-----\n",
                      cfg->cacert);
+            if (wn < 0 || (size_t)wn >= pem_len) { pal->free(pem); goto fail; }
             pret = mbedtls_x509_crt_parse(&t->ca_chain,
                                           (const unsigned char *)pem,
-                                          strlen(pem) + 1);
+                                          (size_t)wn + 1);  /* +1: parser wants the NUL */
             pal->free(pem);
         }
         if (pret != 0) {
@@ -180,9 +166,7 @@ tls_t *tls_connect(const tls_config_t *cfg)
                                     MBEDTLS_SSL_PRESET_DEFAULT) != 0)
         goto fail;
 
-    mbedtls_ctr_drbg_context *drbg = tls_drbg(pal);
-    if (!drbg) { log_emit(LOG_ERROR, "[tls] DRBG seed failed"); goto fail; }
-    mbedtls_ssl_conf_rng(&t->conf, mbedtls_ctr_drbg_random, drbg);
+    mbedtls_ssl_conf_rng(&t->conf, tls_rng, (void *)t->pal);  /* ctx = pal for rng_bytes lock */
 
     if (cfg->force_tls12) {
 #if MBEDTLS_VERSION_MAJOR >= 3
@@ -227,17 +211,38 @@ tls_t *tls_connect(const tls_config_t *cfg)
                         tls_bio_send, tls_bio_recv, tls_bio_recv_timeout);
 
     /* Handshake.  BIO is non-blocking, so WANT_READ/WANT_WRITE means "no data
-     * yet" -- poll the socket before retrying instead of busy-looping. */
+     * yet" -- poll the socket before retrying instead of busy-looping.  Bounded
+     * by an overall deadline: a peer that completes the TCP connect but stalls
+     * the handshake (never progresses past WANT_READ) must not hang the caller
+     * forever, so fail once handshake_timeout_ms elapses. */
+    uint32_t hs_timeout = cfg->handshake_timeout_ms ? cfg->handshake_timeout_ms
+                                                    : TLS_DEFAULT_HANDSHAKE_TIMEOUT_MS;
+    uint64_t hs_start = pal->time_ms();
     int ret;
-    do {
+    for (;;) {
         ret = mbedtls_ssl_handshake(&t->ssl);
-        if (ret == MBEDTLS_ERR_SSL_WANT_READ) {
-            pal->tcp_poll(t->tcp_handle, 1, 100);
-        } else if (ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
-            pal->tcp_poll(t->tcp_handle, 2, 100);
+        if (ret != MBEDTLS_ERR_SSL_WANT_READ &&
+            ret != MBEDTLS_ERR_SSL_WANT_WRITE)
+            break;
+
+        uint64_t elapsed = pal->time_ms() - hs_start;
+        if (elapsed >= hs_timeout) {
+            log_emit(LOG_ERROR, "[tls] handshake to %s:%u timed out after %ums",
+                     cfg->host, (unsigned)cfg->port, (unsigned)hs_timeout);
+            goto fail;
         }
-    } while (ret == MBEDTLS_ERR_SSL_WANT_READ ||
-             ret == MBEDTLS_ERR_SSL_WANT_WRITE);
+        /* Cap the poll wait to the remaining budget so we never overshoot. */
+        uint32_t remaining = (uint32_t)(hs_timeout - elapsed);
+        uint32_t poll_ms = remaining < 100 ? remaining : 100;
+        int ev = (ret == MBEDTLS_ERR_SSL_WANT_READ) ? 1 : 2;
+        /* <0 is a socket error: fail fast instead of re-polling a dead fd until
+         * the deadline (which would burn CPU on a tight retry loop). */
+        if (pal->tcp_poll(t->tcp_handle, ev, poll_ms) < 0) {
+            log_emit(LOG_ERROR, "[tls] handshake poll error on %s:%u",
+                     cfg->host, (unsigned)cfg->port);
+            goto fail;
+        }
+    }
     if (ret != 0) {
         log_emit(LOG_ERROR, "[tls] handshake failed to %s:%u: -0x%04X",
                  cfg->host, (unsigned)cfg->port, (unsigned)-ret);
@@ -248,9 +253,21 @@ tls_t *tls_connect(const tls_config_t *cfg)
      * result on the optional path for diagnostics. */
     if (!has_ca && cfg->verify == TLS_VERIFY_OPTIONAL) {
         uint32_t flags = mbedtls_ssl_get_verify_result(&t->ssl);
-        if (flags != 0)
-            log_emit(LOG_WARN, "[tls] peer certificate not verified (0x%08X)",
-                     (unsigned)flags);
+        if (flags != 0) {
+            /* Decode the flag bits into human-readable reasons (CN mismatch,
+             * expired, untrusted chain, ...) so cert failures are diagnosable
+             * in production, not just an opaque hex code. */
+            char vrfy_buf[512];
+            int vn = mbedtls_x509_crt_verify_info(vrfy_buf, sizeof(vrfy_buf),
+                                                  "  ! ", flags);
+            if (vn > 0)
+                log_emit(LOG_WARN,
+                         "[tls] peer certificate not verified (0x%08X):\n%s",
+                         (unsigned)flags, vrfy_buf);
+            else
+                log_emit(LOG_WARN, "[tls] peer certificate not verified (0x%08X)",
+                         (unsigned)flags);
+        }
     }
 
     log_emit(LOG_INFO, "[tls] connected to %s:%u (%s, %s)",

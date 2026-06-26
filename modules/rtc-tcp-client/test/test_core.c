@@ -16,6 +16,7 @@
 
 /* Pull in the full internal header so we can call internal functions */
 #include "../src/tai_internal.h"
+#include "rng.h"
 
 /* -------------------------------------------------------------------------
  * Minimal stub PAL.  TLS and crypto are no longer PAL responsibilities --
@@ -24,6 +25,13 @@
 static uint64_t stub_time(void) { return 1700000000000ULL; }
 static void *stub_malloc(size_t s) { return malloc(s); }
 static void  stub_free(void *p)    { free(p); }
+/* Trivial single-threaded mutex stubs: the unit tests run on one thread, but
+ * rng_init() now requires a pal that can create a mutex. */
+static int   g_stub_mutex;
+static void *stub_mutex_create(void)    { return &g_stub_mutex; }
+static void  stub_mutex_lock(void *h)   { (void)h; }
+static void  stub_mutex_unlock(void *h) { (void)h; }
+static void  stub_mutex_destroy(void *h){ (void)h; }
 
 static const pal_t g_stub_pal = {
     .tcp_connect      = NULL,
@@ -34,10 +42,10 @@ static const pal_t g_stub_pal = {
     .time_ms          = stub_time,
     .malloc           = stub_malloc,
     .free             = stub_free,
-    .mutex_create     = NULL,
-    .mutex_lock       = NULL,
-    .mutex_unlock     = NULL,
-    .mutex_destroy    = NULL,
+    .mutex_create     = stub_mutex_create,
+    .mutex_lock       = stub_mutex_lock,
+    .mutex_unlock     = stub_mutex_unlock,
+    .mutex_destroy    = stub_mutex_destroy,
     .thread_create    = NULL,
     .thread_join      = NULL,
 };
@@ -277,62 +285,6 @@ static void test_transport(void)
 }
 
 /* -------------------------------------------------------------------------
- * 6. Transport fragmentation
- * ------------------------------------------------------------------------- */
-typedef struct { uint8_t *buf; size_t total; int calls; } frag_capture_t;
-
-static int capture_send(const uint8_t *buf, size_t len, void *arg)
-{
-    frag_capture_t *c = (frag_capture_t *)arg;
-    memcpy(c->buf + c->total, buf, len);
-    c->total += len;
-    c->calls++;
-    return TAI_OK;
-}
-
-static void test_fragmentation(void)
-{
-    printf("\n[fragmentation]\n");
-
-    /* Build payload larger than TAI_MAX_FRAGMENT_PAYLOAD (32000 bytes) */
-    size_t big = 70000;
-    uint8_t *app = (uint8_t *)malloc(big);
-    for (size_t i = 0; i < big; i++) app[i] = (uint8_t)(i & 0xFF);
-
-    /* Scratch and capture buffers */
-    uint8_t scratch[TAI_TX_FRAME_BUF_SIZE];
-    uint8_t *captured = (uint8_t *)malloc(big + 4096);
-    frag_capture_t cap = { captured, 0, 0 };
-
-    uint8_t sign_key[32]; memset(sign_key, 0x55, 32);
-    uint16_t seq = 0;
-
-    TEST("fragment 70000-byte payload (sig_len=32)");
-    int rc = tai_frame_fragment(app, big, &seq, sign_key, 32, &g_stub_pal,
-                                 scratch, sizeof(scratch), capture_send, &cap);
-    CHECK(rc == TAI_OK);
-    /* 70000 / 32000 = 3 fragments (32000 + 32000 + 6000) */
-    CHECK(cap.calls == 3);
-    PASS();
-
-    TEST("fragment flags: FIRST, MIDDLE, LAST");
-    /* Inspect frag flags in the captured stream */
-    /* Frame 1: offset 0, flags byte[0] */
-    uint8_t f1 = (captured[0] >> 6) & 0x03;
-    /* Frame 2 starts at 5 + 32000 + 32 = 32037 */
-    uint8_t f2 = (captured[32037] >> 6) & 0x03;
-    /* Frame 3 starts at 32037 + 5 + 32000 + 32 = 64074 */
-    uint8_t f3 = (captured[64074] >> 6) & 0x03;
-    CHECK(f1 == TAI_FRAG_FIRST);
-    CHECK(f2 == TAI_FRAG_MIDDLE);
-    CHECK(f3 == TAI_FRAG_LAST);
-    PASS();
-
-    free(app);
-    free(captured);
-}
-
-/* -------------------------------------------------------------------------
  * 7. Packet payload helpers
  * ------------------------------------------------------------------------- */
 static void test_payloads(void)
@@ -455,7 +407,7 @@ static void test_proto_client_hello(void)
                                 &payload, &payload_len);
     CHECK(rc == TAI_OK);
     CHECK(pkt_type == TAI_PKT_CLIENT_HELLO);
-    CHECK(nattrs == 4);
+    CHECK(nattrs == 5);
     /* Attr 0: client-type */
     const tai_attr_t *ct = tai_attr_find(attrs, nattrs, TAI_ATTR_CLIENT_TYPE);
     CHECK(ct && tai_attr_u8(ct) == TAI_CLIENT_DEVICE);
@@ -466,6 +418,9 @@ static void test_proto_client_hello(void)
     /* Remaining 32 bytes should be our fixed encrypt_random */
     uint8_t expected_random[32]; memset(expected_random, 0xBB, 32);
     CHECK(memcmp(ss->value + 1, expected_random, 32) == 0);
+    /* Attr: max-fragment-len = TAI_MAX_FRAGMENT_PAYLOAD */
+    const tai_attr_t *mf = tai_attr_find(attrs, nattrs, TAI_ATTR_MAX_FRAGMENT_LEN);
+    CHECK(mf && tai_attr_u32(mf) == TAI_MAX_FRAGMENT_PAYLOAD);
     PASS();
 
     TEST("build_session_new");
@@ -513,20 +468,96 @@ static void test_proto_client_hello(void)
 }
 
 /* -------------------------------------------------------------------------
+ * 9. Scatter-gather HMAC (§6.1) — golden-standard parity test.
+ *
+ * tai_frame_hmac_sg signs a frame whose [frame-header || app-header || payload]
+ * live in separate buffers. It MUST produce byte-for-byte the same signature as
+ * signing that concatenation contiguously. We compare it against an independent
+ * contiguous reference across a matrix that straddles every boundary the
+ * Section-6.4 first-32/last-32 rule cares about (total around 64; app-header
+ * spanning the first 32; payload slice shorter than 32).
+ * ------------------------------------------------------------------------- */
+static void hmac_ref(const uint8_t *buf, size_t total,
+                     const uint8_t key[32], uint8_t sig_len, uint8_t *out)
+{
+    uint8_t data[64];
+    size_t  dlen;
+    if (total <= 64) {
+        memcpy(data, buf, total);
+        dlen = total;
+    } else {
+        memcpy(data, buf, 32);
+        memcpy(data + 32, buf + total - 32, 32);
+        dlen = 64;
+    }
+    uint8_t full[32];
+    tai_hmac_sha256(key, 32, data, dlen, full);
+    memcpy(out, full, sig_len);
+}
+
+static void test_hmac_sg(void)
+{
+    TEST("frame_hmac_sg matches contiguous (golden matrix)");
+
+    uint8_t key[32];
+    for (int i = 0; i < 32; i++) key[i] = (uint8_t)(0x10 + i);
+
+    const size_t  ah_lens[] = { 0, 1, 9, 27, 32, 33 };
+    const size_t  pl_lens[] = { 0, 1, 27, 31, 32, 33, 64, 32000 };
+    const uint8_t sigs[]    = { 0, 20, 32 };
+
+    static uint8_t app_hdr[64];
+    static uint8_t payload[32000];
+    static uint8_t contig[5 + 64 + 32000];
+    for (size_t i = 0; i < sizeof(app_hdr); i++) app_hdr[i] = (uint8_t)(i * 3 + 1);
+    for (size_t i = 0; i < sizeof(payload); i++) payload[i] = (uint8_t)(i * 7 + 2);
+
+    uint8_t frame_hdr[5] = { 0x82, 0x00, 0x01, 0xAB, 0xCD };
+
+    int mismatches = 0, errors = 0;
+    for (size_t ai = 0; ai < sizeof(ah_lens)/sizeof(ah_lens[0]); ai++)
+    for (size_t pi = 0; pi < sizeof(pl_lens)/sizeof(pl_lens[0]); pi++)
+    for (size_t si = 0; si < sizeof(sigs)/sizeof(sigs[0]); si++) {
+        size_t  ahl = ah_lens[ai], pll = pl_lens[pi];
+        uint8_t sl  = sigs[si];
+
+        size_t total = 5 + ahl + pll;
+        memcpy(contig, frame_hdr, 5);
+        memcpy(contig + 5, app_hdr, ahl);
+        memcpy(contig + 5 + ahl, payload, pll);
+
+        uint8_t ref[32] = {0}, got[32] = {0};
+        if (sl) hmac_ref(contig, total, key, sl, ref);
+
+        /* 3 logical segments + an empty one in the middle (zero-length seg). */
+        tai_seg_t segs[4] = {
+            { frame_hdr, 5 }, { app_hdr, ahl }, { NULL, 0 }, { payload, pll }
+        };
+        if (tai_frame_hmac_sg(segs, 4, key, sl, got) != TAI_OK) errors++;
+        if (sl && memcmp(ref, got, sl) != 0) mismatches++;
+    }
+    CHECK(errors == 0);
+    CHECK(mismatches == 0);
+    PASS();
+}
+
+/* -------------------------------------------------------------------------
  * main
  * ------------------------------------------------------------------------- */
 int main(void)
 {
     printf("=== Tuya AI Foundation — unit tests ===\n");
 
+    rng_init(&g_stub_pal);   /* seed the shared DRBG (stub pal supplies the mutex) */
+
     test_varint();
     test_attrs_v21();
     test_packet_v21();
     test_transport();
-    test_fragmentation();
     test_payloads();
     test_crypto();
     test_proto_client_hello();
+    test_hmac_sg();
 
     printf("\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

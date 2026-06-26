@@ -8,7 +8,6 @@ set(AK_SRCS
     ${AK_DIR}/modules/rtc-tcp-client/src/tai_packet.c
     ${AK_DIR}/modules/rtc-tcp-client/src/tai_pkt_log.c
     ${AK_DIR}/modules/rtc-tcp-client/src/tai_protocol.c
-    ${AK_DIR}/modules/rtc-tcp-client/src/tai_tls.c
     ${AK_DIR}/modules/rtc-tcp-client/src/tai_transport.c
 
     # iot-client
@@ -26,9 +25,11 @@ set(AK_SRCS
     # tuya-ble
     ${AK_DIR}/modules/tuya-ble/src/tuya_ble_prov.c
 
-    # PAL (FreeRTOS+lwIP) and common log facade
+    # PAL (FreeRTOS+lwIP) and shared common transport / log / RNG
     ${AK_DIR}/pal/pal_freertos.c
+    ${AK_DIR}/common/tls.c
     ${AK_DIR}/common/log.c
+    ${AK_DIR}/common/rng.c
 
     # vendored coreHTTP
     ${AK_DIR}/third_party/coreHTTP/source/core_http_client.c

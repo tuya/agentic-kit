@@ -152,7 +152,7 @@ static void internal_message_callback(const char *topic, size_t topic_len,
         decrypted = (uint8_t *)pal->malloc(final_len);
         if (decrypted) {
             // Use first 16 bytes of authkey as decryption key
-            int ret = pv23_decrypt(final_payload, final_len,
+            int ret = pv23_decrypt(pal, final_payload, final_len,
                                   (const uint8_t *)authkey,
                                   decrypted, &decrypted_len);
             if (ret == 0) {

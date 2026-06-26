@@ -25,6 +25,7 @@
 
 #include "tuya_ai.h"
 #include "iot_client.h"
+#include "demo_reconnect.h"
 
 extern const pal_t *tai_pal_posix(void);
 
@@ -36,9 +37,12 @@ extern const pal_t *tai_pal_posix(void);
 
 #define MAX_WAIT_MS 60000
 
-/* -- Globals ------------------------------------------------------------ */
+/* -- Demo context ------------------------------------------------------- */
 
-static volatile int g_done = 0;
+typedef struct {
+    volatile int     got_done;   /* the AI response completed (TAI_EVT_END)  */
+    demo_reconnect_t reconn;      /* app-side reconnect policy/state          */
+} demo_ctx_t;
 
 /* -------------------------------------------------------------------------
  * Minimal JSON helpers
@@ -221,14 +225,13 @@ static const char *nlg_extract_content(const char *text, size_t len,
  * TAI callbacks
  * ------------------------------------------------------------------------- */
 
-static void on_text(tai_ctx_t *ctx, const char *text, size_t len,
-                    uint8_t stream_flag, void *ud)
+static void on_text(tai_ctx_t *ctx, const tai_text_msg_t *msg, void *ud)
 {
-    (void)ctx; (void)ud; (void)stream_flag;
+    (void)ctx; (void)ud;
 
     /* For NLG lines, print only the content field. */
     size_t clen = 0;
-    const char *content = nlg_extract_content(text, len, &clen);
+    const char *content = nlg_extract_content(msg->text, msg->len, &clen);
     if (content && clen > 0) {
         fwrite(content, 1, clen, stdout);
         fflush(stdout);
@@ -236,26 +239,22 @@ static void on_text(tai_ctx_t *ctx, const char *text, size_t len,
     }
 
     /* Non-NLG text: print raw. */
-    fwrite(text, 1, len, stdout);
+    fwrite(msg->text, 1, msg->len, stdout);
     fputc('\n', stdout);
     fflush(stdout);
 }
 
-static void on_audio(tai_ctx_t *ctx, const uint8_t *data, size_t len,
-                     uint32_t sample_rate, uint16_t frame_duration,
-                     void *ud)
+static void on_audio(tai_ctx_t *ctx, const tai_audio_msg_t *msg, void *ud)
 {
-    (void)ctx; (void)data; (void)len; (void)ud;
-    (void)sample_rate; (void)frame_duration;
+    (void)ctx; (void)msg; (void)ud;
 }
 
-static void on_event(tai_ctx_t *ctx, uint16_t event_type,
-                     const uint8_t *data, size_t len, void *ud)
+static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *ud)
 {
-    (void)ud;
-    if (event_type == TAI_EVT_END) {
-        g_done = 1;
-    } else if (event_type == TAI_EVT_MCP_CMD) {
+    demo_ctx_t *dc = (demo_ctx_t *)ud;
+    if (msg->event_type == TAI_EVT_END) {
+        dc->got_done = 1;
+    } else if (msg->event_type == TAI_EVT_MCP_CMD) {
         /* Minimal MCP response: empty tools list */
         const char *empty_result =
             "{\"jsonrpc\":\"2.0\",\"id\":1,"
@@ -264,11 +263,14 @@ static void on_event(tai_ctx_t *ctx, uint16_t event_type,
     }
 }
 
-static void on_disconnect(tai_ctx_t *ctx, uint16_t code, void *ud)
+static void on_disconnect(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *ud)
 {
-    (void)ctx; (void)ud;
-    fprintf(stderr, "\n[disconnected: code=%u]\n", (unsigned)code);
-    g_done = 1;
+    (void)ctx;
+    demo_ctx_t *dc = (demo_ctx_t *)ud;
+    fprintf(stderr, "\n[disconnected: reason=%u close_code=%u]\n",
+            (unsigned)msg->reason, (unsigned)msg->close_code);
+    /* Runs on the worker thread: only flag — the main loop reconnects. */
+    demo_reconnect_signal(&dc->reconn, msg->reason, msg->close_code);
 }
 
 /* -------------------------------------------------------------------------
@@ -333,6 +335,9 @@ int main(int argc, char *argv[])
     /* ---- 4. Build TAI context ------------------------------------------ */
     const pal_t *pal = tai_pal_posix();
 
+    demo_ctx_t dc;
+    memset(&dc, 0, sizeof(dc));
+
     static const char SESSION_ATTRS[] =
         "{\"deviceMcp\":{\"supportCustomMCP\":true}}";
     static const char EVENT_USER_DATA[] =
@@ -357,6 +362,7 @@ int main(int argc, char *argv[])
         .on_audio          = on_audio,
         .on_event          = on_event,
         .on_disconnect     = on_disconnect,
+        .user_data         = &dc,
     };
 
     void *ctx_buf = pal->malloc(tai_ctx_size());
@@ -367,35 +373,82 @@ int main(int argc, char *argv[])
 
     tai_set_log_level(TAI_LOG_WARN);
 
-    /* ---- 5. Connect ---------------------------------------------------- */
-    printf("[main] Connecting to TAI server...\n");
-    int rc = tai_connect(ctx);
-    if (rc != TAI_OK) {
-        fprintf(stderr, "tai_connect failed: %d\n", rc);
-        tai_ctx_deinit(ctx); pal->free(ctx_buf);
-        return 1;
-    }
-    printf("[main] Connected.\n\n");
-
-    /* ---- 6. Send a text query ------------------------------------------ */
+    /* ---- 5-7. Connect, send, await response — with app-driven reconnect --
+     *
+     * on_disconnect runs on the worker thread and only flags dc.reconn (it must
+     * not self-disconnect). This owning thread does tai_disconnect() +
+     * tai_connect() with exponential backoff + a circuit breaker — the correct
+     * response to the fail-fast model (see demo_reconnect.h). */
     const char *question = "Hello, how are you?";
-    printf("[main] Sending text: \"%s\"\nResponse: ", question);
-    fflush(stdout);
+    int done = 0;
+    while (!done) {
+        printf("[main] Connecting to TAI server...\n");
+        int rc = tai_connect(ctx);
+        if (rc != TAI_OK) {
+            fprintf(stderr, "tai_connect failed: %d\n", rc);
+            if (demo_reconnect_tripped(&dc.reconn)) {
+                fprintf(stderr, "[main] circuit breaker: giving up after %d attempts\n",
+                        dc.reconn.attempt);
+                goto cleanup;
+            }
+            uint32_t delay = demo_reconnect_delay_ms(&dc.reconn);
+            fprintf(stderr, "[main] retry connect in %u ms (attempt %d)\n",
+                    delay, dc.reconn.attempt + 1);
+            usleep(delay * 1000);
+            dc.reconn.attempt++;
+            dc.reconn.need_reconnect = 0;
+            continue;
+        }
+        demo_reconnect_ok(&dc.reconn);
+        printf("[main] Connected.\n\n");
 
-    rc = tai_send_text(ctx, question, strlen(question));
-    if (rc != TAI_OK) {
-        fprintf(stderr, "tai_send_text failed: %d\n", rc);
-        goto cleanup;
-    }
+        /* ---- 6. Send a text query -------------------------------------- */
+        printf("[main] Sending text: \"%s\"\nResponse: ", question);
+        fflush(stdout);
 
-    /* ---- 7. Wait for AI response --------------------------------------- */
-    int waited = 0;
-    while (!g_done && waited < MAX_WAIT_MS) {
-        usleep(100 * 1000);
-        waited += 100;
+        rc = tai_send_text(ctx, question, strlen(question));
+        if (rc == TAI_OK) {
+            /* ---- 7. Wait for AI response (or a disconnect) ------------- */
+            int waited = 0;
+            while (!dc.got_done && !dc.reconn.need_reconnect && waited < MAX_WAIT_MS) {
+                usleep(100 * 1000);
+                waited += 100;
+            }
+        } else {
+            /* An app-thread send failure is reported synchronously here — the
+             * SDK does NOT fire on_disconnect for it (only the worker's own
+             * ping does). The TX stream may be desynced, so treat it as a
+             * transport fault: request a reconnect so the teardown path below
+             * rebuilds the link instead of exiting as a benign timeout. */
+            fprintf(stderr, "tai_send_text failed: %d\n", rc);
+            demo_reconnect_signal(&dc.reconn, TAI_DISCONNECT_TRANSPORT, 0);
+        }
+
+        if (dc.got_done) {
+            done = 1;                                  /* got the full response */
+        } else if (!dc.reconn.need_reconnect) {
+            printf("\n[main] Timed out after %d s\n", MAX_WAIT_MS / 1000);
+            done = 1;                                  /* timeout, link still up */
+        } else {
+            /* Dropped mid-flow: tear down on this (owning) thread, back off,
+             * then loop to reconnect and re-send. */
+            fprintf(stderr, "\n[main] disconnected (reason=%u code=%u)\n",
+                    dc.reconn.reason, dc.reconn.close_code);
+            tai_disconnect(ctx);
+            if (demo_reconnect_tripped(&dc.reconn)) {
+                fprintf(stderr, "[main] circuit breaker: giving up after %d attempts\n",
+                        dc.reconn.attempt);
+                done = 1;
+            } else {
+                uint32_t delay = demo_reconnect_delay_ms(&dc.reconn);
+                fprintf(stderr, "[main] reconnect in %u ms (attempt %d)\n",
+                        delay, dc.reconn.attempt + 1);
+                usleep(delay * 1000);
+                dc.reconn.attempt++;
+                dc.reconn.need_reconnect = 0;
+            }
+        }
     }
-    if (!g_done)
-        printf("\n[main] Timed out after %d s\n", MAX_WAIT_MS / 1000);
 
 cleanup:
     /* ---- 8. Shutdown --------------------------------------------------- */
@@ -404,5 +457,5 @@ cleanup:
     pal->free(ctx_buf);
 
     printf("\nDone.\n");
-    return g_done ? 0 : 1;
+    return dc.got_done ? 0 : 1;
 }

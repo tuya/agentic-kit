@@ -103,6 +103,7 @@ set(COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/common")
 add_library(agentic_kit_common STATIC
     "${COMMON_DIR}/log.c"
     "${COMMON_DIR}/tls.c"
+    "${COMMON_DIR}/rng.c"
 )
 target_include_directories(agentic_kit_common PUBLIC
     "${COMMON_DIR}"

@@ -5,9 +5,14 @@
 #include "cipher_wrapper.h"
 #include "iot_client.h"
 #include "iot_config_defaults.h"
+#include "rng.h"
 
 static int tests_run = 0;
 static int tests_passed = 0;
+
+/* Real pal so rng_init()/rng_bytes() have a working mutex (rng now requires
+ * one). The built-in default pal is fine for this single-threaded test. */
+static const pal_t *g_test_pal;
 
 #define RUN_TEST(fn)                                       \
     do {                                                   \
@@ -26,15 +31,16 @@ static int test_random_bytes(void)
     uint8_t buf1[32] = {0};
     uint8_t buf2[32] = {0};
 
-    int ret = iot_random_bytes(buf1, sizeof(buf1));
+    /* rng_init(NULL) above => no mutex; pal arg is unused, pass NULL. */
+    int ret = rng_bytes(g_test_pal, buf1, sizeof(buf1));
     if (ret != 0) {
-        printf("  iot_random_bytes failed: %d\n", ret);
+        printf("  rng_bytes failed: %d\n", ret);
         return -1;
     }
 
-    ret = iot_random_bytes(buf2, sizeof(buf2));
+    ret = rng_bytes(g_test_pal, buf2, sizeof(buf2));
     if (ret != 0) {
-        printf("  second iot_random_bytes failed: %d\n", ret);
+        printf("  second rng_bytes failed: %d\n", ret);
         return -1;
     }
 
@@ -104,7 +110,7 @@ static int test_pv23_encrypt_decrypt_roundtrip(void)
     uint8_t encrypted[256];
     size_t encrypted_len = 0;
 
-    int ret = pv23_encrypt((const uint8_t *)plaintext, plaintext_len,
+    int ret = pv23_encrypt(g_test_pal, (const uint8_t *)plaintext, plaintext_len,
                            key, encrypted, &encrypted_len);
     if (ret != 0) {
         printf("  pv23_encrypt failed: %d\n", ret);
@@ -126,7 +132,7 @@ static int test_pv23_encrypt_decrypt_roundtrip(void)
     uint8_t decrypted[256];
     size_t decrypted_len = 0;
 
-    ret = pv23_decrypt(encrypted, encrypted_len, key, decrypted, &decrypted_len);
+    ret = pv23_decrypt(g_test_pal, encrypted, encrypted_len, key, decrypted, &decrypted_len);
     if (ret != 0) {
         printf("  pv23_decrypt failed: %d\n", ret);
         return -1;
@@ -154,7 +160,7 @@ static int test_pv23_decrypt_wrong_key(void)
     uint8_t encrypted[256];
     size_t encrypted_len = 0;
 
-    int ret = pv23_encrypt((const uint8_t *)plaintext, strlen(plaintext),
+    int ret = pv23_encrypt(g_test_pal, (const uint8_t *)plaintext, strlen(plaintext),
                            key, encrypted, &encrypted_len);
     if (ret != 0) {
         printf("  pv23_encrypt failed: %d\n", ret);
@@ -164,7 +170,7 @@ static int test_pv23_decrypt_wrong_key(void)
     uint8_t decrypted[256];
     size_t decrypted_len = 0;
 
-    ret = pv23_decrypt(encrypted, encrypted_len, wrong_key, decrypted, &decrypted_len);
+    ret = pv23_decrypt(g_test_pal, encrypted, encrypted_len, wrong_key, decrypted, &decrypted_len);
     if (ret == 0) {
         printf("  pv23_decrypt should have failed with wrong key\n");
         return -1;
@@ -181,7 +187,7 @@ static int test_pv23_decrypt_tampered(void)
     uint8_t encrypted[256];
     size_t encrypted_len = 0;
 
-    int ret = pv23_encrypt((const uint8_t *)plaintext, strlen(plaintext),
+    int ret = pv23_encrypt(g_test_pal, (const uint8_t *)plaintext, strlen(plaintext),
                            key, encrypted, &encrypted_len);
     if (ret != 0) {
         printf("  pv23_encrypt failed: %d\n", ret);
@@ -193,7 +199,7 @@ static int test_pv23_decrypt_tampered(void)
     uint8_t decrypted[256];
     size_t decrypted_len = 0;
 
-    ret = pv23_decrypt(encrypted, encrypted_len, key, decrypted, &decrypted_len);
+    ret = pv23_decrypt(g_test_pal, encrypted, encrypted_len, key, decrypted, &decrypted_len);
     if (ret == 0) {
         printf("  pv23_decrypt should have failed with tampered ciphertext\n");
         return -1;
@@ -209,7 +215,7 @@ static int test_pv23_decrypt_too_short(void)
     uint8_t output[64];
     size_t output_len = 0;
 
-    int ret = pv23_decrypt(short_data, sizeof(short_data), key, output, &output_len);
+    int ret = pv23_decrypt(g_test_pal, short_data, sizeof(short_data), key, output, &output_len);
     if (ret == 0) {
         printf("  pv23_decrypt should reject too-short input\n");
         return -1;
@@ -224,16 +230,16 @@ static int test_pv23_null_params(void)
     uint8_t buf[128];
     size_t len = 0;
 
-    if (pv23_encrypt(NULL, 0, key, buf, &len) != 0) {
-        printf("  pv23_encrypt(NULL, 0) should succeed for empty plaintext... ");
+    if (pv23_encrypt(g_test_pal, NULL, 0, key, buf, &len) != 0) {
+        printf("  pv23_encrypt with empty plaintext should succeed... ");
     }
 
-    if (pv23_decrypt(NULL, 64, key, buf, &len) != OPRT_INVALID_PARAMETER) {
+    if (pv23_decrypt(g_test_pal, NULL, 64, key, buf, &len) != OPRT_INVALID_PARAMETER) {
         printf("  pv23_decrypt(NULL, ...) should return OPRT_INVALID_PARAMETER\n");
         return -1;
     }
 
-    if (pv23_encrypt((const uint8_t *)"x", 1, NULL, buf, &len) != OPRT_INVALID_PARAMETER) {
+    if (pv23_encrypt(g_test_pal, (const uint8_t *)"x", 1, NULL, buf, &len) != OPRT_INVALID_PARAMETER) {
         printf("  pv23_encrypt with NULL key should return OPRT_INVALID_PARAMETER\n");
         return -1;
     }
@@ -247,7 +253,7 @@ static int test_pv23_empty_plaintext(void)
     uint8_t encrypted[128];
     size_t encrypted_len = 0;
 
-    int ret = pv23_encrypt(NULL, 0, key, encrypted, &encrypted_len);
+    int ret = pv23_encrypt(g_test_pal, NULL, 0, key, encrypted, &encrypted_len);
     if (ret != 0) {
         printf("  pv23_encrypt with empty plaintext failed: %d\n", ret);
         return -1;
@@ -263,7 +269,7 @@ static int test_pv23_empty_plaintext(void)
     uint8_t decrypted[128];
     size_t decrypted_len = 0;
 
-    ret = pv23_decrypt(encrypted, encrypted_len, key, decrypted, &decrypted_len);
+    ret = pv23_decrypt(g_test_pal, encrypted, encrypted_len, key, decrypted, &decrypted_len);
     if (ret != 0) {
         printf("  pv23_decrypt empty ciphertext failed: %d\n", ret);
         return -1;
@@ -385,11 +391,11 @@ static int test_pv23_unique_iv(void)
     uint8_t enc1[128], enc2[128];
     size_t len1 = 0, len2 = 0;
 
-    int ret = pv23_encrypt((const uint8_t *)plaintext, strlen(plaintext),
+    int ret = pv23_encrypt(g_test_pal, (const uint8_t *)plaintext, strlen(plaintext),
                            key, enc1, &len1);
     if (ret != 0) return -1;
 
-    ret = pv23_encrypt((const uint8_t *)plaintext, strlen(plaintext),
+    ret = pv23_encrypt(g_test_pal, (const uint8_t *)plaintext, strlen(plaintext),
                        key, enc2, &len2);
     if (ret != 0) return -1;
 
@@ -414,6 +420,13 @@ static int test_pv23_unique_iv(void)
 int main(void)
 {
     printf("========== Cipher Test Suite ==========\n");
+
+    /* Seed the shared DRBG up front, with a real pal for the rng mutex. */
+    g_test_pal = get_default_pal();
+    if (rng_init(g_test_pal) != 0) {
+        printf("rng_init() failed — cannot run cipher tests\n");
+        return 1;
+    }
 
     RUN_TEST(test_random_bytes);
     RUN_TEST(test_md5_password);

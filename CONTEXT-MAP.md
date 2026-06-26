@@ -9,7 +9,7 @@ and decisions.
   Data Point model, MQTT reporting/downlink. ADRs: `modules/iot-client/docs/adr/`.
 - [RTC TCP Client](./modules/rtc-tcp-client/CONTEXT.md) — device ↔ Tuya AI Foundation
   real-time audio/video/text transport: the Connection, Session, Event lifecycle and the
-  binary packet/frame framing.
+  binary packet/frame framing. ADRs: `modules/rtc-tcp-client/docs/adr/`.
 - [Tuya BLE](./modules/tuya-ble/CONTEXT.md) — device ↔ app BLE provisioning: advertising,
   the pairing handshake, and WiFi-credential delivery.
 

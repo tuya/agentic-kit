@@ -25,6 +25,7 @@
 #include "atop_base.h"
 #include "http_client_interface.h"
 #include "cipher_wrapper.h"
+#include "rng.h"
 
 #include "iot_config_defaults.h"
 #include "cJSON.h"
@@ -168,12 +169,11 @@
          return OPRT_MALLOC_FAILED;
      }
 
-     /* Nonce - generate random nonce */
-     int ret_rng = iot_random_bytes(encrypted_buffer, AES_GCM128_NONCE_LEN);
-     if (ret_rng != 0) {
-         log_error("Failed to generate nonce: -0x%04x", -ret_rng);
+     /* Nonce - generate random nonce from the shared DRBG */
+     if (rng_bytes(pal, encrypted_buffer, AES_GCM128_NONCE_LEN) != 0) {
+         log_error("Failed to generate nonce via RNG");
          pal->free(encrypted_buffer);
-         return OPRT_INVALID_PARAMETER;
+         return OPRT_COMMUNICATION_ERROR;
      }
 
      /* AES128-GCM */

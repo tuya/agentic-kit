@@ -35,6 +35,7 @@
 
 #include "tuya_ai.h"
 #include "iot_client.h"
+#include "demo_reconnect.h"
 
 extern const pal_t *tai_pal_posix(void);
 
@@ -50,9 +51,12 @@ extern const pal_t *tai_pal_posix(void);
 #define MAX_WAIT_MS           60000
 #define MAX_TOOL_OUTPUT       512
 
-/* -- Globals ------------------------------------------------------------ */
+/* -- Demo context ------------------------------------------------------- */
 
-static volatile int g_done    = 0;
+typedef struct {
+    volatile int     got_done;   /* set by on_event when the turn ends */
+    demo_reconnect_t reconn;      /* app-side reconnect policy/state    */
+} demo_ctx_t;
 
 /* -------------------------------------------------------------------------
  * Tool registry
@@ -514,14 +518,13 @@ static const char *nlg_extract_content(const char *text, size_t len,
     return p;
 }
 
-static void on_text(tai_ctx_t *ctx, const char *text, size_t len,
-                    uint8_t stream_flag, void *ud)
+static void on_text(tai_ctx_t *ctx, const tai_text_msg_t *msg, void *ud)
 {
-    (void)ctx; (void)ud; (void)stream_flag;
+    (void)ctx; (void)ud;
 
     /* For NLG lines, print only the content field. */
     size_t clen = 0;
-    const char *content = nlg_extract_content(text, len, &clen);
+    const char *content = nlg_extract_content(msg->text, msg->len, &clen);
     if (content && clen > 0) {
         fwrite(content, 1, clen, stdout);
         fflush(stdout);
@@ -529,35 +532,34 @@ static void on_text(tai_ctx_t *ctx, const char *text, size_t len,
     }
 
     /* Non-NLG text: print raw. */
-    fwrite(text, 1, len, stdout);
+    fwrite(msg->text, 1, msg->len, stdout);
     fputc('\n', stdout);
     fflush(stdout);
 }
 
-static void on_audio(tai_ctx_t *ctx, const uint8_t *data, size_t len,
-                     uint32_t sample_rate, uint16_t frame_duration,
-                     void *ud)
+static void on_audio(tai_ctx_t *ctx, const tai_audio_msg_t *msg, void *ud)
 {
-    (void)ctx; (void)data; (void)len; (void)ud;
-    (void)sample_rate; (void)frame_duration;
+    (void)ctx; (void)msg; (void)ud;
 }
 
-static void on_event(tai_ctx_t *ctx, uint16_t event_type,
-                     const uint8_t *data, size_t len, void *ud)
+static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *ud)
 {
-    (void)ud;
-    if (event_type == TAI_EVT_END) {
-        g_done = 1;
-    } else if (event_type == TAI_EVT_MCP_CMD) {
-        handle_mcp_request(ctx, (const char *)data, len);
+    demo_ctx_t *dc = (demo_ctx_t *)ud;
+    if (msg->event_type == TAI_EVT_END) {
+        dc->got_done = 1;
+    } else if (msg->event_type == TAI_EVT_MCP_CMD) {
+        handle_mcp_request(ctx, (const char *)msg->data, msg->len);
     }
 }
 
-static void on_disconnect(tai_ctx_t *ctx, uint16_t code, void *ud)
+static void on_disconnect(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *ud)
 {
-    (void)ctx; (void)ud;
-    fprintf(stderr, "\n[disconnected: code=%u]\n", (unsigned)code);
-    g_done    = 1;
+    (void)ctx;
+    demo_ctx_t *dc = (demo_ctx_t *)ud;
+    fprintf(stderr, "\n[disconnected: reason=%u close_code=%u]\n",
+            (unsigned)msg->reason, (unsigned)msg->close_code);
+    /* Runs on the worker thread: only flag — the main loop reconnects. */
+    demo_reconnect_signal(&dc->reconn, msg->reason, msg->close_code);
 }
 
 /* -------------------------------------------------------------------------
@@ -621,6 +623,9 @@ int main(int argc, char *argv[])
     iot_client_deinit(iot);   /* no longer needed once we have the token */
 
     /* ---- 4. Build TAI context ------------------------------------------ */
+    demo_ctx_t dc;
+    memset(&dc, 0, sizeof(dc));
+
     const pal_t *pal = tai_pal_posix();
 
     /* Tell the server this device speaks the custom-MCP dialect. */
@@ -648,6 +653,7 @@ int main(int argc, char *argv[])
         .on_audio          = on_audio,
         .on_event          = on_event,
         .on_disconnect     = on_disconnect,
+        .user_data         = &dc,
     };
 
     void *ctx_buf = pal->malloc(tai_ctx_size());
@@ -656,49 +662,97 @@ int main(int argc, char *argv[])
     tai_ctx_t *ctx = tai_ctx_init(ctx_buf, &tai_cfg);
     if (!ctx) { fprintf(stderr, "tai_ctx_init failed\n"); pal->free(ctx_buf); return 1; }
 
+    tai_set_log_level(TAI_LOG_WARN);
 
-    tai_set_log_level(TAI_LOG_WARN);   
+    /* ---- 5-7. Connect, serve MCP — with app-driven reconnect -----------
+     *
+     * on_disconnect runs on the worker thread and only flags dc.reconn (it must
+     * not self-disconnect). This owning thread does tai_disconnect() +
+     * tai_connect() with exponential backoff + a circuit breaker — the correct
+     * response to the fail-fast model (see demo_reconnect.h). mcp_demo is
+     * long-lived: after connecting it sends a query and then serves MCP commands
+     * until the turn ends (got_done) or the overall MAX_WAIT_MS budget elapses;
+     * a drop in the middle reconnects and resumes serving. */
+    int done = 0;
+    while (!done) {
+        printf("[main] Connecting to TAI server...\n");
+        int crc = tai_connect(ctx);
+        if (crc != TAI_OK) {
+            fprintf(stderr, "[main] tai_connect failed: %d\n", crc);
+            if (demo_reconnect_tripped(&dc.reconn)) {
+                fprintf(stderr, "[main] circuit breaker: giving up after %d attempts\n",
+                        dc.reconn.attempt);
+                goto cleanup;
+            }
+            uint32_t delay = demo_reconnect_delay_ms(&dc.reconn);
+            fprintf(stderr, "[main] retry connect in %u ms (attempt %d)\n",
+                    delay, dc.reconn.attempt + 1);
+            usleep(delay * 1000);
+            dc.reconn.attempt++;
+            dc.reconn.need_reconnect = 0;
+            continue;
+        }
+        demo_reconnect_ok(&dc.reconn);
+        printf("[main] Connected. Server may now send MCP requests.\n\n");
 
-    /* ---- 5. Connect ---------------------------------------------------- */
-    printf("[main] Connecting to TAI server...\n");
-    int rc = tai_connect(ctx);
-    if (rc != TAI_OK) {
-        fprintf(stderr, "tai_connect failed: %d\n", rc);
-        tai_ctx_deinit(ctx); pal->free(ctx_buf);
-        return 1;
+        /* ---- 6. Send a text query --------------------------------------- */
+        /* The server triggers MCP "tools/list" and "tools/call" when it needs
+         * to call a device tool -- usually in response to a user question. */
+
+        /* Give the server time to inject MCP tool definitions into the LLM
+         * parameters before the first user query arrives. */
+        printf("[main] Waiting 2 s for server-side MCP injection...\n");
+        fflush(stdout);
+        sleep(2);
+
+        const char *question =
+            "query the device status for me";
+        printf("[main] Sending text: \"%s\"\nResponse: ", question);
+        fflush(stdout);
+
+        int rc = tai_send_text(ctx, question, strlen(question));
+        if (rc != TAI_OK) {
+            /* An app-thread send failure is reported synchronously here — the
+             * SDK does NOT fire on_disconnect for it (only the worker's own
+             * ping does). The TX stream may be desynced, so treat it as a
+             * transport fault: request a reconnect so the teardown path below
+             * rebuilds the link instead of exiting as a benign timeout. */
+            fprintf(stderr, "tai_send_text failed: %d\n", rc);
+            demo_reconnect_signal(&dc.reconn, TAI_DISCONNECT_TRANSPORT, 0);
+        }
+
+        /* ---- 7. Serve MCP requests / wait for the turn to end ----------- */
+        int waited = 0;
+        while (!dc.got_done && !dc.reconn.need_reconnect && waited < MAX_WAIT_MS) {
+            usleep(100 * 1000);
+            waited += 100;
+        }
+
+        if (dc.got_done) {
+            done = 1;                                  /* turn ended cleanly */
+        } else if (!dc.reconn.need_reconnect) {
+            printf("\n[main] Timed out after %d s\n", MAX_WAIT_MS / 1000);
+            done = 1;                                  /* budget spent, link up */
+        } else {
+            /* Dropped mid-serve: tear down on this (owning) thread, back off,
+             * then loop to reconnect and resume serving. */
+            fprintf(stderr, "\n[main] disconnected (reason=%u code=%u)\n",
+                    dc.reconn.reason, dc.reconn.close_code);
+            tai_disconnect(ctx);
+            if (demo_reconnect_tripped(&dc.reconn)) {
+                fprintf(stderr, "[main] circuit breaker: giving up after %d attempts\n",
+                        dc.reconn.attempt);
+                done = 1;
+            } else {
+                uint32_t delay = demo_reconnect_delay_ms(&dc.reconn);
+                fprintf(stderr, "[main] reconnect in %u ms (attempt %d)\n",
+                        delay, dc.reconn.attempt + 1);
+                usleep(delay * 1000);
+                dc.reconn.attempt++;
+                dc.reconn.need_reconnect = 0;
+            }
+        }
     }
-    printf("[main] Connected. Server may now send MCP requests.\n\n");
-
-
-    /* ---- 6. Send a text query ------------------------------------------ */
-    /* The server triggers MCP "tools/list" and "tools/call" when it needs
-     * to call a device tool -- usually in response to a user question. */
-
-    /* Give the server time to inject MCP tool definitions into the LLM
-     * parameters before the first user query arrives. */
-    printf("[main] Waiting 2 s for server-side MCP injection...\n");
-    fflush(stdout);
-    sleep(2);
-
-    const char *question =
-        "query the device status for me";
-    printf("[main] Sending text: \"%s\"\nResponse: ", question);
-    fflush(stdout);
-
-    rc = tai_send_text(ctx, question, strlen(question));
-    if (rc != TAI_OK) {
-        fprintf(stderr, "tai_send_text failed: %d\n", rc);
-        goto cleanup;
-    }
-
-    /* ---- 7. Wait for AI response --------------------------------------- */
-    int waited = 0;
-    while (!g_done && waited < MAX_WAIT_MS) {
-        usleep(100 * 1000);
-        waited += 100;
-    }
-    if (!g_done)
-        printf("\n[main] Timed out after %d s\n", MAX_WAIT_MS / 1000);
 
 cleanup:
     /* ---- 8. Shutdown --------------------------------------------------- */
@@ -707,5 +761,5 @@ cleanup:
     pal->free(ctx_buf);
 
     printf("\nDone.\n");
-    return g_done ? 0 : 1;
+    return dc.got_done ? 0 : 1;
 }

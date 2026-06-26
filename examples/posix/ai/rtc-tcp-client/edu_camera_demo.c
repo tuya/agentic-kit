@@ -35,6 +35,7 @@
 
 #include "tuya_ai.h"
 #include "iot_client.h"
+#include "demo_reconnect.h"
 
 extern const pal_t *tai_pal_posix(void);
 
@@ -60,6 +61,7 @@ typedef struct {
     int64_t      first_text_us;
     int64_t      first_audio_us;
     int64_t      audio_end_us;
+    demo_reconnect_t reconn;       /* app-side reconnect policy/state */
 } demo_ctx_t;
 
 static int64_t now_us(void)
@@ -72,8 +74,7 @@ static int64_t now_us(void)
 /* -- TAI callbacks ------------------------------------------------------ */
 
 static void on_text(tai_ctx_t *ctx,
-                    const char *text, size_t len,
-                    uint8_t stream_flag,
+                    const tai_text_msg_t *msg,
                     void *user_data)
 {
     (void)ctx;
@@ -84,19 +85,17 @@ static void on_text(tai_ctx_t *ctx,
         dc->got_first_text = 1;
     }
     printf("[Text] ");
-    fwrite(text, 1, len, stdout);
-    if (stream_flag == TAI_STREAM_END || stream_flag == TAI_STREAM_ONE_SHOT)
+    fwrite(msg->text, 1, msg->len, stdout);
+    if (msg->stream_flag == TAI_STREAM_END || msg->stream_flag == TAI_STREAM_ONE_SHOT)
         printf("\n");
     fflush(stdout);
 }
 
 static void on_audio(tai_ctx_t *ctx,
-                     const uint8_t *data, size_t len,
-                     uint32_t sample_rate, uint16_t frame_duration,
+                     const tai_audio_msg_t *msg,
                      void *user_data)
 {
     (void)ctx;
-    (void)sample_rate; (void)frame_duration;
     demo_ctx_t *dc = (demo_ctx_t *)user_data;
 
     if (!dc->got_first_audio) {
@@ -104,25 +103,23 @@ static void on_audio(tai_ctx_t *ctx,
         dc->got_first_audio = 1;
         printf("[Audio stream started]\n");
     }
-    if (dc->audio_fp && data && len > 0)
-        fwrite(data, 1, len, dc->audio_fp);
+    if (dc->audio_fp && msg->data && msg->len > 0)
+        fwrite(msg->data, 1, msg->len, dc->audio_fp);
 }
 
 static void on_event(tai_ctx_t *ctx,
-                     uint16_t event_type,
-                     const uint8_t *data, size_t len,
+                     const tai_event_msg_t *msg,
                      void *user_data)
 {
-    (void)data; (void)len;
     demo_ctx_t *dc = (demo_ctx_t *)user_data;
 
-    if (event_type == TAI_EVT_PAYLOADS_END) {
+    if (msg->event_type == TAI_EVT_PAYLOADS_END) {
         dc->audio_end_us = now_us();
-    } else if (event_type == TAI_EVT_END) {
+    } else if (msg->event_type == TAI_EVT_END) {
         if (dc->audio_end_us == 0)
             dc->audio_end_us = now_us();
         dc->got_done = 1;
-    } else if (event_type == TAI_EVT_MCP_CMD) {
+    } else if (msg->event_type == TAI_EVT_MCP_CMD) {
         const char *empty =
             "{\"jsonrpc\":\"2.0\",\"id\":1,"
             "\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"\"}]}}";
@@ -130,12 +127,16 @@ static void on_event(tai_ctx_t *ctx,
     }
 }
 
-static void on_disconnect(tai_ctx_t *ctx, uint16_t code, void *user_data)
+static void on_disconnect(tai_ctx_t *ctx,
+                          const tai_disconnect_msg_t *msg,
+                          void *user_data)
 {
     (void)ctx;
     demo_ctx_t *dc = (demo_ctx_t *)user_data;
-    fprintf(stderr, "\n[TAI disconnected: code=%u]\n", (unsigned)code);
-    dc->got_done = 1;
+    fprintf(stderr, "\n[TAI disconnected: reason=%u close_code=%u]\n",
+            (unsigned)msg->reason, (unsigned)msg->close_code);
+    /* Runs on the worker thread: only flag — the main loop reconnects. */
+    demo_reconnect_signal(&dc->reconn, msg->reason, msg->close_code);
 }
 
 /* -- Image format detection --------------------------------------------- */
@@ -479,49 +480,96 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    /* -- 6. Connect (TLS + protocol handshake) -------------------------- */
-    printf("[main] Connecting to TAI server...\n");
-    int rc = tai_connect(tai);
-    if (rc != TAI_OK) {
-        fprintf(stderr, "[main] tai_connect failed: %d\n", rc);
-        tai_ctx_deinit(tai); pal->free(ctx_buf);
-        if (dc.audio_fp) fclose(dc.audio_fp);
-        free(token); free(img_data); iot_client_deinit(iot);
-        return 1;
+    /* -- 6-8. Connect, send image, await response — with app-driven reconnect.
+     *
+     * on_disconnect runs on the worker thread and only flags dc.reconn (it must
+     * not self-disconnect). This owning thread does tai_disconnect() +
+     * tai_connect() with exponential backoff + a circuit breaker — the correct
+     * response to the fail-fast model (see demo_reconnect.h). */
+    int done = 0;
+    while (!done) {
+        /* -- 6. Connect (TLS + protocol handshake) ---------------------- */
+        printf("[main] Connecting to TAI server...\n");
+        int rc = tai_connect(tai);
+        if (rc != TAI_OK) {
+            fprintf(stderr, "[main] tai_connect failed: %d\n", rc);
+            if (demo_reconnect_tripped(&dc.reconn)) {
+                fprintf(stderr, "[main] circuit breaker: giving up after %d attempts\n",
+                        dc.reconn.attempt);
+                done = 1;
+                break;
+            }
+            uint32_t delay = demo_reconnect_delay_ms(&dc.reconn);
+            fprintf(stderr, "[main] retry connect in %u ms (attempt %d)\n",
+                    delay, dc.reconn.attempt + 1);
+            usleep(delay * 1000);
+            dc.reconn.attempt++;
+            dc.reconn.need_reconnect = 0;
+            continue;
+        }
+        demo_reconnect_ok(&dc.reconn);
+        printf("[main] Connected.\n\n");
+
+        /* -- 7. Send text prompt + image -------------------------------- */
+        printf("[main] Sending prompt: \"%s\"\n", prompt);
+        printf("[main] Sending image: %zu bytes (%s)\n", nread,
+               img_format == TAI_IMG_PNG ? "PNG" : "JPEG");
+
+        rc = tai_send_image_with_text(tai,
+                                      prompt, strlen(prompt),
+                                      img_data, nread,
+                                      img_format, 0, 0);
+
+        dc.send_end_us = now_us();
+
+        if (rc == TAI_OK) {
+            printf("[main] Send complete.\n");
+
+            /* -- 8. Wait for AI response (or a disconnect) ------------- */
+            printf("[main] Waiting for AI response...\n\n");
+            int wait_ms = 0;
+            while (!dc.got_done && !dc.reconn.need_reconnect && wait_ms < MAX_WAIT_MS) {
+                usleep(100 * 1000);
+                wait_ms += 100;
+            }
+        } else {
+            /* An app-thread send failure is reported synchronously here — the
+             * SDK does NOT fire on_disconnect for it (only the worker's own
+             * ping does). The TX stream may be desynced, so treat it as a
+             * transport fault: request a reconnect so the teardown path below
+             * rebuilds the link instead of exiting as a benign timeout. */
+            fprintf(stderr, "[main] Send failed: %d\n", rc);
+            demo_reconnect_signal(&dc.reconn, TAI_DISCONNECT_TRANSPORT, 0);
+        }
+
+        if (dc.got_done) {
+            done = 1;                                  /* got the full response */
+        } else if (!dc.reconn.need_reconnect) {
+            printf("\n[main] Timed out after %d s\n", MAX_WAIT_MS / 1000);
+            done = 1;                                  /* timeout, link still up */
+        } else {
+            /* Dropped mid-flow: tear down on this (owning) thread, back off,
+             * then loop to reconnect and re-send. */
+            fprintf(stderr, "\n[main] disconnected (reason=%u code=%u)\n",
+                    dc.reconn.reason, dc.reconn.close_code);
+            tai_disconnect(tai);
+            if (demo_reconnect_tripped(&dc.reconn)) {
+                fprintf(stderr, "[main] circuit breaker: giving up after %d attempts\n",
+                        dc.reconn.attempt);
+                done = 1;
+            } else {
+                uint32_t delay = demo_reconnect_delay_ms(&dc.reconn);
+                fprintf(stderr, "[main] reconnect in %u ms (attempt %d)\n",
+                        delay, dc.reconn.attempt + 1);
+                usleep(delay * 1000);
+                dc.reconn.attempt++;
+                dc.reconn.need_reconnect = 0;
+            }
+        }
     }
-    printf("[main] Connected.\n\n");
 
-    /* -- 7. Send text prompt + image ------------------------------------ */
-    printf("[main] Sending prompt: \"%s\"\n", prompt);
-    printf("[main] Sending image: %zu bytes (%s)\n", nread,
-           img_format == TAI_IMG_PNG ? "PNG" : "JPEG");
-
-    rc = tai_send_image_with_text(tai,
-                                  prompt, strlen(prompt),
-                                  img_data, nread,
-                                  img_format, 0, 0);
-
-    dc.send_end_us = now_us();
     free(img_data);
     img_data = NULL;
-
-    if (rc != TAI_OK) {
-        fprintf(stderr, "[main] Send failed: %d\n", rc);
-        tai_disconnect(tai); tai_ctx_deinit(tai); pal->free(ctx_buf);
-        if (dc.audio_fp) fclose(dc.audio_fp);
-        free(token); iot_client_deinit(iot);
-        return 1;
-    }
-    printf("[main] Send complete.\n");
-
-    /* -- 8. Wait for AI response (up to 60 s) --------------------------- */
-    printf("[main] Waiting for AI response...\n\n");
-
-    int wait_ms = 0;
-    while (!dc.got_done && wait_ms < MAX_WAIT_MS) {
-        usleep(100 * 1000);
-        wait_ms += 100;
-    }
 
     /* -- 9. Close output file ------------------------------------------- */
     if (dc.audio_fp) {

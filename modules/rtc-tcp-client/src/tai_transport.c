@@ -50,31 +50,51 @@ size_t tai_frame_total_size(const uint8_t *buf, size_t available)
 }
 
 /* =========================================================================
- * Internal: compute HMAC over frame header + payload  (Section 6.4)
+ * HMAC over a frame's logical byte stream  (Section 6.4)
  *
- * header_len must be 5 for v2.1.
- * out_sig must point to sig_len bytes of writable storage.
+ * tai_frame_hmac_sg signs the logical concatenation of segs[0..nseg) without
+ * assembling it contiguously, so the streaming send path can sign a frame whose
+ * header and payload live in separate buffers. It is byte-for-byte identical to
+ * signing that concatenation: total <= 64 signs the whole stream; otherwise the
+ * spec samples the first 32 and last 32 bytes of the WHOLE logical stream — the
+ * cut never distinguishes header from payload, which is what keeps it correct
+ * when an application header is >= 27 bytes or a payload slice is < 32 bytes.
+ * out_sig must point to sig_len writable bytes.
  * ========================================================================= */
-static int frame_hmac(const uint8_t *header,  size_t header_len,
-                       const uint8_t *payload, size_t payload_len,
-                       const uint8_t sign_key[32], uint8_t sig_len,
-                       uint8_t *out_sig)
+
+/* Copy the logical byte range [start, start+count) of the segment list into
+ * dst[0..count). Callers always request a range fully covered by the segments. */
+static void sg_copy_range(const tai_seg_t *segs, int nseg,
+                          size_t start, size_t count, uint8_t *dst)
 {
+    size_t end = start + count;
+    size_t lo  = 0;                       /* logical offset of segs[i] start */
+    for (int i = 0; i < nseg; i++) {
+        size_t hi = lo + segs[i].len;     /* logical offset of segs[i] end   */
+        size_t a  = lo > start ? lo : start;
+        size_t b  = hi < end   ? hi : end;
+        if (a < b)
+            memcpy(dst + (a - start), segs[i].p + (a - lo), b - a);
+        lo = hi;
+    }
+}
+
+int tai_frame_hmac_sg(const tai_seg_t *segs, int nseg,
+                      const uint8_t sign_key[32], uint8_t sig_len,
+                      uint8_t *out_sig)
+{
+    size_t total = 0;
+    for (int i = 0; i < nseg; i++) total += segs[i].len;
+
     uint8_t data[64];
     size_t  data_len;
-    size_t  total = header_len + payload_len;
 
     if (total <= 64) {
-        memcpy(data, header, header_len);
-        memcpy(data + header_len, payload, payload_len);
+        sg_copy_range(segs, nseg, 0, total, data);
         data_len = total;
     } else {
-        /* first_pay: how many payload bytes fit in the first 32-byte chunk
-         * after the header.  header_len=5 -> first_pay=27. */
-        size_t first_pay = 32 - header_len;
-        memcpy(data,            header,               header_len);
-        memcpy(data + header_len, payload,            first_pay);
-        memcpy(data + 32,       payload + payload_len - 32, 32);
+        sg_copy_range(segs, nseg, 0,          32, data);        /* first 32 */
+        sg_copy_range(segs, nseg, total - 32, 32, data + 32);   /* last  32 */
         data_len = 64;
     }
 
@@ -83,6 +103,18 @@ static int frame_hmac(const uint8_t *header,  size_t header_len,
     if (rc != 0) return TAI_ERR_CRYPTO;
     memcpy(out_sig, full, sig_len);
     return TAI_OK;
+}
+
+/* Two-segment [header, payload] wrapper — the contiguous encode/verify paths
+ * sign through this, so every path shares one algorithm.
+ * header_len must be 5 for v2.1; out_sig must hold sig_len bytes. */
+static int frame_hmac(const uint8_t *header,  size_t header_len,
+                       const uint8_t *payload, size_t payload_len,
+                       const uint8_t sign_key[32], uint8_t sig_len,
+                       uint8_t *out_sig)
+{
+    tai_seg_t segs[2] = { { header, header_len }, { payload, payload_len } };
+    return tai_frame_hmac_sg(segs, 2, sign_key, sig_len, out_sig);
 }
 
 /* =========================================================================
@@ -188,66 +220,3 @@ int tai_frame_verify(const uint8_t *raw_frame, size_t frame_len,
     return (diff == 0) ? TAI_OK : TAI_ERR_HMAC;
 }
 
-/* =========================================================================
- * tai_frame_fragment
- *
- * Split app_bytes into transport frames of at most TAI_MAX_FRAGMENT_PAYLOAD
- * bytes each and invoke send_fn for every frame.
- * Returns TAI_OK or the first error returned by send_fn / encode.
- * ========================================================================= */
-int tai_frame_fragment(const uint8_t *app_bytes, size_t app_len,
-                        uint16_t *seq_counter,
-                        const uint8_t sign_key[32], uint8_t sig_len,
-                        const pal_t *pal,
-                        uint8_t *scratch, size_t scratch_size,
-                        int (*send_fn)(const uint8_t *, size_t, void *),
-                        void *arg)
-{
-    if (!app_bytes || !seq_counter || !scratch || !send_fn) return TAI_ERR_ARGS;
-
-    TAI_LOGD(pal, TAG, "fragment: app_len=%zu max_chunk=%u", app_len, TAI_MAX_FRAGMENT_PAYLOAD);
-
-    size_t offset = 0;
-    int    rc;
-
-    while (offset < app_len) {
-        size_t chunk = app_len - offset;
-        if (chunk > TAI_MAX_FRAGMENT_PAYLOAD) chunk = TAI_MAX_FRAGMENT_PAYLOAD;
-
-        uint8_t frag_flag;
-        if (app_len <= TAI_MAX_FRAGMENT_PAYLOAD) {
-            frag_flag = TAI_FRAG_NONE;
-        } else if (offset == 0) {
-            frag_flag = TAI_FRAG_FIRST;
-        } else if (offset + chunk >= app_len) {
-            frag_flag = TAI_FRAG_LAST;
-        } else {
-            frag_flag = TAI_FRAG_MIDDLE;
-        }
-
-        /* Bump sequence (wraps 65535→1) */
-        (*seq_counter)++;
-        if (*seq_counter == 0) *seq_counter = 1;
-        uint16_t seq_used = *seq_counter;
-
-        int frame_len = tai_frame_encode(frag_flag, seq_used,
-                                          app_bytes + offset, chunk,
-                                          sign_key, sig_len, pal,
-                                          scratch, scratch_size);
-        if (frame_len < 0) {
-            *seq_counter = (uint16_t)(seq_used - 1);
-            if (*seq_counter == 0) *seq_counter = 0xFFFF;
-            return frame_len;
-        }
-
-        rc = send_fn(scratch, (size_t)frame_len, arg);
-        if (rc != TAI_OK) {
-            *seq_counter = (uint16_t)(seq_used - 1);
-            if (*seq_counter == 0) *seq_counter = 0xFFFF;
-            return rc;
-        }
-
-        offset += chunk;
-    }
-    return TAI_OK;
-}

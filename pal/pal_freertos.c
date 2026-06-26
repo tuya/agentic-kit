@@ -290,7 +290,7 @@ static int pal_thread_create(void **handle, void *(*func)(void *), void *arg)
     t->func = func;
     t->arg  = arg;
     t->done = xSemaphoreCreateBinary();
-    if (!t->done) { vPortFree(t); return -1; }
+    if (!t->done) { pal_free(t); return -1; }
 
     BaseType_t rc = xTaskCreate(thread_shim,
                                  PAL_FR_TASK_NAME,
@@ -300,7 +300,7 @@ static int pal_thread_create(void **handle, void *(*func)(void *), void *arg)
                                  &t->task);
     if (rc != pdPASS) {
         vSemaphoreDelete(t->done);
-        vPortFree(t);
+        pal_free(t);
         return -1;
     }
     *handle = t;
@@ -314,7 +314,7 @@ static int pal_thread_join(void *handle)
     xSemaphoreTake(t->done, portMAX_DELAY);
     vTaskDelete(t->task);
     vSemaphoreDelete(t->done);
-    vPortFree(t);
+    pal_free(t);   /* must match pal_malloc in pal_thread_create (SPIRAM-capable) */
     return 0;
 }
 

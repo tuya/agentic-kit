@@ -10,30 +10,10 @@
 
 #include "mbedtls/md.h"
 #include "mbedtls/hkdf.h"
-#include "mbedtls/entropy.h"
-#include "mbedtls/ctr_drbg.h"
+
+#include "rng.h"
 
 #define TAG "crypto"
-
-/* =========================================================================
- * Module-level DRBG (lazily initialized, shared by crypto + TLS)
- * ========================================================================= */
-static mbedtls_entropy_context  g_entropy;
-static mbedtls_ctr_drbg_context g_drbg;
-static int                      g_drbg_ready = 0;
-
-static int ensure_drbg(void)
-{
-    if (g_drbg_ready) return 0;
-    mbedtls_entropy_init(&g_entropy);
-    mbedtls_ctr_drbg_init(&g_drbg);
-    static const unsigned char pers[] = "tuya_ai_sdk";
-    int rc = mbedtls_ctr_drbg_seed(&g_drbg, mbedtls_entropy_func,
-                                    &g_entropy, pers, sizeof(pers) - 1);
-    if (rc != 0) return rc;
-    g_drbg_ready = 1;
-    return 0;
-}
 
 /* =========================================================================
  * tai_hmac_sha256
@@ -65,10 +45,9 @@ int tai_hkdf_sha256(const uint8_t *ikm, size_t ikm_len,
 /* =========================================================================
  * tai_random_bytes
  * ========================================================================= */
-int tai_random_bytes(uint8_t *buf, size_t len)
+int tai_random_bytes(const pal_t *pal, uint8_t *buf, size_t len)
 {
-    if (ensure_drbg() != 0) return -1;
-    return mbedtls_ctr_drbg_random(&g_drbg, buf, len) == 0 ? 0 : -1;
+    return rng_bytes(pal, buf, len);
 }
 
 /* =========================================================================

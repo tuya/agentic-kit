@@ -172,6 +172,27 @@ int tai_pack_media_hdr(uint8_t proto_ver, uint16_t data_id,
 }
 
 /* =========================================================================
+ * tai_unpack_media_hdr — inverse of tai_pack_media_hdr.
+ *
+ * Reads [data_id:2BE][48-bit BE: stream_flag<<46 | ts_ms]. The 48-bit field is
+ * assembled byte-by-byte (NOT via tai_r64, which would over-read 2 bytes).
+ * Returns 8, or TAI_ERR_PROTO if len < 8.
+ * ========================================================================= */
+int tai_unpack_media_hdr(const uint8_t *buf, size_t len,
+                         uint16_t *data_id, uint8_t *stream_flag, uint64_t *ts_ms)
+{
+    if (len < 8) return TAI_ERR_PROTO;
+    if (data_id) *data_id = tai_r16(buf);
+
+    uint64_t packed = 0;
+    for (int i = 0; i < 6; i++) packed = (packed << 8) | buf[2 + i];
+
+    if (stream_flag) *stream_flag = (uint8_t)((packed >> 46) & 0x03);
+    if (ts_ms)       *ts_ms       = packed & UINT64_C(0x3FFFFFFFFFF);
+    return 8;
+}
+
+/* =========================================================================
  * tai_pack_text_hdr
  *
  * Encode the text/file payload header.

@@ -69,13 +69,17 @@ static int32_t transport_recv(NetworkContext_t *pNetworkContext,
     if (ctx->use_tls) {
         int n = tls_read(ctx->tls, (uint8_t *)pBuffer, bytesToRecv, ctx->timeout_ms);
         if (n == TLS_ERR_AGAIN) {
-            return 0;
+            return 0;   // no data within timeout: coreHTTP polls again
         }
-        if (n < 0) {
-            log_error("TLS read error");
+        if (n <= 0) {
+            // n<0: TLS error. n==0: graceful peer close_notify — tls_read maps
+            // no-data to TLS_ERR_AGAIN, so 0 here always means the peer closed
+            // (e.g. server closing the connection mid-response). Surface it as an
+            // error so the receive loop fails fast instead of spinning to timeout.
+            log_error("TLS read error/closed (n=%d)", n);
             return OPRT_COMMUNICATION_ERROR;
         }
-        return n;   // >0 bytes, or 0 on peer close / no data
+        return n;   // >0 bytes
     } else {
         if (!ctx->tcp_handle) {
             return OPRT_COMMUNICATION_ERROR;

@@ -101,6 +101,7 @@ static const char *pkt_kebab(uint8_t t)
 {
     switch (t) {
     case TAI_PKT_CLIENT_HELLO:             return "client-hello";
+    case TAI_PKT_AUTHENTICATE_RESPONSE:    return "authenticate-response";
     case TAI_PKT_PING:                     return "ping";
     case TAI_PKT_PONG:                     return "pong";
     case TAI_PKT_CONNECTION_CLOSE:         return "connection-close";

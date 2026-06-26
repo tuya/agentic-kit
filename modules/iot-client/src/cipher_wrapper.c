@@ -3,35 +3,10 @@
 
 #include <mbedtls/gcm.h>
 #include <mbedtls/md5.h>
-#include <mbedtls/entropy.h>
-#include <mbedtls/ctr_drbg.h>
 #include <string.h>
 #include <stdio.h>
 
-static int s_drbg_initialized = 0;
-static mbedtls_entropy_context s_entropy;
-static mbedtls_ctr_drbg_context s_ctr_drbg;
-
-int iot_random_bytes(uint8_t *output, size_t len)
-{
-    if (!output) {
-        return OPRT_INVALID_PARAMETER;
-    }
-    if (!s_drbg_initialized) {
-        mbedtls_entropy_init(&s_entropy);
-        mbedtls_ctr_drbg_init(&s_ctr_drbg);
-        int ret = mbedtls_ctr_drbg_seed(&s_ctr_drbg, mbedtls_entropy_func,
-                                        &s_entropy, NULL, 0);
-        if (ret != 0) {
-            log_error("Failed to seed RNG: -0x%04x", -ret);
-            mbedtls_entropy_free(&s_entropy);
-            mbedtls_ctr_drbg_free(&s_ctr_drbg);
-            return ret;
-        }
-        s_drbg_initialized = 1;
-    }
-    return mbedtls_ctr_drbg_random(&s_ctr_drbg, output, len);
-}
+#include "rng.h"
 
 #define P23_PV "2.3"
 #define P23_PV_LEN 3
@@ -129,9 +104,10 @@ int mbedtls_cipher_auth_decrypt_wrapper(const cipher_params_t *params,
 
 // Pv2.3 protocol encryption
 // Output format: | PV_23 (3) | Seq (4) | From (4) | Reserved (1) | IV (12) | Ciphertext (N) | Tag (16) |
-int pv23_encrypt(const uint8_t *plaintext, size_t plaintext_len,
+int pv23_encrypt(const pal_t *pal, const uint8_t *plaintext, size_t plaintext_len,
     const uint8_t *key, uint8_t *output, size_t *output_len) {
-    if (!key || !output || !output_len) {
+    /* pal is required: rng_bytes() below uses it to lock the shared DRBG. */
+    if (!pal || !key || !output || !output_len) {
         return OPRT_INVALID_PARAMETER;
     }
 
@@ -145,11 +121,12 @@ int pv23_encrypt(const uint8_t *plaintext, size_t plaintext_len,
 
     mbedtls_gcm_init(&gcm);
 
-    ret = iot_random_bytes(iv, P23_IV_LEN);
-    if (ret != 0) {
-        log_error("Failed to generate IV: -0x%04x", -ret);
+    /* IV — random nonce from the shared process-wide DRBG (common/rng.c); the
+     * caller's pal locks that DRBG. */
+    if (rng_bytes(pal, iv, P23_IV_LEN) != 0) {
+        log_error("Failed to generate IV via RNG");
         mbedtls_gcm_free(&gcm);
-        return ret;
+        return OPRT_COMMUNICATION_ERROR;
     }
 
     // Set up GCM
@@ -196,8 +173,9 @@ cleanup:
 
 // Pv2.3 protocol decryption
 // Input format: | PV_23 (3) | Seq (4) | From (4) | Reserved (1) | IV (12) | Ciphertext (N) | Tag (16) |
-int pv23_decrypt(const uint8_t *ciphertext, size_t ciphertext_len,
+int pv23_decrypt(const pal_t *pal, const uint8_t *ciphertext, size_t ciphertext_len,
     const uint8_t *key, uint8_t *output, size_t *output_len) {
+    (void)pal;   /* decryption needs no RNG; pal is for symmetry with pv23_encrypt */
     if (!ciphertext || !key || !output || !output_len) {
         log_error("Invalid parameters for p23_decrypt");
         return OPRT_INVALID_PARAMETER;

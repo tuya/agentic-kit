@@ -54,8 +54,12 @@ int mbedtls_cipher_auth_decrypt_wrapper(const cipher_params_t *params,
 /**
  * @brief Pv2.3 protocol encryption
  *
- * Encrypts plaintext using AES-GCM with protocol version 2.3
+ * Encrypts plaintext using AES-GCM with protocol version 2.3. A fresh random IV
+ * is drawn internally from the shared process-wide DRBG (common/rng.c); the
+ * function generates the nonce itself so callers cannot accidentally reuse one.
  *
+ * @param pal Platform adapter, used only to lock the shared RNG; pass the
+ *            process pal given to iot_init()/rng_init()
  * @param plaintext Plain text data
  * @param plaintext_len Length of plaintext
  * @param key Encryption key (16 bytes)
@@ -63,14 +67,16 @@ int mbedtls_cipher_auth_decrypt_wrapper(const cipher_params_t *params,
  * @param output_len Pointer to store output length
  * @return int 0 on success, -1 on failure
  */
-int pv23_encrypt(const uint8_t *plaintext, size_t plaintext_len,
+int pv23_encrypt(const pal_t *pal, const uint8_t *plaintext, size_t plaintext_len,
     const uint8_t *key, uint8_t *output, size_t *output_len);
 
 /**
  * @brief Pv2.3 protocol decryption
  *
- * Decrypts data using AES-GCM with protocol version 2.3
+ * Decrypts data using AES-GCM with protocol version 2.3.
  *
+ * @param pal Platform adapter; unused (decryption needs no RNG), present for
+ *            symmetry with pv23_encrypt() — may be NULL
  * @param ciphertext Encrypted data
  * @param ciphertext_len Length of ciphertext
  * @param key Decryption key (16 bytes)
@@ -78,17 +84,8 @@ int pv23_encrypt(const uint8_t *plaintext, size_t plaintext_len,
  * @param output_len Pointer to store output length
  * @return int 0 on success, -1 on failure
  */
-int pv23_decrypt(const uint8_t *ciphertext, size_t ciphertext_len,
+int pv23_decrypt(const pal_t *pal, const uint8_t *ciphertext, size_t ciphertext_len,
     const uint8_t *key, uint8_t *output, size_t *output_len);
-
-/**
- * @brief Generate cryptographically random bytes via mbedtls CTR-DRBG.
- *
- * @param output Output buffer
- * @param len Number of bytes to generate
- * @return 0 on success, non-zero on failure
- */
-int iot_random_bytes(uint8_t *output, size_t len);
 
 /**
  * @brief Compute MQTT password from a key: MD5(key) bytes 4..11 as 16-char hex string.

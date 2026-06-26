@@ -44,7 +44,8 @@ _Avoid_: field, header, tag, property.
 
 **Fragmentation**:
 Splitting one oversized Packet across multiple Frames (≤32 KB each) marked
-FIRST/MIDDLE/LAST, reassembled on receive before decoding.
+FIRST/MIDDLE/LAST, reassembled in the receive buffer (`frag_buf`) until LAST and then
+decoded as one whole Packet. Outbound, any oversized Packet is fragmented uniformly.
 _Avoid_: chunking (that is the stream-level term), segmentation.
 
 **Stream flag**:
@@ -71,8 +72,10 @@ _Avoid_: encryption (signing ≠ confidentiality), auth mode.
 
 **Keepalive (Ping / Pong)**:
 The liveness exchange the background thread runs: it sends a Ping every `ping_interval_ms`
-(default 60 s) and treats the Connection as dead if no Pong arrives within
-`ping_timeout_ms` (default 90 s), then fires `on_disconnect`.
+(default 60 s) and treats the Connection as dead if no inbound traffic — a Pong *or any*
+received data — arrives within `ping_timeout_ms` (default 90 s), then fires `on_disconnect`.
+Counting any receive, not just Pong, keeps a long downstream stream from tripping a spurious
+timeout (see [ADR 0001](docs/adr/0001-receive-worker-callback-greedy-nest.md)).
 _Avoid_: heartbeat, poll.
 
 **Chat break**:
@@ -104,6 +107,142 @@ _Avoid_: tool call, function call, RPC (too generic).
 - **Stream flag vs Event type** are different axes: stream flag is a chunk's position within
   one data channel; event type is the semantic of an Event. ChatBreak is an event type, not
   a stream flag.
+
+## Data flow
+
+### Layers and threads
+
+Top to bottom: the send API (`tai_send_*`) → Packet builders (`tai_proto_build_*`) → the
+Frame layer — encoding, the HMAC signature, and Fragmentation (`tai_transport.c`) → an I/O
+abstraction (`ctx_io_send` / `ctx_io_recv`, routing to TLS or, in test mode, raw TCP) → the
+PAL. Two threads run at once: **caller threads** drive every `tai_send_*`; one **background
+worker** (started by `tai_connect`, joined by `tai_disconnect`) drives receiving and
+Keepalive.
+
+Locking: a single ctx mutex serialises the send side — each `tai_send_*` holds it
+for its whole sequence, so one Event's Packets, and the bytes of one Frame, never interleave
+with another sender (including the worker's Ping). The receive buffers are touched only by
+the worker, so receiving — and the user callbacks dispatched from it — is lock-free; mbedTLS
+read and write are serialised inside the TLS layer, so the worker can read while a caller
+writes. (The shared PAL mutex is *recursive*, but TAI does not rely on that — the recursion
+exists for the IoT DP layer; see [ADR 0001](docs/adr/0001-receive-worker-callback-greedy-nest.md).)
+
+### Sending
+
+There are two send paths, split by packet kind:
+
+Every packet — control and media — streams **scatter-gather** through `send_app_sg`, so there is
+no large contiguous frame buffer:
+
+- **Media packets** (audio, image, large text, MCP JSON): a `*_hdr` builder writes only the small
+  application header into `tx_hdr_buf+5`, and the large payload stays in the caller's buffer.
+- **Control packets** (SessionNew/Close, Event start/payloads-end/end, ChatBreak, Ping): the whole
+  application packet is assembled in `tx_ctrl_buf` (its attribute block can carry the user
+  session/event JSON) and handed to `send_app` → `send_app_sg` with no application header — the
+  packet itself is the zero-copy payload.
+
+`send_one_frame_sg` signs the logical `[frame header || app header || payload]` via
+`tai_frame_hmac_sg` (byte-identical to the contiguous HMAC — the receiver is unchanged), then
+writes the merged `[frame header || app header]`, the **zero-copy payload**, and the signature
+(2–3 TLS records per Frame). A logical packet over 32 KB is fragmented across the concat, with the
+app header only in the first Frame. (ClientHello is the one exception: it is sent *unsigned* and
+one-shot, so `tai_connect` frames it inline on the stack rather than through the signing sender.)
+
+Sequence numbers come from `tai_next_seq` (monotonic, wrapping 65535→1). A failure *before* any
+byte hits the wire (a build/encode error) rolls the counter back and returns that error. A
+failure *once writing has started* desyncs the stream unrecoverably — and `ctx_io_send`
+(`tls_write` / raw TCP) is **not** all-or-nothing, so even a control packet's first write can
+leave a half-frame — so it returns `TAI_ERR_NET` (distinct from the pre-wire errors; the sequence
+is *not* rolled back). That is a synchronous error the caller acts on: an app sender should
+`tai_disconnect` + reconnect, and the worker's own periodic Ping is its TX health probe — a failed
+Ping send makes the worker fire one `on_disconnect(TRANSPORT, NET_ERROR)` (§6.3), which also catches
+a broken uplink while the app is idle. There is no separate "broken" latch; the return value is the
+signal. Higher-level senders compose Packets into an Event:
+
+- **Text** (`tai_send_text`): EventStart → Text (Stream flag ONE_SHOT, Data ID `TEXT_UP`) →
+  EventPayloadsEnd → EventEnd.
+- **Audio** (`tai_send_audio_start` / `_chunk` / `_end`): start opens the Event and caches the
+  codec params; the first chunk carries Stream flag START plus the `audio-params` Attribute,
+  later chunks MIDDLE; end sends an Audio END, then EventPayloadsEnd and EventEnd.
+- **Image** (`tai_send_image`, `tai_send_image_with_text`): EventStart → (optional Text) →
+  Image (ONE_SHOT) → EventPayloadsEnd → EventEnd.
+- **Standalone**: `tai_ping`, `tai_chat_break`, and `tai_send_mcp_response` are each one Packet.
+
+ClientHello is the one Packet sent at Sign level NONE (unsigned); everything after SessionNew
+is signed.
+
+### Receiving
+
+The worker loops: check the liveness deadline, send a Ping when due, then block in
+`tai_recv_data` until bytes arrive or the next Ping falls due, then drain. The drain is
+time-bounded (`TAI_DRAIN_BUDGET_MS`, default 150 ms) so a sustained downstream flood cannot
+starve the Ping / liveness / shutdown checks — leftover bytes wait for the next pass; and any
+successful receive refreshes the liveness clock. Bytes accumulate in a sliding receive buffer;
+EOF or a transport error makes the worker fire `on_disconnect`.
+
+`tai_process_rx` peels complete Frames off the front of that buffer:
+
+1. Confirm the leading byte looks like a v2.1 Frame; if not, fail-fast (on a reliable ordered
+   TLS stream a desync cannot be recovered by dropping bytes).
+2. Read the length field for the full Frame size; wait if the whole Frame has not arrived. A
+   Frame that declares more bytes than the receive buffer can hold (`rx_buf`, one max Fragment)
+   can never be assembled, so it is fail-fast (`TAI_PROTO_ERR_OVERSIZED`) rather than stalling
+   until the liveness timeout — this only trips if the server ignores the advertised
+   MAX_FRAGMENT_LEN.
+3. Verify the HMAC; a mismatch is fail-fast (tear down and reconnect).
+4. Decode the header, then reassemble Fragmentation: `FRAG_NONE` is complete as-is;
+   FIRST/MIDDLE/LAST accumulate into the reassembly buffer (`frag_buf`) until LAST, then the
+   whole Packet is decoded once. A truncated/oversized fragment, an orphan MIDDLE/LAST, an
+   overflow, or a decode failure is **fail-fast** — the worker returns the cause and tears the
+   Connection down (the app reconnects); it does not resync or drop frames.
+5. Dispatch the complete Packet *before* consuming the Frame — a `FRAG_NONE` Packet points into
+   the receive buffer, which the consume step then slides forward.
+
+`tai_proto_dispatch` routes complete Packets by type: **Pong** feeds Keepalive; **Audio** strips
+the media header, parses `audio-params` once per stream (sample rate, frame size; re-read on each
+START), splits concatenated constant-bitrate Opus by frame size, and delivers each frame to
+`on_audio`; **Text** strips the text header and delivers to `on_text` with its Stream flag;
+**Event** unpacks the Event type and data (EventEnd clears the open Event) and delivers to
+`on_event` — where ServerVAD, MCP commands, etc. surface; **ConnectionClose / SessionClose**
+clear state and fire `on_disconnect`. An **unknown Packet type or Event type** (framing and HMAC
+valid, but the type is not enumerated) is *tolerated*: it is logged and skipped so the link stays
+up — a server that introduces a forward-compatible new type must not knock existing clients
+offline. (A *malformed* Packet/Event — decode failure — is still fail-fast; only unknown-but-well-
+formed types are skipped.) `on_disconnect` is single-point for **terminal** causes
+(transport / protocol / ConnectionClose): the guard fires those at most once per Connection. A
+server SessionClose is *non-terminal* (`connection_alive=1`, the link may persist for a new
+session) — it fires from the dispatch path but does **not** latch the guard, so a real transport
+death that later tears the same Connection down is still delivered as a second, distinct
+`on_disconnect`.
+
+### Connection lifecycle
+
+`tai_connect`: generate the security-suite random → derive the encrypt and sign keys → open the
+Connection (TLS handshake) → send the unsigned ClientHello → send SessionNew → mark the
+Connection connected and the Session open → start the worker.
+
+`tai_disconnect`: stop and join the worker first → then, **all under the send lock**, send
+SessionClose, close the transport, and reset the receive/reassembly buffers and the connected /
+session-open / event-open flags. Holding the lock across the transport close (not just the
+SessionClose) is what makes it safe against a concurrent sender on another thread: that sender
+only touches the socket under the same lock, and the close nulls the transport handle under the
+lock, so a sender that races in afterwards sees a null handle and fails cleanly instead of using
+freed memory. Because it joins the worker, it must run on a thread *other* than the callbacks
+(which run on that worker) — calling it from inside a callback self-deadlocks.
+
+`tai_request_disconnect`: the callback-safe way to stop. It only sets the worker's stop flag
+(no join), so it is safe from any thread including a receive callback; the owning thread must
+still call `tai_disconnect` afterwards to join and release. Receive callbacks therefore have a
+re-entrancy contract — may call `tai_send_*`, must not call `tai_disconnect` / `tai_ctx_deinit`,
+must not block — captured in [ADR 0001](docs/adr/0001-receive-worker-callback-greedy-nest.md)
+and `tuya_ai.h`.
+
+### Invariants
+
+- The receive buffer must hold the largest single Frame; because the server fragments anything
+  large, a single Frame stays well within it.
+- Reassembly trusts FIRST/MIDDLE/LAST ordering — safe over the reliable, in-order Connection.
+- ClientHello is the only unsigned Frame.
 
 ## Example dialogue
 
