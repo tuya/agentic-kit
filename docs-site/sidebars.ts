@@ -49,6 +49,7 @@ const sidebars: SidebarsConfig = {
             'guides/vad-and-interrupt',
             'guides/dp-persistence',
             'guides/device-mcp',
+            'guides/ota-upgrade',
             'guides/porting-to-new-platform',
           ],
         },
