@@ -4,6 +4,7 @@
 #include "iot_on_boarding.h"
 #include "iot_dns.h"
 #include "iot_client_message.h"
+#include "iot_ota.h"
 #include "cipher_wrapper.h"
 #include "iot_config_defaults.h"
 #include "rng.h"
@@ -254,6 +255,14 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
         int ret = atop_device_meta_save(pal, &meta_req, &meta_resp);
         if (ret != OPRT_OK) {
             log_warn("atop_device_meta_save failed: %d (non-fatal)", ret);
+        }
+    }
+
+    /* Report firmware version to cloud (enables OTA upgrade checks) */
+    {
+        int ret = iot_ota_report_version(client, IOT_SDK_SW_VER);
+        if (ret != OPRT_OK) {
+            log_warn("iot_ota_report_version failed: %d (non-fatal)", ret);
         }
     }
 

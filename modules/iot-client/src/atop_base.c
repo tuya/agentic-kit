@@ -31,6 +31,7 @@
 #include "cJSON.h"
 #include "mbedtls/base64.h"
 #include "mbedtls/md5.h"
+#include "mbedtls/aes.h"
 
 
  #define MD5SUM_LENGTH               (16)
@@ -251,6 +252,49 @@
      return rt;
  }
 
+ /* AES-128-ECB decrypt + PKCS7 unpad — fallback for cloud responses that use the
+  * old et=1 format (no GCM auth tag, no nonce; length must be a multiple of 16). */
+ static int atop_response_result_decrypt_ecb(const char *key, const uint8_t *input, size_t ilen,
+                                              uint8_t *output, size_t *olen)
+ {
+     if (key == NULL || input == NULL || output == NULL || olen == NULL) {
+         return OPRT_INVALID_PARAMETER;
+     }
+     if (ilen == 0 || ilen % 16 != 0) {
+         return OPRT_INVALID_PARAMETER;
+     }
+
+     mbedtls_aes_context aes;
+     mbedtls_aes_init(&aes);
+     int ret = mbedtls_aes_setkey_dec(&aes, (const unsigned char *)key, 128);
+     if (ret != 0) {
+         mbedtls_aes_free(&aes);
+         return ret;
+     }
+     for (size_t i = 0; i < ilen; i += 16) {
+         ret = mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_DECRYPT, input + i, output + i);
+         if (ret != 0) {
+             mbedtls_aes_free(&aes);
+             return ret;
+         }
+     }
+     mbedtls_aes_free(&aes);
+
+     /* PKCS7 unpad */
+     uint8_t pad = output[ilen - 1];
+     if (pad == 0 || pad > 16) {
+         return OPRT_COMMUNICATION_ERROR;
+     }
+     for (size_t i = ilen - pad; i < ilen; i++) {
+         if (output[i] != pad) {
+             return OPRT_COMMUNICATION_ERROR;
+         }
+     }
+     *olen = ilen - pad;
+     output[*olen] = '\0';
+     return OPRT_OK;
+ }
+
  static int atop_response_data_decode(const pal_t *pal, const char *key, const uint8_t *input, size_t ilen, uint8_t *output, size_t *olen)
  {
      int rt = OPRT_OK;
@@ -303,6 +347,12 @@
      }
 
      rt = atop_response_result_decrpyt(key, (const uint8_t *)b64buffer, b64buffer_olen, output, olen);
+     if (rt != OPRT_OK && b64buffer_olen % 16 == 0) {
+         /* GCM failed — cloud may use the older AES-128-ECB response format (et=1).
+          * Try ECB with the same raw 16-byte key. */
+         log_debug("GCM decrypt failed (%d), retrying with AES-ECB (old protocol)", rt);
+         rt = atop_response_result_decrypt_ecb(key, (const uint8_t *)b64buffer, b64buffer_olen, output, olen);
+     }
      cJSON_Delete(root);
      pal->free(b64buffer);
      if (rt != OPRT_OK) {
@@ -558,7 +608,7 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
       if (OPRT_OK == rt) {
           rt = atop_response_result_parse_cjson(result_buffer, result_buffer_length, response);
       } else {
-          log_info("atop_response_decode error:%d, try parse the plaintext data.", rt);
+          log_debug("atop_response_decode error:%d, try parse the plaintext data.", rt);
           rt = atop_response_result_parse_cjson(http_response.body, http_response.body_length, response);
       }
 

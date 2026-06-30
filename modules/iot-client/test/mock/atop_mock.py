@@ -380,6 +380,97 @@ def handle_schema_newest_get(request_data, config):
         }, separators=(',', ':'))
 
 
+def handle_upgrade_get(request_data, config):
+    """Handle firmware upgrade check (tuya.device.upgrade.get).
+
+    Returns firmware upgrade info when the request type is 0 (main MCU);
+    returns an empty result (no upgrade) for other types.
+    """
+    try:
+        request_json = json.loads(request_data)
+        fw_type = request_json.get('type', 0)
+
+        if fw_type != 0:
+            result = {}
+        else:
+            result = {
+                "type": 0,
+                "version": "2.0.0",
+                "httpsUrl": "https://example.com/firmware/v2.0.0.bin",
+                "size": "1024000",
+                "md5": "aabbccdd11223344",
+                "hmac": "eeff00112233445566778899aabbccdd"
+            }
+
+        response = {
+            "success": True,
+            "t": int(time.time()),
+            "result": result
+        }
+        return json.dumps(response, separators=(',', ':'))
+    except Exception as e:
+        print(f"❌ Error handling upgrade get request: {e}", file=sys.stderr)
+        return json.dumps({
+            "success": False,
+            "t": int(time.time()),
+            "errorCode": "UPGRADE_GET_FAILED",
+            "errorMsg": str(e)
+        }, separators=(',', ':'))
+
+
+def handle_version_update(request_data, config):
+    """Handle firmware version update (tuya.device.versions.update)."""
+    try:
+        request_json = json.loads(request_data)
+        versions = request_json.get('versions', '')
+
+        if not versions:
+            return json.dumps({
+                "success": False,
+                "t": int(time.time()),
+                "errorCode": "ILLEGAL_PARAM",
+                "errorMsg": "missing versions"
+            }, separators=(',', ':'))
+
+        response = {
+            "success": True,
+            "t": int(time.time()),
+            "result": True
+        }
+        return json.dumps(response, separators=(',', ':'))
+    except Exception as e:
+        print(f"❌ Error handling version update request: {e}", file=sys.stderr)
+        return json.dumps({
+            "success": False,
+            "t": int(time.time()),
+            "errorCode": "VERSION_UPDATE_FAILED",
+            "errorMsg": str(e)
+        }, separators=(',', ':'))
+
+
+def handle_upgrade_status_update(request_data, config):
+    """Handle upgrade status update (tuya.device.upgrade.status.update)."""
+    try:
+        request_json = json.loads(request_data)
+        fw_type = request_json.get('type', 0)
+        status = request_json.get('upgradeStatus', 0)
+
+        response = {
+            "success": True,
+            "t": int(time.time()),
+            "result": True
+        }
+        return json.dumps(response, separators=(',', ':'))
+    except Exception as e:
+        print(f"❌ Error handling upgrade status update request: {e}", file=sys.stderr)
+        return json.dumps({
+            "success": False,
+            "t": int(time.time()),
+            "errorCode": "STATUS_UPDATE_FAILED",
+            "errorMsg": str(e)
+        }, separators=(',', ':'))
+
+
 def handle_qrcode_info_request(request_data, config, url_params=None):
     """Handle QR code info request (tuya.device.qrcode.info.get)"""
     try:
@@ -473,6 +564,12 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
                 key = self.config.get('sec_key', '').encode('utf-8')
             elif api == 'tuya.device.schema.newest.get':
                 key = self.config.get('sec_key', '').encode('utf-8')
+            elif api == 'tuya.device.upgrade.get':
+                key = self.config.get('sec_key', '').encode('utf-8')
+            elif api == 'tuya.device.versions.update':
+                key = self.config.get('sec_key', '').encode('utf-8')
+            elif api == 'tuya.device.upgrade.status.update':
+                key = self.config.get('sec_key', '').encode('utf-8')
             else:
                 key = self.config.get('authkey', '').encode('utf-8')
             
@@ -511,6 +608,12 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
                 response_json = handle_device_meta_save_request(decrypted_data, self.config)
             elif api == 'tuya.device.schema.newest.get':
                 response_json = handle_schema_newest_get(decrypted_data, self.config)
+            elif api == 'tuya.device.upgrade.get':
+                response_json = handle_upgrade_get(decrypted_data, self.config)
+            elif api == 'tuya.device.versions.update':
+                response_json = handle_version_update(decrypted_data, self.config)
+            elif api == 'tuya.device.upgrade.status.update':
+                response_json = handle_upgrade_status_update(decrypted_data, self.config)
             else:
                 response_json = json.dumps({
                     "success": False,
@@ -635,6 +738,9 @@ def main():
     print(f"     - thing.ai.agent.token.get (AI token)")
     print(f"     - tuya.device.qrcode.info.get (QR code info)")
     print(f"     - tuya.device.meta.save (device meta save)")
+    print(f"     - tuya.device.upgrade.get (firmware upgrade check)")
+    print(f"     - tuya.device.versions.update (firmware version report)")
+    print(f"     - tuya.device.upgrade.status.update (upgrade status report)")
     print()
     if port == 80 or port == 443:
         print(f"⚠️  Note: Binding to port {port} may require root privileges")

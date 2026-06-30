@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include "iot_client.h"
+#include "iot_ota.h"   /* iot_ota_status_t (shared between atop and public OTA API) */
 
 /**
  * @brief Device activation request structure
@@ -185,5 +186,101 @@ int atop_schema_newest_get(const pal_t *pal, const schema_newest_request_t *requ
  * @brief Free memory allocated in a schema_newest_response_t.
  */
 void atop_schema_newest_response_free(const pal_t *pal, schema_newest_response_t *response);
+
+/* ============================================================================
+ * OTA (firmware upgrade) Service
+ * ============================================================================ */
+
+/**
+ * @brief Request parameters for checking a firmware upgrade
+ *        (tuya.device.upgrade.get v4.4).
+ */
+typedef struct {
+    const char *devid;
+    const char *key;
+    int channel;        /**< firmware type/channel (0 = main MCU) */
+    const char *sw_ver; /**< current firmware version (sent as softVer for server-side comparison) */
+    const char *host;
+    uint16_t port;
+    const char *cacert;
+} ota_upgrade_request_t;
+
+/**
+ * @brief Response from a firmware upgrade check.
+ *
+ * Strings are heap-allocated; free with atop_upgrade_get_response_free().
+ */
+typedef struct {
+    bool has_upgrade;   /**< true if the cloud returned firmware info */
+    char *version;      /**< new firmware version string (NULL if none) */
+    char *url;          /**< download URL (httpsUrl) */
+    long  file_size;    /**< firmware file size in bytes */
+    int   channel;      /**< firmware type returned by cloud */
+    char *md5;          /**< MD5 hash of firmware (may be NULL) */
+    char *hmac;         /**< HMAC of firmware (may be NULL) */
+} ota_upgrade_response_t;
+
+/**
+ * @brief Request parameters for reporting firmware version
+ *        (tuya.device.versions.update v4.1).
+ */
+typedef struct {
+    const char *devid;
+    const char *key;
+    const char *sw_ver;   /**< firmware version string */
+    const char *pv;       /**< protocol version (e.g. "2.3") */
+    const char *bv;       /**< baseline version (e.g. "2.0") */
+    int channel;          /**< firmware channel (0 = main) */
+    const char *host;
+    uint16_t port;
+    const char *cacert;
+} ota_version_update_request_t;
+
+/**
+ * @brief Request parameters for reporting upgrade status
+ *        (tuya.device.upgrade.status.update v4.1).
+ */
+typedef struct {
+    const char *devid;
+    const char *key;
+    int channel;
+    iot_ota_status_t status;
+    const char *host;
+    uint16_t port;
+    const char *cacert;
+} ota_status_update_request_t;
+
+/**
+ * @brief Check for a firmware upgrade (tuya.device.upgrade.get v4.4).
+ *
+ * @param[in]  pal      PAL adapter
+ * @param[in]  request  Request parameters (devid, key, channel)
+ * @param[out] response Response with firmware info (caller frees)
+ * @return OPRT_OK on success (including no-upgrade), error code on failure
+ */
+int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota_upgrade_response_t *response);
+
+/**
+ * @brief Free memory in an ota_upgrade_response_t.
+ */
+void atop_upgrade_get_response_free(const pal_t *pal, ota_upgrade_response_t *response);
+
+/**
+ * @brief Report device firmware version (tuya.device.versions.update v4.1).
+ *
+ * @param pal     PAL adapter
+ * @param request Request parameters (devid, key, sw_ver, pv, bv, channel)
+ * @return OPRT_OK on success, error code on failure
+ */
+int atop_version_update(const pal_t *pal, const ota_version_update_request_t *request);
+
+/**
+ * @brief Report upgrade status (tuya.device.upgrade.status.update v4.1).
+ *
+ * @param pal     PAL adapter
+ * @param request Request parameters (devid, key, channel, status)
+ * @return OPRT_OK on success, error code on failure
+ */
+int atop_upgrade_status_update(const pal_t *pal, const ota_status_update_request_t *request);
 
 #endif /* ATOP_H */

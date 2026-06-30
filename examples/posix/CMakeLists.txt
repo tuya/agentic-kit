@@ -92,6 +92,14 @@ add_executable(dp_management_demo
 target_include_directories(dp_management_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/dp-management")
 target_link_libraries(dp_management_demo PRIVATE tuya_iot_client)
 
+# -- ota-demo ----------------------------------------------------------------
+add_executable(ota_demo
+    "${CMAKE_CURRENT_SOURCE_DIR}/ota-demo/ota_demo.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ota-demo/ota_demo_main.c"
+)
+target_include_directories(ota_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ota-demo")
+target_link_libraries(ota_demo PRIVATE tuya_iot_client)
+
 # -- ai / rtc-client (prebuilt lib, optional) --------------------------------
 if(TARGET tuya_steam_client)
     add_executable(chat_demo

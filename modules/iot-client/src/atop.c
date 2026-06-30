@@ -6,6 +6,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include <inttypes.h>
 
@@ -713,4 +714,278 @@ void atop_schema_newest_response_free(const pal_t *pal, schema_newest_response_t
         pal->free(response->schema);
     }
     memset(response, 0, sizeof(schema_newest_response_t));
+}
+
+/* ============================================================================
+ * OTA Service Implementation
+ * ============================================================================ */
+
+#define ATOP_DEVICE_UPGRADE_GET         "tuya.device.upgrade.get"
+#define ATOP_DEVICE_VERSIONS_UPDATE     "tuya.device.versions.update"
+#define ATOP_DEVICE_UPGRADE_STATUS_UPD  "tuya.device.upgrade.status.update"
+
+int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota_upgrade_response_t *response)
+{
+    if (request == NULL || response == NULL) {
+        log_error("atop_upgrade_get: request or response is NULL");
+        return OPRT_INVALID_PARAMETER;
+    }
+    if (request->devid == NULL || request->devid[0] == '\0' ||
+        request->key == NULL || request->key[0] == '\0') {
+        log_error("atop_upgrade_get: devid or key is empty");
+        return OPRT_INVALID_PARAMETER;
+    }
+
+    memset(response, 0, sizeof(ota_upgrade_response_t));
+
+    uint32_t timestamp = (uint32_t)time(NULL);
+
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        return OPRT_MALLOC_FAILED;
+    }
+    cJSON_AddNumberToObject(root, "type", request->channel);
+    if (request->sw_ver && request->sw_ver[0] != '\0') {
+        cJSON_AddStringToObject(root, "softVer", request->sw_ver);
+    }
+    cJSON_AddNumberToObject(root, "t", (double)timestamp);
+
+    char *post_data = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (post_data == NULL) {
+        return OPRT_MALLOC_FAILED;
+    }
+
+    log_debug("upgrade get post data:%s", post_data);
+
+    atop_base_request_t atop_request = {
+        .devid = request->devid,
+        .key = request->key,
+        .path = "/d.json",
+        .timestamp = timestamp,
+        .api = ATOP_DEVICE_UPGRADE_GET,
+        .version = "4.4",
+        .data = (void *)post_data,
+        .datalen = strlen(post_data),
+        .user_data = NULL,
+        .host = request->host,
+        .port = request->port,
+        .cacert = request->cacert,
+    };
+
+    atop_base_response_t atop_response = {0};
+    int rt = atop_base_request(pal, &atop_request, &atop_response);
+    cJSON_free(post_data);
+
+    if (rt != OPRT_OK) {
+        log_error("atop_upgrade_get request error:%d", rt);
+        atop_base_response_free(pal, &atop_response);
+        return rt;
+    }
+
+    cJSON *result = atop_response.result;
+    if (result == NULL) {
+        /* success=true but result=null → cloud has no upgrade configured for this device */
+        log_debug("atop_upgrade_get: no upgrade available (success=%d)", atop_response.success);
+        atop_base_response_free(pal, &atop_response);
+        return OPRT_OK;
+    }
+
+    /* The result object contains firmware upgrade info.
+     * Fields: type, version, httpsUrl, size, md5, hmac */
+    cJSON *url = cJSON_GetObjectItem(result, "httpsUrl");
+    if (url == NULL || !cJSON_IsString(url) || url->valuestring[0] == '\0') {
+        log_debug("atop_upgrade_get: no httpsUrl (no upgrade)");
+        atop_base_response_free(pal, &atop_response);
+        return OPRT_OK;
+    }
+
+    response->has_upgrade = true;
+    response->url = pal_strdup(pal, url->valuestring);
+
+    cJSON *ver = cJSON_GetObjectItem(result, "version");
+    if (ver != NULL && cJSON_IsString(ver)) {
+        response->version = pal_strdup(pal, ver->valuestring);
+    }
+
+    cJSON *size = cJSON_GetObjectItem(result, "size");
+    if (size != NULL && cJSON_IsString(size)) {
+        response->file_size = atol(size->valuestring);
+    } else if (size != NULL && cJSON_IsNumber(size)) {
+        response->file_size = (long)size->valuedouble;
+    }
+
+    cJSON *type = cJSON_GetObjectItem(result, "type");
+    if (type != NULL && cJSON_IsNumber(type)) {
+        response->channel = type->valueint;
+    } else {
+        response->channel = request->channel;
+    }
+
+    cJSON *md5 = cJSON_GetObjectItem(result, "md5");
+    if (md5 != NULL && cJSON_IsString(md5)) {
+        response->md5 = pal_strdup(pal, md5->valuestring);
+    }
+
+    cJSON *hmac = cJSON_GetObjectItem(result, "hmac");
+    if (hmac != NULL && cJSON_IsString(hmac)) {
+        response->hmac = pal_strdup(pal, hmac->valuestring);
+    }
+
+    atop_base_response_free(pal, &atop_response);
+
+    log_info("atop_upgrade_get: upgrade available, version=%s, size=%ld",
+             response->version ? response->version : "?", response->file_size);
+    return OPRT_OK;
+}
+
+void atop_upgrade_get_response_free(const pal_t *pal, ota_upgrade_response_t *response)
+{
+    if (response == NULL) {
+        return;
+    }
+    if (response->version) pal->free(response->version);
+    if (response->url)     pal->free(response->url);
+    if (response->md5)     pal->free(response->md5);
+    if (response->hmac)    pal->free(response->hmac);
+    memset(response, 0, sizeof(ota_upgrade_response_t));
+}
+
+int atop_version_update(const pal_t *pal, const ota_version_update_request_t *request)
+{
+    if (request == NULL) {
+        return OPRT_INVALID_PARAMETER;
+    }
+    if (request->devid == NULL || request->devid[0] == '\0' ||
+        request->key == NULL || request->key[0] == '\0' ||
+        request->sw_ver == NULL || request->sw_ver[0] == '\0') {
+        log_error("atop_version_update: devid, key, or sw_ver is empty");
+        return OPRT_INVALID_PARAMETER;
+    }
+
+    const char *pv = (request->pv != NULL && request->pv[0] != '\0') ? request->pv : "2.3";
+    const char *bv = (request->bv != NULL && request->bv[0] != '\0') ? request->bv : "2.0";
+
+    uint32_t timestamp = (uint32_t)time(NULL);
+
+    /* versions is a JSON string (doubly-escaped) containing an array */
+    #define VER_UPDATE_BUF_LEN 256
+    char *post_data = (char *)pal->malloc(VER_UPDATE_BUF_LEN);
+    if (post_data == NULL) {
+        return OPRT_MALLOC_FAILED;
+    }
+
+    int write_len = snprintf(post_data, VER_UPDATE_BUF_LEN,
+        "{\"versions\":\"[{\\\"otaChannel\\\":%d,\\\"protocolVer\\\":\\\"%s\\\","
+        "\\\"baselineVer\\\":\\\"%s\\\",\\\"softVer\\\":\\\"%s\\\"}]\",\"t\":%" PRIu32 "}",
+        request->channel, pv, bv, request->sw_ver, timestamp);
+    if (write_len < 0 || (size_t)write_len >= VER_UPDATE_BUF_LEN) {
+        pal->free(post_data);
+        return OPRT_COMMUNICATION_ERROR;
+    }
+
+    log_debug("version update post data:%s", post_data);
+
+    atop_base_request_t atop_request = {
+        .devid = request->devid,
+        .key = request->key,
+        .path = "/d.json",
+        .timestamp = timestamp,
+        .api = ATOP_DEVICE_VERSIONS_UPDATE,
+        .version = "4.1",
+        .data = (void *)post_data,
+        .datalen = strlen(post_data),
+        .user_data = NULL,
+        .host = request->host,
+        .port = request->port,
+        .cacert = request->cacert,
+    };
+
+    atop_base_response_t atop_response = {0};
+    int rt = atop_base_request(pal, &atop_request, &atop_response);
+    pal->free(post_data);
+
+    if (rt != OPRT_OK) {
+        log_error("atop_version_update request error:%d", rt);
+        atop_base_response_free(pal, &atop_response);
+        return rt;
+    }
+
+    bool success = atop_response.success;
+    atop_base_response_free(pal, &atop_response);
+
+    if (!success) {
+        log_error("atop_version_update: cloud returned failure");
+        return OPRT_COMMUNICATION_ERROR;
+    }
+
+    log_debug("atop_version_update: success");
+    return OPRT_OK;
+}
+
+int atop_upgrade_status_update(const pal_t *pal, const ota_status_update_request_t *request)
+{
+    if (request == NULL) {
+        return OPRT_INVALID_PARAMETER;
+    }
+    if (request->devid == NULL || request->devid[0] == '\0' ||
+        request->key == NULL || request->key[0] == '\0') {
+        log_error("atop_upgrade_status_update: devid or key is empty");
+        return OPRT_INVALID_PARAMETER;
+    }
+
+    uint32_t timestamp = (uint32_t)time(NULL);
+
+    #define STATUS_UPD_BUF_LEN 128
+    char *post_data = (char *)pal->malloc(STATUS_UPD_BUF_LEN);
+    if (post_data == NULL) {
+        return OPRT_MALLOC_FAILED;
+    }
+
+    int write_len = snprintf(post_data, STATUS_UPD_BUF_LEN,
+        "{\"type\":%d,\"upgradeStatus\":%d,\"t\":%" PRIu32 "}",
+        request->channel, (int)request->status, timestamp);
+    if (write_len < 0 || (size_t)write_len >= STATUS_UPD_BUF_LEN) {
+        pal->free(post_data);
+        return OPRT_COMMUNICATION_ERROR;
+    }
+
+    log_debug("upgrade status update post data:%s", post_data);
+
+    atop_base_request_t atop_request = {
+        .devid = request->devid,
+        .key = request->key,
+        .path = "/d.json",
+        .timestamp = timestamp,
+        .api = ATOP_DEVICE_UPGRADE_STATUS_UPD,
+        .version = "4.1",
+        .data = (void *)post_data,
+        .datalen = strlen(post_data),
+        .user_data = NULL,
+        .host = request->host,
+        .port = request->port,
+        .cacert = request->cacert,
+    };
+
+    atop_base_response_t atop_response = {0};
+    int rt = atop_base_request(pal, &atop_request, &atop_response);
+    pal->free(post_data);
+
+    if (rt != OPRT_OK) {
+        log_error("atop_upgrade_status_update request error:%d", rt);
+        atop_base_response_free(pal, &atop_response);
+        return rt;
+    }
+
+    bool success = atop_response.success;
+    atop_base_response_free(pal, &atop_response);
+
+    if (!success) {
+        log_error("atop_upgrade_status_update: cloud returned failure");
+        return OPRT_COMMUNICATION_ERROR;
+    }
+
+    log_debug("atop_upgrade_status_update: success (channel=%d, status=%d)",
+              request->channel, (int)request->status);
+    return OPRT_OK;
 }
