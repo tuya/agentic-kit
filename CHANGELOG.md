@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **IoT Client — OTA firmware upgrade support** (`modules/iot-client/include/iot_ota.h`).
+  High-level OTA API for version reporting, upgrade checks, and upgrade-status
+  reporting, backed by three new ATOP service calls: `tuya.device.upgrade.get`
+  (v4.4), `tuya.device.versions.update` (v4.1), and
+  `tuya.device.upgrade.status.update` (v4.1).
+  - `iot_ota_report_version` — reports the device's current firmware version
+    (also auto-called during `iot_client_init`, so the cloud can evaluate
+    upgrades).
+  - `iot_ota_check_upgrade` — queries the cloud for a pending upgrade and
+    returns version, download URL (`cdnUrl` preferred, `httpsUrl` fallback),
+    file size, and MD5/HMAC hashes.
+  - `iot_ota_report_status` — drives the upgrade lifecycle
+    (UPGRADING → FINI / EXEC / ABORT).
+  - The SDK handles **only the cloud protocol**; the application owns download
+    and flash (e.g. ESP-IDF `esp_ota_*` or a vendor bootloader API).
+  - `atop_base` gains an AES-128-ECB fallback decrypt path for older (`et=1`)
+    cloud responses.
+  - Unit tests with mocked ATOP endpoints (`iot_ota_test`), a POSIX `ota-demo`,
+    and an ESP-IDF `ota-demo` with a two-partition OTA table.
+
 ### Changed
 
 - **RTC TCP Client (`tuya_ai`) — receive callbacks are now struct-based (ABI break).**
