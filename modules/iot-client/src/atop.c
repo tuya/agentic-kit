@@ -792,16 +792,25 @@ int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota
     }
 
     /* The result object contains firmware upgrade info.
-     * Fields: type, version, httpsUrl, size, md5, hmac */
-    cJSON *url = cJSON_GetObjectItem(result, "httpsUrl");
-    if (url == NULL || !cJSON_IsString(url) || url->valuestring[0] == '\0') {
-        log_debug("atop_upgrade_get: no httpsUrl (no upgrade)");
+     * Prefer cdnUrl (standard HTTPS with public CA) over httpsUrl
+     * (self-signed cert on a non-standard port, needs IoT-DNS CA). */
+    const char *url_fields[] = {"cdnUrl", "httpsUrl"};
+    const char *chosen_url = NULL;
+    for (size_t i = 0; i < sizeof(url_fields) / sizeof(url_fields[0]); i++) {
+        cJSON *item = cJSON_GetObjectItem(result, url_fields[i]);
+        if (item != NULL && cJSON_IsString(item) && item->valuestring[0] != '\0') {
+            chosen_url = item->valuestring;
+            break;
+        }
+    }
+    if (chosen_url == NULL) {
+        log_debug("atop_upgrade_get: no cdnUrl/httpsUrl (no upgrade)");
         atop_base_response_free(pal, &atop_response);
         return OPRT_OK;
     }
 
     response->has_upgrade = true;
-    response->url = pal_strdup(pal, url->valuestring);
+    response->url = pal_strdup(pal, chosen_url);
 
     cJSON *ver = cJSON_GetObjectItem(result, "version");
     if (ver != NULL && cJSON_IsString(ver)) {

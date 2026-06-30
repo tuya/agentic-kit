@@ -8,6 +8,7 @@ build-*
 venv
 .cache
 *.pcm
+*.o
 third_party/*
 !third_party/mbedtls
 !third_party/cJSON

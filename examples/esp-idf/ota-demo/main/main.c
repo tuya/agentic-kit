@@ -30,6 +30,7 @@
 #include "esp_app_desc.h"
 #include "esp_ota_ops.h"
 #include "esp_http_client.h"
+#include "esp_crt_bundle.h"
 #include "nvs_flash.h"
 
 #include "iot_client.h"
@@ -120,6 +121,7 @@ static esp_err_t download_and_flash(const char *url)
         .buffer_size = OTA_BUF_SIZE,
         .buffer_size_tx = OTA_BUF_SIZE,
         .keep_alive_enable = true,
+        .crt_bundle_attach = esp_crt_bundle_attach,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&http_cfg);

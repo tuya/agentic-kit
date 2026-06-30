@@ -4,5 +4,5 @@ idf_component_register(
     INCLUDE_DIRS
         "."
     REQUIRES
-        nvs_flash esp_wifi esp_netif esp_event app_update esp_http_client agentic_kit
+        nvs_flash esp_wifi esp_netif esp_event app_update esp_http_client esp-tls agentic_kit
 )

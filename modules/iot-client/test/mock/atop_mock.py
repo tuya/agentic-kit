@@ -396,7 +396,8 @@ def handle_upgrade_get(request_data, config):
             result = {
                 "type": 0,
                 "version": "2.0.0",
-                "httpsUrl": "https://example.com/firmware/v2.0.0.bin",
+                "cdnUrl": "https://images.example.com/firmware/v2.0.0.bin",
+                "httpsUrl": "https://fireware.example.com:1443/firmware/v2.0.0.bin",
                 "size": "1024000",
                 "md5": "aabbccdd11223344",
                 "hmac": "eeff00112233445566778899aabbccdd"
