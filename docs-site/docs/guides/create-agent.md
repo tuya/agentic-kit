@@ -8,6 +8,11 @@ sidebar_position: 3
 
 本指南说明如何在 Tuya IoT 平台上创建产品、配置 AI Agent，使设备具备 AI 对话能力。
 
+:::tip 还没开始？
+如果你还没有产品 PID 和设备授权码（uuid + authkey），请先按本指南操作——这是使用
+Agentic-kit 的前提条件。参见[介绍](../intro)中的接入流程。
+:::
+
 ## 前置条件
 
 - 已注册 [Tuya IoT 平台](https://iot.tuya.com) 账号
@@ -39,7 +44,7 @@ sidebar_position: 3
 
 ### 4. 获取授权码
 
-1. 在产品页面申请测试用授权码（uuid + authkey）
+1. 在产品页面申请测试用授权码（uuid + authkey），详见[领取授权码](../get-authkey)
 2. 大规模出货需联系 Tuya 商务购买授权码
 
 ### 5. 在代码中使用

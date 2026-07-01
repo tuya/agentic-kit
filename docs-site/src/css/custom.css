@@ -1,12 +1,13 @@
 /* Constrain doc images to a reasonable width and height */
 article img {
-  max-width: 480px;
-  max-height: 500px;
+  max-width: 90%;
+  max-height: 600px;
   height: auto;
   object-fit: contain;
   border-radius: 6px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
-  margin: 0.5rem 0;
+  margin: 1rem auto;
+  display: block;
 }
 
 :root {

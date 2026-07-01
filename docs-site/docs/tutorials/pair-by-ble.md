@@ -1,25 +1,24 @@
 ---
-title: BLE 蓝牙配网 (ESP-IDF)
+title: BLE 蓝牙配网
 sidebar_label: BLE 蓝牙配网
 sidebar_position: 7
 ---
 
-# BLE 蓝牙配网 (ESP-IDF)
+# BLE 蓝牙配网
 
 > 对应示例：`examples/esp-idf/pair/pair-by-ble/`
 
-本章介绍如何在 ESP32 上通过 BLE（蓝牙低功耗）实现设备配网。涂鸦 App 通过 BLE 连接将 Wi-Fi 凭据和配网 Token 传递给设备，设备无需摄像头或屏幕即可完成配网。
+本章介绍如何在嵌入式设备上通过 BLE（蓝牙低功耗）实现设备配网。涂鸦 App 通过 BLE 连接将 Wi-Fi 凭据和配网 Token 传递给设备，设备无需摄像头或屏幕即可完成配网。
 
 ## 适用场景
 
-- ESP32 系列芯片（支持 BLE 4.2+）
+- 设备支持蓝牙功能（支持 BLE 4.2+，NimBLE 协议栈）
 - 设备没有摄像头或屏幕，但需要通过涂鸦 App 配网
 - 设备尚未连接 Wi-Fi（BLE 配网的核心作用就是传递 Wi-Fi 凭据）
 
-## 硬件要求
-
-- ESP32 / ESP32-S3 / ESP32-C3 等支持 BLE 的芯片
-- ESP-IDF >= 5.0
+:::note 平台说明
+当前示例基于 ESP-IDF + NimBLE 协议栈，其他平台需自行适配 BLE 层。
+:::
 
 ## 整体流程
 
@@ -164,4 +163,4 @@ idf.py flash monitor
 - BLE 配网完成后应尽快停止 BLE 广播（`tuya_ble_nimble_stop`），避免与 WiFi 共存时的射频冲突。
 - Token 格式与其他配网方式一致：前两字符为 Region 编码。
 - 配网完成后的设备激活流程与[设备扫码配网](./scan-by-device)相同，使用 `iot_client_init_on_boarding_with_token()`。
-- 需确保 ESP-IDF 项目正确引用了 `modules/tuya-ble/` 和 `modules/iot-client/` 组件。
+- 需确保项目正确引用了 `modules/tuya-ble/` 和 `modules/iot-client/` 组件。

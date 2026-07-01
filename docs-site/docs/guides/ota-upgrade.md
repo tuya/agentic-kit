@@ -49,7 +49,7 @@ SDK 只提供**云端协议原语**——版本上报、升级查询、状态回
 typedef struct {
     bool  has_upgrade;   // 云端是否有升级
     char *version;       // 目标版本号
-    char *url;           // 固件下载 URL（见下方"下载 URL 说明"）
+    char *url;           // 固件下载 URL（HTTPS）
     long  file_size;     // 固件大小（字节）
     int   channel;       // 固件通道（0 = 主 MCU）
     char *md5;           // MD5 校验（可能为 NULL）
@@ -70,20 +70,6 @@ typedef enum {
     OTA_STATUS_UPGRD_ABORT = 4,  // 升级中止
 } iot_ota_status_t;
 ```
-
-## 下载 URL 说明（cdnUrl vs httpsUrl）
-
-云端在 `upgrade.get` 响应中可能返回两种下载地址：
-
-| 字段 | 协议 | 证书 | 说明 |
-|------|------|------|------|
-| `cdnUrl` | 标准 HTTPS（443） | **公共 CA** | 推荐；可被任意 HTTPS 客户端直接下载 |
-| `httpsUrl` | HTTPS（非标准端口） | **自签名证书**（需 IoT-DNS CA 证书包） | 兼容旧云端；证书链不同 |
-
-SDK **优先使用 `cdnUrl`**，仅当 `cdnUrl` 缺失时才回退到 `httpsUrl`。应用侧的下载代码只需把 `info.url` 当作普通 HTTPS 链接处理：
-
-- 走 `cdnUrl` 时——启用平台的公共 CA 证书包即可（ESP-IDF 用 `esp_crt_bundle_attach`）。
-- 若云端只返回 `httpsUrl`——下载客户端需信任 Tuya IoT-DNS 的根证书（见 [iot-client 参考](../reference/iot-client.md) 中 CA 配置部分）。
 
 ## 完整示例（ESP-IDF）
 
@@ -226,8 +212,6 @@ idf flash monitor
 ## 注意事项
 
 - **SDK 不下载/不烧写**——`iot_ota` 只负责云端协议；下载校验、分区管理、防回滚全部由应用实现。
-- **`info.url` 有效期有限**——拿到升级信息后应尽快下载，避免链接过期。
 - **栈要足够大**——TLS 握手 + HTTP 缓冲 + `esp_ota_write` 需要较大栈空间（demo 用 16KB）。
-- **证书**——默认走 `cdnUrl`，用平台公共 CA 包即可；若回退到 `httpsUrl`，需额外信任 Tuya IoT-DNS 根证书。
 - **回报时机**——`UPGRADING` 在下载前、`FINI` 在重启前、`EXEC` 在失败时；漏报会导致云端升级面板状态不准。
 - **MD5/HMAC 可选校验**——`info.md5` / `info.hmac` 可能为 NULL；若存在，建议在 `esp_ota_end` 后做一次校验再切分区。

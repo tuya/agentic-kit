@@ -6,13 +6,21 @@ sidebar_position: 3
 
 # 拍学机（图片理解）
 
-> 对应示例：`examples/posix/ai/rtc-client/`
+> 对应示例：
+>      * `examples/posix/ai/rtc-client/`
+>      * `examples/posix/ai/rtc-tcp-client/`
 
-:::tip 推荐：源码版 rtc-tcp-client
-本章基于预编译库版 rtc-client（`stm_open_*` API）。涂鸦推荐的源码集成路径是 rtc-tcp-client（`tuya_ai.h`），对应 demo 为 `./build/tai_edu_camera_demo res/test.jpg`，其 API 见 [rtc-tcp-client 参考](../reference/rtc-tcp-client.md)。
+
+:::tip
+本章以预编译库版 rtc-client（`stm_open_*` API）为例进行说明。rtc-tcp-client 的实现逻辑类似，请参考 `examples/` 下的对应源码。
 :::
 
 本章介绍图片理解示例的功能与实现。该示例演示了如何通过 Agentic-kit 实现图片理解功能——发送一张图片和文本 prompt 给 AI，接收结构化 JSON 结果和 TTS 语音回复。
+
+:::note 前置条件
+- 设备凭据（`devid`、`secret_key`、`local_key`）—— 示例内置默认测试凭据，可直接运行。用自己的设备时需先完成[配网](./scan-by-device)获取凭据。
+- 此示例依赖在 Tuya AI 平台上配置的**工作流**（Workflow），详见[创建工作流](../guides/create-workflow)。
+:::
 
 ## 功能概述
 

@@ -6,20 +6,26 @@ sidebar_position: 2
 
 # 语音/文本聊天
 
-> 对应示例：`examples/posix/ai/rtc-client/`
+> 对应示例：
+>      * `examples/posix/ai/rtc-client/`
+>      * `examples/posix/ai/rtc-tcp-client/`
 
-:::tip 推荐：源码版 rtc-tcp-client
-本章基于预编译库版 rtc-client（`stm_open_*` API）。涂鸦推荐的源码集成路径是 rtc-tcp-client（`tuya_ai.h`），对应 demo 为 `./build/tai_text_chat_demo`（文本）与 `./build/tai_audio_chat_demo input.wav`（语音）。其 API 见 [rtc-tcp-client 参考](../reference/rtc-tcp-client.md)。
+:::tip
+本章以预编译库版 rtc-client（`stm_open_*` API）为例进行说明。rtc-tcp-client 的实现逻辑类似，请参考 `examples/` 下的对应源码。
 :::
 
 本章介绍语音聊天示例的功能与实现。该示例演示了如何通过 Agentic-kit 实现与 AI 的语音或文本聊天，并将 AI 返回的 TTS 音频保存到本地文件。
+
+:::note 前置条件
+- 设备凭据（`devid`、`secret_key`、`local_key`）—— 示例内置默认测试凭据，可直接运行。用自己的设备时需先完成[配网](./scan-by-device)获取凭据。
+:::
 
 ## 功能概述
 
 语音聊天示例支持两种模式：
 
 - **语音聊天模式**：读取本地 16kHz/mono/16-bit 的 PCM 音频文件，按 120ms 帧分
-  包上传，AI 会进行语音识别(ASR) 并返回文本回复和 TTS 语音。
+  包上传，AI 会进行语音识别（ASR）并返回文本回复和 TTS 语音。
 - **纯文本模式**：不提供 PCM 文件时，示例会发送一段预设的文本问候语，AI
   返回文本回复和 TTS 语音。
 

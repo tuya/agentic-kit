@@ -6,6 +6,17 @@ sidebar_position: 1
 
 # 快速开始
 
+> 💡 **没有硬件？** 本页全部示例均可在 macOS 或 Linux 上运行，无需开发板。
+
+:::note 首次接入？
+如果你是第一次使用涂鸦平台，请先阅读[介绍](../intro)和[核心概念](../concepts)，
+了解产品 PID、设备授权码、配网等基础概念。
+:::
+
+:::tip 需要用自己的设备？
+先完成[配网](./pair-overall)获取凭据，或[领取免费授权码](../get-authkey)。
+:::
+
 ## 依赖
 
 | 工具/库 | 版本 | macOS 安装 | Linux (Debian/Ubuntu) 安装 |
@@ -41,7 +52,7 @@ CMakeLists.txt 会自动选择平台对应的预编译库目录：
 
 ### 示例代码编译
 
-#### Posix系统示例
+#### POSIX 系统示例
 
 Posix 示例位于 `examples/posix/` 目录下，使用 CMake 构建系统：
 
@@ -54,7 +65,7 @@ cmake .. && make
 > 构建时会通过 FetchContent 自动拉取示例所需的第三方库（qrcodegen、quirc、stb），无需手动安装。
 
 
-#### ESP-IDF系例示例
+#### ESP-IDF 系统示例
 
 ESP-IDF 示例位于 `examples/esp-idf/` 目录下，使用 ESP-IDF 构建系统：
 
@@ -69,7 +80,7 @@ idf.py flash monitor
 编译成功后，在 `examples/posix/` 目录下运行（POSIX 平台示例）：
 
 ```sh
-# --- AI 实时交互：rtc-tcp-client（源码，推荐）---
+# --- AI 实时交互：rtc-tcp-client（源码）---
 ./build/tai_text_chat_demo                 # 文本对话
 ./build/tai_audio_chat_demo input.wav      # 语音对话（需 libopus；省略文件则发文字问候，WAV 须为单声道 16-bit）
 ./build/tai_edu_camera_demo res/test.jpg   # 拍照识物 + TTS
@@ -84,38 +95,4 @@ idf.py flash monitor
 
 > 上述 AI demo 均内置默认设备凭据，可直接运行；要用自己的设备时，多数 demo 支持追加 `[devid] [secret_key] [local_key]` 参数。`tai_audio_chat_demo` 仅在检测到 libopus 时才会编译。
 
-## 项目结构
 
-```
-├── modules/                # SDK 模块源码/库
-│   ├── rtc-tcp-client/     # tRTC(tuya自研RTC协议) TCP 实现（源码，推荐）
-│   │   ├── include/tuya_ai.h
-│   │   └── src/
-│   ├── rtc-client/         # tRTC(tuya自研RTC协议) UDP 实现（预编译库）
-│   │   ├── include/stm_open.h
-│   │   └── libs/
-│   ├── iot-client/         # IoT 客户端（激活、MQTT、token）
-│   │   ├── include/iot_client.h
-│   │   └── libs/
-│   └── tuya-ble/           # BLE 配网模块
-├── examples/
-│   ├── posix/              # macOS/Linux 示例
-│   │   ├── ai/
-│   │   │   ├── rtc-tcp-client/    # 使用 rtc-tcp-client 的语音聊天
-│   │   │   └── rtc-client/        # 使用 rtc-client 的语音聊天
-│   │   ├── pair/
-│   │   │   ├── scan-by-device/    # 设备扫码配网
-│   │   │   ├── scan-by-app/       # App 扫码配网
-│   │   │   └── api-activate/      # OpenAPI 激活
-│   │   └── res/                   # 测试资源文件
-│   └── esp-idf/            # ESP-IDF 示例
-│       ├── ai/
-│       │   └── rtc-tcp-client/    # ESP32 语音聊天
-│       └── pair/
-│           ├── pair-by-ble/       # BLE 蓝牙配网
-│           └── scan-by-app/       # App 扫码配网
-├── pal/                    # Platform Abstraction Layer
-├── common/                 # 公共工具代码
-├── third_party/            # 第三方库（mbedtls 等）
-└── docs-site/              # 本文档站点
-```
