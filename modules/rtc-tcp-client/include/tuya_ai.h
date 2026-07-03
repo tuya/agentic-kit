@@ -298,6 +298,23 @@ typedef struct tai_config {
      * up to ~2x this value (establishment + ack). */
     uint32_t connect_timeout_ms;
 
+    /* --- Auto-reconnect (connect-on-send), 0 = off (default) ---
+     * When non-zero, a stream-STARTING tai_send_*() (tai_send_text, audio_start,
+     * image, image_with_text, chat_break, mcp_response) called while the link is
+     * down first (re)establishes the connection, then sends; the establish is
+     * bounded by connect_timeout_ms and the send returns an error if it can't
+     * connect in time (no on_disconnect is fired for connect-on-send failures --
+     * the send's return value is the signal). Terminal disconnects are otherwise
+     * healed silently. Off keeps the fail-fast model (a send on a down link
+     * returns an error and the app reconnects).
+     * Mid-stream continuations tai_send_audio_chunk / tai_send_audio_end do NOT
+     * auto-reconnect: a fresh session has no open audio event, so they fail-fast
+     * on a down link and the app must restart the stream with tai_send_audio_start.
+     * Concurrent reconnects are serialised internally, but because the reconnect
+     * joins the worker thread an auto-reconnecting send must run on an app thread,
+     * never inside a receive callback (see below). */
+    uint8_t auto_reconnect;
+
     /* --- Receive callbacks ---
      * All fire on the background worker thread. Each takes ONE const message
      * pointer + user_data; the msg and every pointer inside it are valid ONLY
@@ -305,8 +322,11 @@ typedef struct tai_config {
      *
      * A callback MAY call tai_send_*() (no lock is held), but MUST NOT call
      * tai_connect / tai_disconnect / tai_ctx_deinit — those join this very
-     * (worker) thread and deadlock. To end the session from a callback, call
-     * tai_request_disconnect() and let the owning thread call tai_disconnect().
+     * (worker) thread and deadlock. Note: with auto_reconnect enabled a
+     * tai_send_*() on a down link ALSO reconnects (join + connect), so a callback
+     * must only tai_send_*() on the live connection, never to drive a reconnect.
+     * To end the session from a callback, call tai_request_disconnect() and let
+     * the owning thread call tai_disconnect().
      * Callbacks run synchronously in the receive loop, so they must return
      * promptly — a blocking callback stalls receiving and keepalive.
      */

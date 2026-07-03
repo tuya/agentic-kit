@@ -39,6 +39,13 @@ void tai_emit_disconnect(tai_ctx_t *ctx, uint8_t reason,
      * handshake. */
     if (ctx->connecting) return;
 
+    /* Connect-on-send: a terminal drop will be healed on the next tai_send_*, so
+     * don't surface it — the send's own return value is the signal if the heal
+     * later fails (no on_disconnect is fired for connect-on-send failures, which
+     * keeps on_disconnect strictly a worker-thread callback). Non-terminal
+     * SESSION_CLOSE still fires. */
+    if (ctx->auto_reconnect && reason != TAI_DISCONNECT_SESSION_CLOSE) return;
+
     uint8_t alive = (reason == TAI_DISCONNECT_SESSION_CLOSE) ? 1 : 0;
 
     /* Single-point guarantee applies to TERMINAL disconnects only (the link is
@@ -322,16 +329,23 @@ tai_ctx_t *tai_ctx_init(void *mem, const tai_config_t *cfg)
     ctx->connect_timeout_ms = cfg->connect_timeout_ms ? cfg->connect_timeout_ms : 5000U;
     ctx->disable_tls      = cfg->disable_tls;
     ctx->cert_bundle_attach = cfg->cert_bundle_attach;
+    ctx->auto_reconnect   = cfg->auto_reconnect;
 
-    /* Initialise mutex */
+    /* Initialise mutexes */
     ctx->mutex = cfg->pal->mutex_create();
     if (!ctx->mutex) return NULL;
+    ctx->reconnect_mutex = cfg->pal->mutex_create();
+    if (!ctx->reconnect_mutex) {
+        ctx->pal->mutex_destroy(ctx->mutex);
+        return NULL;
+    }
 
     /* Seed the shared crypto RNG once, here at construction (single-threaded,
      * before tai_connect() spawns the receive thread). */
     if (rng_init(ctx->pal) != 0) {
         TAI_LOGE(ctx->pal, TAG, "ctx_init: rng_init failed");
         ctx->pal->mutex_destroy(ctx->mutex);
+        ctx->pal->mutex_destroy(ctx->reconnect_mutex);
         return NULL;
     }
 
@@ -349,6 +363,10 @@ void tai_ctx_deinit(tai_ctx_t *ctx)
     if (!ctx) return;
     ctx_io_close(ctx);
     if (ctx->mutex) { ctx->pal->mutex_destroy(ctx->mutex); ctx->mutex = NULL; }
+    if (ctx->reconnect_mutex) {
+        ctx->pal->mutex_destroy(ctx->reconnect_mutex);
+        ctx->reconnect_mutex = NULL;
+    }
 }
 
 /* =========================================================================
@@ -840,9 +858,46 @@ static int send_text_locked(tai_ctx_t *ctx, const char *text, size_t len)
     return rc;
 }
 
+/* Connect-on-send gate for the stream-STARTING public sends. App-thread only.
+ *   - link already up            -> TAI_OK
+ *   - down, auto_reconnect off    -> TAI_ERR_ARGS (fail-fast, same as pre-feature)
+ *   - down, auto_reconnect on     -> tai_disconnect() (join the exited worker +
+ *       close the stale socket + reset) then tai_connect() (re-establish within
+ *       connect_timeout_ms + new worker). On failure return that error so the
+ *       send fails; no on_disconnect is fired (the return value is the signal).
+ * Serialized by reconnect_mutex so concurrent down-link sends from multiple app
+ * threads don't race the join/connect. NOT ctx->mutex: tai_disconnect/tai_connect
+ * take that internally. MUST run on an app thread (it joins the worker), never a
+ * receive callback.
+ *
+ * Note: only stream-starting sends use this. Mid-stream continuations
+ * (tai_send_audio_chunk / tai_send_audio_end) require an already-open event that
+ * a fresh reconnected session doesn't have, so they fail-fast on a down link
+ * instead of silently emitting orphan frames -- the app must restart the stream
+ * with tai_send_audio_start. */
+static int ensure_connected(tai_ctx_t *ctx)
+{
+    if (ctx->connected) return TAI_OK;
+    if (!ctx->auto_reconnect) return TAI_ERR_ARGS;
+
+    ctx->pal->mutex_lock(ctx->reconnect_mutex);
+    int rc = TAI_OK;
+    if (!ctx->connected) {   /* re-check: another thread may have reconnected */
+        TAI_LOGI(ctx->pal, TAG, "auto-reconnect: link down, re-establishing");
+        tai_disconnect(ctx);
+        rc = tai_connect(ctx);
+        if (rc != TAI_OK)
+            TAI_LOGE(ctx->pal, TAG, "auto-reconnect failed: %d", rc);
+    }
+    ctx->pal->mutex_unlock(ctx->reconnect_mutex);
+    return rc;
+}
+
 int tai_send_text(tai_ctx_t *ctx, const char *text, size_t len)
 {
-    if (!ctx || !ctx->connected || !text) return TAI_ERR_ARGS;
+    if (!ctx || !text) return TAI_ERR_ARGS;
+    int cc = ensure_connected(ctx);
+    if (cc != TAI_OK) return cc;
     TAI_LOGI(ctx->pal, TAG, "send_text: %zu bytes", len);
     ctx_lock(ctx);
     int rc = send_text_locked(ctx, text, len);
@@ -876,7 +931,9 @@ int tai_send_audio_start(tai_ctx_t *ctx,
                           uint8_t codec, uint8_t channels,
                           uint8_t bit_depth, uint32_t sample_rate)
 {
-    if (!ctx || !ctx->connected) return TAI_ERR_ARGS;
+    if (!ctx) return TAI_ERR_ARGS;
+    int cc = ensure_connected(ctx);
+    if (cc != TAI_OK) return cc;
     TAI_LOGI(ctx->pal, TAG, "audio_start: codec=%u ch=%u bits=%u rate=%u",
              codec, channels, bit_depth, sample_rate);
     ctx_lock(ctx);
@@ -887,6 +944,9 @@ int tai_send_audio_start(tai_ctx_t *ctx,
 
 int tai_send_audio_chunk(tai_ctx_t *ctx, const uint8_t *pcm, size_t len)
 {
+    /* Mid-stream continuation: fail-fast on a down link (no connect-on-send).
+     * A reconnected session has no open audio event, so healing here would emit
+     * an orphan MIDDLE frame; the app must restart via tai_send_audio_start. */
     if (!ctx || !ctx->connected || !pcm || len == 0) return TAI_ERR_ARGS;
     ctx_lock(ctx);
 
@@ -952,6 +1012,7 @@ static int send_audio_end_locked(tai_ctx_t *ctx)
 
 int tai_send_audio_end(tai_ctx_t *ctx)
 {
+    /* Mid-stream continuation: fail-fast on a down link (see tai_send_audio_chunk). */
     if (!ctx || !ctx->connected) return TAI_ERR_ARGS;
     TAI_LOGI(ctx->pal, TAG, "audio_end");
     ctx_lock(ctx);
@@ -1007,7 +1068,9 @@ int tai_send_image(tai_ctx_t *ctx,
                    const uint8_t *data, size_t len,
                    uint8_t format, uint16_t width, uint16_t height)
 {
-    if (!ctx || !ctx->connected || !data) return TAI_ERR_ARGS;
+    if (!ctx || !data) return TAI_ERR_ARGS;
+    int cc = ensure_connected(ctx);
+    if (cc != TAI_OK) return cc;
     TAI_LOGI(ctx->pal, TAG, "send_image: %zu bytes fmt=%u %ux%u",
              len, format, width, height);
     ctx_lock(ctx);
@@ -1079,7 +1142,9 @@ int tai_send_image_with_text(tai_ctx_t *ctx,
                              uint8_t format,
                              uint16_t width, uint16_t height)
 {
-    if (!ctx || !ctx->connected || !text || !img_data) return TAI_ERR_ARGS;
+    if (!ctx || !text || !img_data) return TAI_ERR_ARGS;
+    int cc = ensure_connected(ctx);
+    if (cc != TAI_OK) return cc;
     TAI_LOGI(ctx->pal, TAG, "send_image_with_text: text=%zu img=%zu bytes",
              text_len, img_len);
     ctx_lock(ctx);
@@ -1094,7 +1159,9 @@ int tai_send_image_with_text(tai_ctx_t *ctx,
  * ========================================================================= */
 int tai_chat_break(tai_ctx_t *ctx)
 {
-    if (!ctx || !ctx->connected) return TAI_ERR_ARGS;
+    if (!ctx) return TAI_ERR_ARGS;
+    int cc = ensure_connected(ctx);
+    if (cc != TAI_OK) return cc;
     ctx_lock(ctx);
     int len = tai_proto_build_event_chat_break(ctx, ctx->tx_ctrl_buf,
                                                 sizeof(ctx->tx_ctrl_buf));
@@ -1108,7 +1175,9 @@ int tai_chat_break(tai_ctx_t *ctx)
  * ========================================================================= */
 int tai_send_mcp_response(tai_ctx_t *ctx, const char *json_rpc_response)
 {
-    if (!ctx || !ctx->connected || !json_rpc_response) return TAI_ERR_ARGS;
+    if (!ctx || !json_rpc_response) return TAI_ERR_ARGS;
+    int cc = ensure_connected(ctx);
+    if (cc != TAI_OK) return cc;
     ctx_lock(ctx);
     /* MCP response (scatter-gather): header [session][event][event_type] +
      * zero-copy JSON-RPC payload — the control buffer need not hold the JSON. */

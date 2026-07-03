@@ -509,7 +509,7 @@ static int build_event_app(tai_ctx_t *ctx, uint16_t evt_type,
 /* =========================================================================
  * Common setup/teardown
  * ========================================================================= */
-static tai_ctx_t *setup_ctx(void *mem)
+static tai_ctx_t *setup_ctx_cfg(void *mem, uint8_t auto_reconnect)
 {
     tai_loopback_reset();
     tai_loopback_seed_random(42);
@@ -537,10 +537,14 @@ static tai_ctx_t *setup_ctx(void *mem)
 
     /* The loopback completes the handshake (signs the SessionNew ack with the
      * key derived from this local_key), so confirmed-connect succeeds. */
+    cfg.auto_reconnect = auto_reconnect;
     tai_loopback_set_local_key(cfg.local_key);
 
     return tai_ctx_init(mem, &cfg);
 }
+
+/* Default setup: auto-reconnect off (fail-fast), matching the production default. */
+static tai_ctx_t *setup_ctx(void *mem) { return setup_ctx_cfg(mem, 0); }
 
 /* =========================================================================
  * Test 1: text_query happy path
@@ -1904,6 +1908,245 @@ static void test_disconnect_latency(void)
 /* =========================================================================
  * main
  * ========================================================================= */
+/* =========================================================================
+ * Auto-reconnect (connect-on-send): opt-in via tai_config_t.auto_reconnect.
+ * A tai_send_* on a down link (re)establishes the connection first, bounded by
+ * connect_timeout_ms; healing is silent, on_disconnect fires only on give-up.
+ * ========================================================================= */
+
+/* A: a send on a never-connected ctx transparently establishes the link. */
+static void test_autoreconnect_connect_on_send(void)
+{
+    SECTION("autoreconnect_connect_on_send");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx_cfg(ctx_mem, 1);   /* auto_reconnect on */
+    CHECK(ctx != NULL);
+    CHECK_EQ_INT(ctx->connected, 0);              /* not connected yet */
+
+    CHECK_EQ_INT(tai_send_text(ctx, "hi", 2), TAI_OK);  /* connects, then sends */
+    CHECK_EQ_INT(ctx->connected, 1);
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);       /* silent */
+
+    tai_disconnect(ctx);
+    tai_ctx_deinit(ctx);
+}
+
+/* B: with auto_reconnect off, a send on a down link fails fast (no reconnect). */
+static void test_autoreconnect_off_fail_fast(void)
+{
+    SECTION("autoreconnect_off_fail_fast");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx(ctx_mem);          /* auto_reconnect off (default) */
+    CHECK(ctx != NULL);
+    CHECK_EQ_INT(ctx->connected, 0);
+
+    CHECK(tai_send_text(ctx, "hi", 2) != TAI_OK); /* fail-fast, as before */
+    CHECK_EQ_INT(ctx->connected, 0);
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);
+
+    tai_ctx_deinit(ctx);
+}
+
+/* C: a dropped link is healed silently on the next send. */
+static void test_autoreconnect_heal_on_send(void)
+{
+    SECTION("autoreconnect_heal_on_send");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx_cfg(ctx_mem, 1);
+    CHECK(ctx != NULL);
+    CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+    CHECK_EQ_INT(ctx->connected, 1);
+
+    /* Server drops the link; the worker detects EOF and goes silent (suppressed). */
+    tai_loopback_close_connection();
+    int waited = 0;
+    while (ctx->connected && waited < 1000) { sleep_ms(5); waited += 5; }
+    CHECK_EQ_INT(ctx->connected, 0);
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);       /* silent heal, no notification */
+
+    /* Next send transparently reconnects (loopback re-arms on the fresh connect). */
+    CHECK_EQ_INT(tai_send_text(ctx, "hi", 2), TAI_OK);
+    CHECK_EQ_INT(ctx->connected, 1);
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);
+
+    tai_disconnect(ctx);
+    tai_ctx_deinit(ctx);
+}
+
+/* D: when the reconnect can't succeed, the send RETURNS an error and NO
+ * on_disconnect fires (return value is the give-up signal; on_disconnect stays
+ * a worker-thread-only callback). */
+static void test_autoreconnect_giveup_returns_error(void)
+{
+    SECTION("autoreconnect_giveup_returns_error");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx_cfg(ctx_mem, 1);
+    CHECK(ctx != NULL);
+    CHECK_EQ_INT(ctx->connected, 0);
+
+    /* Server rejects the SessionNew, so the connect-on-send can't complete. */
+    tai_loopback_set_handshake_mode(TAI_LB_HS_REJECT);
+    CHECK(tai_send_text(ctx, "hi", 2) != TAI_OK); /* give up -> send returns error */
+    CHECK_EQ_INT(ctx->connected, 0);
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);       /* no callback fired on the app thread */
+
+    tai_disconnect(ctx);
+    tai_ctx_deinit(ctx);
+}
+
+/* D2: mid-stream continuations (audio_chunk/audio_end) do NOT auto-reconnect;
+ * they fail-fast on a down link so no orphan frame is emitted on a fresh session. */
+static void test_autoreconnect_audio_chunk_failfast(void)
+{
+    SECTION("autoreconnect_audio_chunk_failfast");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx_cfg(ctx_mem, 1);
+    CHECK(ctx != NULL);
+    CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+    CHECK_EQ_INT(tai_send_audio_start(ctx, TAI_AUDIO_PCM, 1, 16, 16000), TAI_OK);
+    uint8_t pcm[320]; memset(pcm, 0x42, sizeof(pcm));
+    CHECK_EQ_INT(tai_send_audio_chunk(ctx, pcm, sizeof(pcm)), TAI_OK);  /* START */
+
+    /* Link drops mid-stream. */
+    tai_loopback_close_connection();
+    int waited = 0;
+    while (ctx->connected && waited < 1000) { sleep_ms(5); waited += 5; }
+    CHECK_EQ_INT(ctx->connected, 0);
+
+    /* A bare chunk/end must fail-fast (no reconnect, no orphan MIDDLE frame). */
+    CHECK(tai_send_audio_chunk(ctx, pcm, sizeof(pcm)) != TAI_OK);
+    CHECK(tai_send_audio_end(ctx) != TAI_OK);
+    CHECK_EQ_INT(ctx->connected, 0);              /* stayed down: no silent heal here */
+
+    /* But restarting the stream (audio_start) DOES reconnect. */
+    CHECK_EQ_INT(tai_send_audio_start(ctx, TAI_AUDIO_PCM, 1, 16, 16000), TAI_OK);
+    CHECK_EQ_INT(ctx->connected, 1);
+
+    tai_disconnect(ctx);
+    tai_ctx_deinit(ctx);
+}
+
+/* E: after a silent heal the fresh link carries real data both ways. */
+static void test_autoreconnect_heal_carries_data(void)
+{
+    SECTION("autoreconnect_heal_carries_data");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx_cfg(ctx_mem, 1);
+    CHECK(ctx != NULL);
+    CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+
+    uint8_t tx[8192];
+    (void)tai_loopback_pop_sent(tx, sizeof(tx));  /* discard initial handshake */
+
+    /* Server drops the link; worker detects EOF silently. */
+    tai_loopback_close_connection();
+    int waited = 0;
+    while (ctx->connected && waited < 1000) { sleep_ms(5); waited += 5; }
+    CHECK_EQ_INT(ctx->connected, 0);
+
+    /* Heal via a text send: the reconnect (ClientHello + SessionNew) AND the text
+     * event must appear on the fresh link as valid, in-order protocol frames. */
+    CHECK_EQ_INT(tai_send_text(ctx, "hello", 5), TAI_OK);
+    CHECK_EQ_INT(ctx->connected, 1);
+    sleep_ms(10);
+    size_t txn = tai_loopback_pop_sent(tx, sizeof(tx));
+    captured_pkt_t pkts[12];
+    int np = decode_captured(tx, txn, 0, pkts, 12);   /* ClientHello is unsigned */
+    CHECK(np >= 6);
+    CHECK_EQ_INT(pkts[0].pkt_type, TAI_PKT_CLIENT_HELLO);
+    CHECK_EQ_INT(pkts[1].pkt_type, TAI_PKT_SESSION_NEW);
+    CHECK_EQ_INT(pkts[2].pkt_type, TAI_PKT_EVENT);   /* EventStart */
+    CHECK_EQ_INT(pkts[3].pkt_type, TAI_PKT_TEXT);
+
+    /* Downlink also works: the restarted worker verifies + delivers a server text
+     * (signed with the freshly re-derived sign_key). */
+    server_send_text(ctx, "reply", 5, TAI_STREAM_ONE_SHOT, 0, 1000);
+    CHECK(WAIT_FOR(g_st.text_calls >= 1, 1000));
+
+    tai_disconnect(ctx);
+    tai_ctx_deinit(ctx);
+}
+
+/* G: SESSION_CLOSE (non-terminal) still notifies even with auto_reconnect on --
+ * the silent-heal suppression is terminal-only. */
+static void test_autoreconnect_session_close_still_notifies(void)
+{
+    SECTION("autoreconnect_session_close_still_notifies");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx_cfg(ctx_mem, 1);
+    CHECK(ctx != NULL);
+    CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+    uint8_t tx[2048];
+    (void)tai_loopback_pop_sent(tx, sizeof(tx));
+
+    tai_attr_t a[1];
+    a[0] = tai_attr_strv(TAI_ATTR_SESSION_ID, ctx->session_id);
+    server_send(ctx, TAI_PKT_SESSION_CLOSE, a, 1, NULL, 0, 1);
+    CHECK(WAIT_FOR(g_st.disconnect_calls >= 1, 1000));
+    CHECK_EQ_INT(g_st.disconnect_reason, TAI_DISCONNECT_SESSION_CLOSE);
+
+    tai_disconnect(ctx);
+    tai_ctx_deinit(ctx);
+}
+
+/* H: after a give-up, a later send recovers once the server is healthy again,
+ * without emitting a second terminal on_disconnect. */
+static void test_autoreconnect_recovery_after_giveup(void)
+{
+    SECTION("autoreconnect_recovery_after_giveup");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx_cfg(ctx_mem, 1);
+    CHECK(ctx != NULL);
+
+    tai_loopback_set_handshake_mode(TAI_LB_HS_REJECT);
+    CHECK(tai_send_text(ctx, "a", 1) != TAI_OK);   /* give up -> error return */
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);
+    CHECK_EQ_INT(ctx->connected, 0);
+
+    tai_loopback_set_handshake_mode(TAI_LB_HS_ACK_OK);
+    CHECK_EQ_INT(tai_send_text(ctx, "b", 1), TAI_OK);  /* recovers */
+    CHECK_EQ_INT(ctx->connected, 1);
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);        /* still silent throughout */
+
+    tai_disconnect(ctx);
+    tai_ctx_deinit(ctx);
+}
+
+/* I: connect-on-send works from a non-text entry point too (shared gate). */
+static void test_autoreconnect_via_audio_send(void)
+{
+    SECTION("autoreconnect_via_audio_send");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx_cfg(ctx_mem, 1);
+    CHECK(ctx != NULL);
+    CHECK_EQ_INT(ctx->connected, 0);
+
+    CHECK_EQ_INT(tai_send_audio_start(ctx, TAI_AUDIO_PCM, 1, 16, 16000), TAI_OK);
+    CHECK_EQ_INT(ctx->connected, 1);
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);
+
+    tai_disconnect(ctx);
+    tai_ctx_deinit(ctx);
+}
+
+/* J: give-up path via a connect TIMEOUT (server never acks), not just a reject. */
+static void test_autoreconnect_giveup_on_timeout(void)
+{
+    SECTION("autoreconnect_giveup_on_timeout");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx_cfg(ctx_mem, 1);
+    CHECK(ctx != NULL);
+    ctx->connect_timeout_ms = 200;                 /* keep the timeout fast */
+    tai_loopback_set_handshake_mode(TAI_LB_HS_NO_ACK);
+
+    CHECK(tai_send_text(ctx, "hi", 2) != TAI_OK);  /* connect times out -> give up */
+    CHECK_EQ_INT(ctx->connected, 0);
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);        /* return code is the signal */
+
+    tai_disconnect(ctx);
+    tai_ctx_deinit(ctx);
+}
+
 int main(void)
 {
     printf("=== Tuya AI -- integration tests (loopback PAL) ===\n");
@@ -1934,6 +2177,16 @@ int main(void)
     test_sg_control_json_limit();
     test_confirmed_connect();
     test_disconnect_latency();
+    test_autoreconnect_connect_on_send();
+    test_autoreconnect_off_fail_fast();
+    test_autoreconnect_heal_on_send();
+    test_autoreconnect_giveup_returns_error();
+    test_autoreconnect_audio_chunk_failfast();
+    test_autoreconnect_heal_carries_data();
+    test_autoreconnect_session_close_still_notifies();
+    test_autoreconnect_recovery_after_giveup();
+    test_autoreconnect_via_audio_send();
+    test_autoreconnect_giveup_on_timeout();
 
     printf("\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     pthread_mutex_destroy(&g_st.mtx);

@@ -157,7 +157,23 @@ is *not* rolled back). That is a synchronous error the caller acts on: an app se
 `tai_disconnect` + reconnect, and the worker's own periodic Ping is its TX health probe — a failed
 Ping send makes the worker fire one `on_disconnect(TRANSPORT, NET_ERROR)` (§6.3), which also catches
 a broken uplink while the app is idle. There is no separate "broken" latch; the return value is the
-signal. Higher-level senders compose Packets into an Event:
+signal.
+
+**Opt-in connect-on-send** (`tai_config_t.auto_reconnect`, default off): when set, a
+stream-*starting* `tai_send_*` (text / audio_start / image / image_with_text / chat_break /
+mcp_response) on a down link first (re)establishes the connection — internally `tai_disconnect`
+(join the exited worker + close + reset) then `tai_connect`, bounded by `connect_timeout_ms` —
+and then sends; if it can't connect in time the send returns an error and that return value is
+the signal (no `on_disconnect` fires for a connect-on-send failure, so `on_disconnect` stays a
+worker-thread-only callback). Terminal disconnects are otherwise healed silently. Mid-stream
+continuations `tai_send_audio_chunk` / `tai_send_audio_end` do NOT auto-reconnect — a fresh
+session has no open audio event, so they fail-fast on a down link (the app restarts via
+`tai_send_audio_start`). Concurrent reconnects are serialised by a dedicated `reconnect_mutex`;
+because the reconnect joins the worker, an auto-reconnecting send must run on an app thread, not
+inside a receive callback. Default-off keeps the fail-fast model above (app owns reconnect, e.g.
+`demo_reconnect.h`).
+
+Higher-level senders compose Packets into an Event:
 
 - **Text** (`tai_send_text`): EventStart → Text (Stream flag ONE_SHOT, Data ID `TEXT_UP`) →
   EventPayloadsEnd → EventEnd.

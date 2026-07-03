@@ -125,6 +125,7 @@ static void lb_init_once(void)
  * Public helpers
  * ========================================================================= */
 static void lb_hs_reset(void);   /* handshake-mock reset (defined below) */
+static void lb_hs_rearm(void);   /* re-arm handshake for a new connection (below) */
 
 void tai_loopback_reset(void)
 {
@@ -218,6 +219,14 @@ static void *lb_tcp_connect(const char *host, uint16_t port, uint32_t timeout_ms
 {
     (void)host; (void)port; (void)timeout_ms;
     lb_init_once();
+    /* Model a fresh TCP connection to the server: clear any prior EOF and re-arm
+     * the handshake so a reconnect (e.g. the connect-on-send path inside
+     * tai_send_*) gets a fresh SessionNew ack. The handshake MODE and local_key
+     * persist, so a test can keep NO_ACK/REJECT armed across the reconnect. */
+    pthread_mutex_lock(&g_state_mtx);
+    g_eof = 0;
+    pthread_mutex_unlock(&g_state_mtx);
+    lb_hs_rearm();
     /* Return a non-NULL sentinel handle. */
     return (void *)0x1;
 }
@@ -253,6 +262,14 @@ static void lb_hs_reset(void)
     g_hs.acc_len = 0;
     g_hs.mode    = TAI_LB_HS_ACK_OK;
     /* local_key persists across reset; set once per test via set_local_key. */
+}
+
+/* Re-arm for a NEW connection: ready to ack the next ClientHello, but keep the
+ * mode and local_key (so a test's NO_ACK/REJECT survives an in-SDK reconnect). */
+static void lb_hs_rearm(void)
+{
+    g_hs.done    = 0;
+    g_hs.acc_len = 0;
 }
 
 /* Fed every client->server send; on the first complete ClientHello frame it

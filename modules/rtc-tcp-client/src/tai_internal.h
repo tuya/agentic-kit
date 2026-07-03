@@ -249,6 +249,7 @@ struct tai_ctx {
     uint8_t  event_open;
     uint8_t  disconnect_emitted;         /* single-point: terminal on_disconnect fired this connection */
     uint8_t  connecting;                 /* 1 during tai_connect's ack wait: suppress on_disconnect */
+    uint8_t  auto_reconnect;             /* connect-on-send: tai_send_* reconnects a down link */
     uint16_t seq;                        /* outbound sequence counter */
     uint32_t event_seq;                  /* per-event text sequence counter */
     uint64_t last_pong_ms;               /* updated by dispatch on PONG */
@@ -290,6 +291,11 @@ struct tai_ctx {
     /* Mutex protecting ctx state (tx buffers, seq, event flags),
      * serialises sender threads across multi-packet sequences. */
     void *mutex;
+
+    /* Serialises connect-on-send reconnects (ensure_connected) so concurrent
+     * down-link sends from multiple app threads don't race the join/connect.
+     * Distinct from `mutex` because tai_disconnect/tai_connect take that one. */
+    void *reconnect_mutex;
 
     /* Receive callbacks (struct-based; see tuya_ai.h) */
     void (*on_audio)     (tai_ctx_t *, const tai_audio_msg_t      *, void *);

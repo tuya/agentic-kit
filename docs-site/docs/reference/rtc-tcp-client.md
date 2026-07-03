@@ -17,6 +17,7 @@ sidebar_position: 1
 - **简洁 API**：类型化发送函数（`tai_send_text`、`tai_send_audio_*`、`tai_send_image`），无需手动组装数据结构体
 - **后台接收线程**：`tai_connect` 后自动启动后台线程处理接收和 keepalive
 - **回调驱动**：通过 `on_audio`、`on_text`、`on_image`、`on_event`、`on_disconnect` 接收数据
+- **可选自动重连**：开启 `auto_reconnect` 后，`tai_send_*` 在链路断开时会自动重连再发送（详见 3.6 / 9），默认关闭以保
 - **无外部依赖**：用户 PAL 只需提供原始 TCP 和平台原语；TLS 和加密由 SDK 内部通过 bundled mbedTLS 处理
 
 
@@ -172,13 +173,14 @@ sidebar_position: 1
 |------|------|------|
 | `sign_level` | `uint8_t` | 签名级别：`TAI_SIGN_NONE` / `TAI_SIGN_HMAC_SHA256`（推荐） |
 
-### 3.6 保活配置
+### 3.6 连接与保活配置
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `ping_interval_ms` | `uint32_t` | Ping 间隔（0 = 默认 60000ms） |
 | `ping_timeout_ms` | `uint32_t` | Ping 超时（0 = 默认 90000ms） |
-| `connect_timeout_ms` | `uint32_t` | 连接超时（0 = 默认 5000ms）。分别约束 `tai_connect` 的两个串行等待阶段：先是 TLS 握手，再是服务端 SessionNew 应答。任一阶段超时即判定连接失败，因此 `tai_connect` 最坏耗时约为该值的 2 倍（握手 + 应答）。 |
+| `connect_timeout_ms` | `uint32_t` | 连接超时（0 = 默认 5000ms）。分别约束 `tai_connect` 的两个串行等待阶段：先是连接建立（TCP 连接 + TLS 握手，共用一个预算），再是服务端 SessionNew 应答。任一阶段超时即判定连接失败，因此 `tai_connect` 最坏耗时约为该值的 2 倍（建连 + 应答）。同一预算也约束 `auto_reconnect` 触发的重连。 |
+| `auto_reconnect` | `uint8_t` | 自动重连（connect-on-send），0 = 关闭（默认）。非零时，链路已断的情况下调用 `tai_send_*` 会先自动（重新）建连再发送，重连受 `connect_timeout_ms` 限时；限时内连不上则该次发送返回错误。详见第 9 节。 |
 
 ### 3.7 测试配置
 
@@ -371,6 +373,7 @@ int tai_connect(tai_ctx_t *ctx);
 - 阻塞直到连接建立或失败
 - 成功后，后台线程开始处理 Ping/Pong 和接收数据
 - 连接成功后即可调用 `tai_send_*` 系列函数
+- 若开启了 `auto_reconnect`，可不显式调用本函数——首个 `tai_send_*` 会在未连接时自动建连（但仍建议显式调用以便处理首次连接错误）
 
 ---
 
@@ -403,6 +406,8 @@ void tai_request_disconnect(tai_ctx_t *ctx);
 ---
 
 ## 5. 发送 API
+
+> 默认所有发送在链路未建立时都返回错误（快速失败）。若开启 `auto_reconnect`，**起始类**发送会先自动重连再发送，而续流类 `tai_send_audio_chunk` / `tai_send_audio_end` 仍快速失败——完整分类表与错误处理见第 9 节（9.1 / 9.2）。
 
 ### `tai_send_text`
 
@@ -594,3 +599,79 @@ free(mem);
 - 回调中**可以**调用 `tai_send_*()`（不持有锁）
 - 回调中**不可**调用 `tai_connect`、`tai_disconnect` 或 `tai_ctx_deinit`（它们会 join worker 线程，导致自死锁）
 - 如需在回调中触发断连，应调用 `tai_request_disconnect()`，再由拥有 context 的线程调用 `tai_disconnect()`
+- 开启 `auto_reconnect` 后，链路断开时的 `tai_send_*` 会在内部执行重连（join + connect），因此这类发送必须在应用线程调用，**不可**在接收回调中调用（同样会自死锁）；回调中的发送只应针对当前存活的连接
+
+---
+
+## 9. 自动重连（connect-on-send，可选）
+
+默认情况下 SDK 是 **fail-fast**：链路断开后 worker 触发一次 `on_disconnect` 并退出，由应用自行 `tai_disconnect()` + `tai_connect()` 重连（示例见 `examples/posix/ai/rtc-tcp-client/demo_reconnect.h`：指数退避 + 熔断）。
+
+开启 `cfg.auto_reconnect = 1` 后，改为 **发送时按需重连（connect-on-send）**：调用发送时若链路未建立，先在内部（重新）建连——等价于 `tai_disconnect()`（join 已退出的 worker、关闭旧 socket、复位）+ `tai_connect()`（重建 + 新 worker），受 `connect_timeout_ms` 限时——成功后再发送。
+
+### 9.1 哪些 API 会自动重连，哪些只会快速失败
+
+**关键区分**：只有**起始类**发送（开启一个新会话/新流/一次性消息）会按需重连；**续流类**发送（依赖一个已经打开的音频 event）永远**快速失败**，因为重连得到的是一个全新会话，没有那个已打开的 event。
+
+| API | `auto_reconnect=1` 且链路已断 | `auto_reconnect=0`（默认）且链路已断 |
+|------|------|------|
+| `tai_send_text` | ✅ 自动重连后发送 | ❌ 快速失败 |
+| `tai_send_audio_start` | ✅ 自动重连（起一个新流） | ❌ 快速失败 |
+| `tai_send_image` | ✅ 自动重连后发送 | ❌ 快速失败 |
+| `tai_send_image_with_text` | ✅ 自动重连后发送 | ❌ 快速失败 |
+| `tai_chat_break` | ✅ 自动重连后发送 | ❌ 快速失败 |
+| `tai_send_mcp_response` | ✅ 自动重连后发送 | ❌ 快速失败 |
+| `tai_send_audio_chunk` | ❌ **快速失败**（续流,不重连） | ❌ 快速失败 |
+| `tai_send_audio_end` | ❌ **快速失败**（续流,不重连） | ❌ 快速失败 |
+
+> "快速失败" = 立即返回错误码、不建连、不发送、不阻塞。
+
+其它语义：
+
+- **限时失败即信号**：自动重连若在 `connect_timeout_ms` 内连不上，该次发送返回错误码，应用据此感知；**不会**为 connect-on-send 失败触发 `on_disconnect`，因此 `on_disconnect` 始终只在 worker 线程回调。
+- **静默愈合**：能被下次起始发送愈合的断线不打扰应用——worker 的终止性 `on_disconnect` 被抑制；只有服务端 `SESSION_CLOSE`（`connection_alive=1`）这类**非终止**事件仍正常回调。
+- **并发安全 + 线程约束**：并发重连由内部专用锁串行化；但由于重连会 join worker 线程，会触发重连的发送必须在应用线程调用，不可在接收回调中调用（见第 8 节）。
+
+### 9.2 遇到快速失败（发送返回非 `TAI_OK`）怎么处理
+
+发送返回错误就是"这条没发出去"的信号，按场景处理：
+
+1. **续流发送（`tai_send_audio_chunk` / `tai_send_audio_end`）返回错误**：说明音频流所在的连接已断，这个流**无法续传**。正确做法是**放弃本流剩余分片，重新 `tai_send_audio_start` 起一个新流**（该调用会触发自动重连），再从头开始 `tai_send_audio_chunk`。不要重试同一个 chunk。
+2. **起始类发送返回错误（且 `auto_reconnect=1`）**：说明在 `connect_timeout_ms` 内没能建连。做法是**退避后重试该发送**（下一次调用会再尝试重连），或据业务判定暂时不可用；不要在紧循环里立即重试（会连击服务器）。
+3. **任何发送返回错误（且 `auto_reconnect=0`，默认）**：这是传统 fail-fast 语义——由**应用侧**驱动重连：`tai_disconnect()` + `tai_connect()`，配合退避 + 熔断，然后重发。可直接照抄 `examples/posix/ai/rtc-tcp-client/demo_reconnect.h`。
+
+一段音频续流的健壮写法（开启自动重连）：
+
+```c
+if (tai_send_audio_chunk(ctx, pcm, n) != TAI_OK) {
+    /* 续流不重连：本流已断，丢弃剩余分片，重起一个新流（会自动重连）。*/
+    if (tai_send_audio_start(ctx, TAI_AUDIO_PCM, 1, 16, 16000) != TAI_OK) {
+        /* 连都没连上：退避后稍后再试 */
+    } else {
+        tai_send_audio_chunk(ctx, pcm, n);   /* 在新流上重发本帧 */
+    }
+}
+```
+
+开启后甚至可以省略显式的 `tai_connect`——首个发送会自动建连：
+
+```c
+tai_config_t cfg = {
+    /* ... host / device_id / local_key / pal / 回调 ... */
+    .connect_timeout_ms = 5000,   // 每次（重）连的时间预算
+    .auto_reconnect     = 1,      // 开启发送时按需重连
+};
+tai_ctx_t *ctx = tai_ctx_init(mem, &cfg);
+
+/* 无需先调用 tai_connect：首个发送会自动建连；
+ * 之后若链路断开，下一次发送会静默重连。 */
+if (tai_send_text(ctx, "hello", 5) != TAI_OK) {
+    /* connect_timeout_ms 内未能建连：本次发送失败，可稍后重试 */
+}
+
+/* 结束时仍由应用线程收尾 */
+tai_disconnect(ctx);
+tai_ctx_deinit(ctx);
+```
+
+> 何时用哪种：需要精细控制退避/熔断、或从多线程并发发送时，仍推荐关闭 `auto_reconnect` 并采用应用侧 `demo_reconnect.h` 模式；只想“发送即连、断了自动重连”的简单场景，开启 `auto_reconnect` 即可。

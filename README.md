@@ -11,6 +11,7 @@
 - OTA 固件升级：云端协议（版本上报 / 升级检查 / 状态回报），下载与烧录由应用负责
 - 芯片和操作系统无关：macOS、Linux、FreeRTOS (ESP32)、MIPS、ARM
 - 全球化部署，支持多数据中心区域
+- 连接可靠性：连接/握手限时（`connect_timeout_ms`），RTC TCP 客户端支持可选的发送时自动重连
 
 ## SDK 模块
 

@@ -11,6 +11,7 @@ Multimodal device-side SDK for connecting smart hardware to the Tuya AI platform
 - OTA firmware upgrade: cloud protocol (version report / upgrade check / status report); download and flash owned by the application
 - Platform and chip agnostic: macOS, Linux, FreeRTOS (ESP32), MIPS, ARM
 - Global deployment with multiple data center regions
+- Connection reliability: bounded connect/handshake (`connect_timeout_ms`), with optional connect-on-send auto-reconnect in the RTC TCP client
 
 ## SDK Modules
 
