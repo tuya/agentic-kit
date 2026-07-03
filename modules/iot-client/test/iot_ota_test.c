@@ -3,7 +3,13 @@
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <sys/wait.h>
+#include <sys/socket.h>
+#include <sys/select.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include "atop.h"
 #include "iot_client.h"
@@ -55,6 +61,43 @@ static char *load_file(const pal_t *pal, const char *path)
 
 /* ---------- Mock server lifecycle ---------- */
 
+/* Wait until MOCK_HOST:port accepts a TCP connection, up to timeout_ms. The mock
+ * is a fork+exec'd Python server; a blind sleep races its startup on a loaded CI
+ * box -- and now that tcp_connect is time-bounded, the first real connect to a
+ * not-yet-ready mock times out and fails instead of blocking until ready. A
+ * non-blocking connect probe waits until the port is genuinely connectable. */
+static int wait_for_port(uint16_t port, int timeout_ms)
+{
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port   = htons(port);
+    inet_pton(AF_INET, MOCK_HOST, &addr.sin_addr);
+
+    const int step_ms = 50;
+    for (int waited = 0; waited <= timeout_ms; waited += step_ms) {
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd >= 0) {
+            int fl = fcntl(fd, F_GETFL, 0);
+            fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+            int rc = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+            if (rc == 0) { close(fd); return 0; }
+            if (rc < 0 && errno == EINPROGRESS) {
+                fd_set wfds; FD_ZERO(&wfds); FD_SET(fd, &wfds);
+                struct timeval tv = { .tv_sec = 0, .tv_usec = 300 * 1000 };
+                if (select(fd + 1, NULL, &wfds, NULL, &tv) > 0) {
+                    int err = 0; socklen_t len = sizeof(err);
+                    getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len);
+                    if (err == 0) { close(fd); return 0; }
+                }
+            }
+            close(fd);
+        }
+        usleep(step_ms * 1000);
+    }
+    return -1;
+}
+
 static int start_mock_server(void)
 {
     mock_pid = fork();
@@ -69,7 +112,10 @@ static int start_mock_server(void)
         return -1;
     }
     printf("Mock server started (pid %d, port %u), waiting for ready...\n", mock_pid, MOCK_PORT);
-    sleep(2);
+    if (wait_for_port(MOCK_PORT, 15000) != 0) {
+        fprintf(stderr, "OTA mock (%u) never became connectable\n", MOCK_PORT);
+        return -1;
+    }
     return OPRT_OK;
 }
 
