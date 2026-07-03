@@ -214,9 +214,9 @@ void tai_loopback_close_connection(void)
  * The loopback substitutes for raw TCP, not TLS.  Tests using this PAL must
  * set cfg.disable_tls = 1 so the SDK uses pal->tcp_* directly.
  * ========================================================================= */
-static void *lb_tcp_connect(const char *host, uint16_t port)
+static void *lb_tcp_connect(const char *host, uint16_t port, uint32_t timeout_ms)
 {
-    (void)host; (void)port;
+    (void)host; (void)port; (void)timeout_ms;
     lb_init_once();
     /* Return a non-NULL sentinel handle. */
     return (void *)0x1;

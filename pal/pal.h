@@ -50,7 +50,12 @@ typedef struct pal {
 
     /* --- TCP socket ------------------------------------------------------
      * tcp_connect: open a TCP connection to host:port.
-     *   Returns an opaque handle on success, NULL on failure.
+     *   Must block for at most timeout_ms milliseconds while establishing the
+     *   connection (0 = non-blocking single attempt, matching tcp_send/tcp_recv:
+     *   the connect is tried once and, if it cannot complete immediately, fails).
+     *   timeout_ms > 0 bounds the connect so a stalled peer cannot hang the caller
+     *   past the deadline.
+     *   Returns an opaque handle on success, NULL on timeout or failure.
      * tcp_send: attempt to write up to len bytes.
      *   Must block for at most timeout_ms milliseconds (0 = non-blocking try).
      *   Returns: >0 = bytes actually written (may be less than len),
@@ -60,7 +65,7 @@ typedef struct pal {
      *   Must block for at most timeout_ms milliseconds (0 = non-blocking peek).
      * tcp_close: close and free the TCP socket.
      */
-    void *(*tcp_connect)(const char *host, uint16_t port);
+    void *(*tcp_connect)(const char *host, uint16_t port, uint32_t timeout_ms);
     int   (*tcp_send)(void *handle, const uint8_t *buf, size_t len,
                       uint32_t timeout_ms);
     int   (*tcp_recv)(void *handle, uint8_t *buf, size_t buf_len,

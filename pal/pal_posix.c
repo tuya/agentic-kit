@@ -42,7 +42,7 @@ typedef struct {
     uint32_t last_sndtimeo_ms;
 } posix_tcp_t;
 
-static void *pal_tcp_connect(const char *host, uint16_t port)
+static void *pal_tcp_connect(const char *host, uint16_t port, uint32_t timeout_ms)
 {
     char port_str[8];
     snprintf(port_str, sizeof(port_str), "%u", (unsigned)port);
@@ -58,11 +58,48 @@ static void *pal_tcp_connect(const char *host, uint16_t port)
     int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
     if (fd < 0) { freeaddrinfo(res); return NULL; }
 
-    if (connect(fd, res->ai_addr, res->ai_addrlen) != 0) {
+    /* Non-blocking connect so we can bound it with select(). */
+    int fl = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+
+    int rc = connect(fd, res->ai_addr, res->ai_addrlen);
+    if (rc != 0 && errno != EINPROGRESS) {
         close(fd);
         freeaddrinfo(res);
         return NULL;
     }
+    if (rc != 0) {
+        /* EINPROGRESS: connect is under way. */
+        if (timeout_ms == 0) {  /* non-blocking single attempt: don't wait */
+            close(fd);
+            freeaddrinfo(res);
+            return NULL;
+        }
+        fd_set wfds;
+        FD_ZERO(&wfds);
+        FD_SET(fd, &wfds);
+        struct timeval tv;
+        tv.tv_sec  = timeout_ms / 1000;
+        tv.tv_usec = (timeout_ms % 1000) * 1000;
+        int sel;
+        do {
+            sel = select(fd + 1, NULL, &wfds, NULL, &tv);
+        } while (sel < 0 && errno == EINTR);
+        if (sel <= 0) {  /* timeout (0) or error (<0) */
+            close(fd);
+            freeaddrinfo(res);
+            return NULL;
+        }
+        int soerr = 0;
+        socklen_t sl = sizeof(soerr);
+        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &sl) != 0 || soerr != 0) {
+            close(fd);
+            freeaddrinfo(res);
+            return NULL;
+        }
+    }
+    /* Restore blocking mode: tcp_send/tcp_recv rely on it (SO_SNDTIMEO/SO_RCVTIMEO). */
+    fcntl(fd, F_SETFL, fl);
     freeaddrinfo(res);
 
     /* Disable Nagle for low-latency */

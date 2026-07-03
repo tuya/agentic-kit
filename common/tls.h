@@ -64,16 +64,19 @@ typedef struct {
     bool         force_tls12;     /* pin min == max == TLS 1.2                 */
     const int   *ciphersuites;    /* 0-terminated mbedTLS suite ids; NULL ->
                                      mbedTLS defaults                          */
-    uint32_t     handshake_timeout_ms; /* overall TLS-handshake deadline; the
-                                     handshake fails (tls_connect returns NULL)
-                                     once it elapses, so a peer that completes
-                                     TCP connect but stalls the handshake can't
-                                     hang the caller. 0 -> TLS_DEFAULT_HANDSHAKE_TIMEOUT_MS. */
+    uint32_t     connect_timeout_ms;   /* single deadline bounding the whole
+                                     connection establishment -- the TCP connect
+                                     AND the TLS handshake share this one budget,
+                                     so tls_connect returns within ~this value no
+                                     matter which phase stalls. A peer that
+                                     completes TCP connect but stalls the handshake
+                                     can't hang the caller. 0 -> TLS_DEFAULT_CONNECT_TIMEOUT_MS. */
     const pal_t *pal;             /* required: platform abstraction layer      */
 } tls_config_t;
 
-/* Default overall handshake deadline when cfg->handshake_timeout_ms == 0. */
-#define TLS_DEFAULT_HANDSHAKE_TIMEOUT_MS 10000U
+/* Default overall connection-establishment (TCP connect + TLS handshake) deadline
+ * when cfg->connect_timeout_ms == 0. */
+#define TLS_DEFAULT_CONNECT_TIMEOUT_MS 10000U
 
 /* Return codes.  Aligned with PAL_ERR_* so adapters may forward directly. */
 #define TLS_OK         0
@@ -91,10 +94,11 @@ typedef struct tls_conn tls_t;
 const int *tls_ciphersuites_tuya_default(void);
 
 /* Open a TCP connection to cfg->host:cfg->port and perform the TLS handshake.
- * The handshake is bounded by cfg->handshake_timeout_ms (0 -> default); it fails
- * once that elapses so a stalled peer cannot hang the caller indefinitely.
+ * Both phases share one deadline, cfg->connect_timeout_ms (0 -> default): the TLS
+ * connect fails once that single establishment budget elapses, so a stalled peer
+ * cannot hang the caller indefinitely.
  * Returns a handle on success, NULL on any failure (TCP, RNG, cert, handshake,
- * handshake timeout). */
+ * establishment timeout). */
 tls_t *tls_connect(const tls_config_t *cfg);
 
 /* Write all len bytes, blocking at most timeout_ms in total; polls between

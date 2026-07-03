@@ -20,6 +20,10 @@
 #define MQTT_RECV_TIMEOUT_MS 1000U
 #endif
 
+#ifndef MQTT_CONNECT_TIMEOUT_MS
+#define MQTT_CONNECT_TIMEOUT_MS 10000U
+#endif
+
 // Shared TLS transport (mbedTLS lives entirely inside common/tls).
 #include "tls.h"
 
@@ -175,7 +179,8 @@ static int parse_broker_url(const char *url, char *host, int *port) {
 
 // Establish TCP connection to broker (non-TLS)
 static void *connect_to_broker(mqtt_client *client) {
-    void *handle = client->pal->tcp_connect(client->broker_host, (uint16_t)client->broker_port);
+    void *handle = client->pal->tcp_connect(client->broker_host, (uint16_t)client->broker_port,
+                                            MQTT_CONNECT_TIMEOUT_MS);
     if (!handle) {
         log_error("Failed to connect to broker %s:%d", client->broker_host, client->broker_port);
         return NULL;
@@ -199,6 +204,7 @@ static int connect_to_broker_tls(NetworkContext_t *network_ctx, const char *host
         .verify       = TLS_VERIFY_NONE,   // no CA -> no verification (legacy behaviour)
         .force_tls12  = true,
         .ciphersuites = tls_ciphersuites_tuya_default(),
+        .connect_timeout_ms = MQTT_CONNECT_TIMEOUT_MS,
         .pal          = network_ctx->client->pal,
     };
 

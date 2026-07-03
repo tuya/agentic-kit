@@ -150,10 +150,23 @@ tls_t *tls_connect(const tls_config_t *cfg)
         }
     }
 
-    t->tcp_handle = pal->tcp_connect(cfg->host, cfg->port);
+    /* One deadline for the whole connection establishment: the TCP connect and the
+     * TLS handshake below share this single budget, so tls_connect returns within
+     * ~connect_timeout_ms regardless of which phase stalls. */
+    uint32_t est_to = cfg->connect_timeout_ms ? cfg->connect_timeout_ms
+                                              : TLS_DEFAULT_CONNECT_TIMEOUT_MS;
+    uint64_t deadline = pal->time_ms() + est_to;
+
+    t->tcp_handle = pal->tcp_connect(cfg->host, cfg->port, est_to);
     if (!t->tcp_handle) {
         log_emit(LOG_ERROR, "[tls] TCP connect failed to %s:%u",
                  cfg->host, (unsigned)cfg->port);
+        goto fail;
+    }
+    if (pal->time_ms() >= deadline) {
+        log_emit(LOG_ERROR,
+                 "[tls] connect to %s:%u exhausted %ums budget during TCP connect",
+                 cfg->host, (unsigned)cfg->port, (unsigned)est_to);
         goto fail;
     }
 
@@ -201,13 +214,10 @@ tls_t *tls_connect(const tls_config_t *cfg)
                         tls_bio_send, tls_bio_recv, tls_bio_recv_timeout);
 
     /* Handshake.  BIO is non-blocking, so WANT_READ/WANT_WRITE means "no data
-     * yet" -- poll the socket before retrying instead of busy-looping.  Bounded
-     * by an overall deadline: a peer that completes the TCP connect but stalls
-     * the handshake (never progresses past WANT_READ) must not hang the caller
-     * forever, so fail once handshake_timeout_ms elapses. */
-    uint32_t hs_timeout = cfg->handshake_timeout_ms ? cfg->handshake_timeout_ms
-                                                    : TLS_DEFAULT_HANDSHAKE_TIMEOUT_MS;
-    uint64_t hs_start = pal->time_ms();
+     * yet" -- poll the socket before retrying instead of busy-looping.  Shares
+     * the establishment `deadline` computed above: a peer that completes the TCP
+     * connect but stalls the handshake (never progresses past WANT_READ) must not
+     * hang the caller forever, so fail once that single budget elapses. */
     int ret;
     for (;;) {
         ret = mbedtls_ssl_handshake(&t->ssl);
@@ -215,14 +225,14 @@ tls_t *tls_connect(const tls_config_t *cfg)
             ret != MBEDTLS_ERR_SSL_WANT_WRITE)
             break;
 
-        uint64_t elapsed = pal->time_ms() - hs_start;
-        if (elapsed >= hs_timeout) {
-            log_emit(LOG_ERROR, "[tls] handshake to %s:%u timed out after %ums",
-                     cfg->host, (unsigned)cfg->port, (unsigned)hs_timeout);
+        uint64_t now = pal->time_ms();
+        if (now >= deadline) {
+            log_emit(LOG_ERROR, "[tls] connect to %s:%u timed out after %ums (handshake)",
+                     cfg->host, (unsigned)cfg->port, (unsigned)est_to);
             goto fail;
         }
         /* Cap the poll wait to the remaining budget so we never overshoot. */
-        uint32_t remaining = (uint32_t)(hs_timeout - elapsed);
+        uint32_t remaining = (uint32_t)(deadline - now);
         uint32_t poll_ms = remaining < 100 ? remaining : 100;
         int ev = (ret == MBEDTLS_ERR_SSL_WANT_READ) ? 1 : 2;
         /* <0 is a socket error: fail fast instead of re-polling a dead fd until

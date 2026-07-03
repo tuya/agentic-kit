@@ -99,8 +99,8 @@ static int32_t transport_recv(NetworkContext_t *pNetworkContext,
 }
 
 // Establish TCP connection
-static void *connect_tcp(const pal_t *pal, const char *host, uint16_t port) {
-    void *handle = pal->tcp_connect(host, port);
+static void *connect_tcp(const pal_t *pal, const char *host, uint16_t port, uint32_t timeout_ms) {
+    void *handle = pal->tcp_connect(host, port, timeout_ms);
     if (!handle) {
         log_error("Failed to connect to %s:%d", host, port);
         return NULL;
@@ -123,6 +123,7 @@ static int connect_tls(struct HTTPNetworkContext *ctx, const char *host, uint16_
         .verify       = TLS_VERIFY_NONE,   // no CA -> no verification (legacy behaviour)
         .force_tls12  = true,
         .ciphersuites = tls_ciphersuites_tuya_default(),
+        .connect_timeout_ms = ctx->timeout_ms,
         .pal          = ctx->pal,
     };
 
@@ -200,7 +201,8 @@ http_client_status_t http_client_request(const http_client_request_t *request,
         connect_ret = connect_tls(network_ctx, request->host, request->port,
                                   request->cacert);
     } else {
-        network_ctx->tcp_handle = connect_tcp(network_ctx->pal, request->host, request->port);
+        network_ctx->tcp_handle = connect_tcp(network_ctx->pal, request->host, request->port,
+                                              network_ctx->timeout_ms);
         connect_ret = network_ctx->tcp_handle ? 0 : OPRT_COMMUNICATION_ERROR;
     }
 
