@@ -400,7 +400,7 @@ int tai_connect(tai_ctx_t *ctx)
 
     /* 3. TLS connect (or raw TCP in test mode) */
     if (ctx->disable_tls) {
-        ctx->raw_tcp = ctx->pal->tcp_connect(ctx->host, ctx->port);
+        ctx->raw_tcp = ctx->pal->tcp_connect(ctx->host, ctx->port, ctx->connect_timeout_ms);
         if (!ctx->raw_tcp) {
             TAI_LOGE(ctx->pal, TAG, "TCP connect failed to %s:%u", ctx->host, ctx->port);
             return TAI_ERR_NET;
@@ -413,7 +413,7 @@ int tai_connect(tai_ctx_t *ctx)
             .sni                  = ctx->tls_sni,
             .verify               = TLS_VERIFY_OPTIONAL,  /* fallback when no cert bundle */
             .cert_bundle_attach   = ctx->cert_bundle_attach,
-            .handshake_timeout_ms = ctx->connect_timeout_ms, /* bound the TLS phase too */
+            .connect_timeout_ms   = ctx->connect_timeout_ms, /* bounds TCP connect + TLS handshake */
             .pal                  = ctx->pal,
         };
         ctx->tls = tls_connect(&tcfg);

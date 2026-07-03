@@ -272,10 +272,11 @@ typedef struct tai_config {
     const pal_t *pal;
 
     /* --- Confirmed connect (0 = default 5000 ms) ---
-     * Bounds each of tai_connect's two sequential waits: first the TLS handshake,
-     * then the server's SessionNew acknowledgement. Either phase failing to
-     * complete within this budget fails the connect. Worst-case tai_connect wall
-     * time is therefore up to ~2x this value (handshake + ack). */
+     * Bounds each of tai_connect's two sequential waits: first connection
+     * establishment (TCP connect + TLS handshake, sharing one budget), then the
+     * server's SessionNew acknowledgement. Either phase failing to complete within
+     * this budget fails the connect. Worst-case tai_connect wall time is therefore
+     * up to ~2x this value (establishment + ack). */
     uint32_t connect_timeout_ms;
 
     /* --- Receive callbacks ---
