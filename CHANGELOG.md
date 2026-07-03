@@ -31,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **common / TLS — ESP-IDF cert-bundle decoupled via callback.**
+  Replaced `#ifdef CONFIG_IDF_TARGET` / `use_cert_bundle` in `common/tls.c` with a
+  platform-supplied callback `tls_cert_bundle_attach_fn` (field `cert_bundle_attach`
+  on `tls_config_t` / `tai_config_t`). When set, the TLS layer sets `VERIFY_REQUIRED`
+  and invokes it during setup; when NULL, it falls through to the `verify`/`cacert`
+  path. The core library no longer includes `esp_crt_bundle.h` or has any ESP-IDF
+  conditional compilation; the ESP-IDF example passes `esp_crt_bundle_attach` through
+  `tai_config_t.cert_bundle_attach`.
+
 - **RTC TCP Client (`tuya_ai`) — receive callbacks are now struct-based (ABI break).**
   `on_audio` / `on_text` / `on_event` / `on_disconnect` each take a single const message
   pointer (`tai_audio_msg_t` / `tai_text_msg_t` / `tai_event_msg_t` / `tai_disconnect_msg_t`)
