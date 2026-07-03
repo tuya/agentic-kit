@@ -24,6 +24,7 @@
 #include <stdint.h>
 #include "pal.h"
 #include "log.h"
+#include "tls.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -259,6 +260,13 @@ typedef struct tai_config {
      * PAL's tcp_connect/send/recv/close.  For integration tests only.
      */
     uint8_t disable_tls;
+
+    /* --- TLS ---
+     * Platform cert-bundle attach callback for peer verification.  NULL -> the
+     * TLS layer uses its default verify mode (optional on non-ESP platforms).
+     * ESP-IDF users set this to (tls_cert_bundle_attach_fn)esp_crt_bundle_attach.
+     */
+    tls_cert_bundle_attach_fn cert_bundle_attach;
 
     /* --- Platform --- */
     const pal_t *pal;

@@ -241,6 +241,7 @@ struct tai_ctx {
     uint8_t  sign_level;                 /* TAI_SIGN_* */
     uint8_t  sig_len;                    /* 0, 20, or 32 */
     uint8_t  disable_tls;                /* 1 = raw TCP (testing only) */
+    tls_cert_bundle_attach_fn cert_bundle_attach; /* platform cert-bundle callback */
 
     /* Session state */
     uint8_t  connected;

@@ -18,6 +18,7 @@
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "nvs_flash.h"
+#include "esp_crt_bundle.h"
 
 #include "tuya_ai.h"
 #include "iot_client.h"
@@ -375,6 +376,7 @@ void app_main(void)
         .biz_code          = (uint32_t)cp.biz_code,
         .biz_tag           = (uint64_t)cp.biz_tag,
         .agent_token       = cp.agent_token,
+        .cert_bundle_attach = (tls_cert_bundle_attach_fn)esp_crt_bundle_attach,
         .pal               = pal,
         .on_text           = on_text,
         .on_audio          = on_audio,

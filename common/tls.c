@@ -18,10 +18,6 @@
 #include "mbedtls/net_sockets.h"
 #include "mbedtls/version.h"
 
-#ifdef CONFIG_IDF_TARGET
-#include "esp_crt_bundle.h"
-#endif
-
 /* =========================================================================
  * tls_t -- per-connection state
  * ========================================================================= */
@@ -186,20 +182,14 @@ tls_t *tls_connect(const tls_config_t *cfg)
     if (has_ca) {
         mbedtls_ssl_conf_authmode(&t->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
         mbedtls_ssl_conf_ca_chain(&t->conf, &t->ca_chain, NULL);
+    } else if (cfg->cert_bundle_attach) {
+        mbedtls_ssl_conf_authmode(&t->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+        cfg->cert_bundle_attach(&t->conf);
     } else {
-#ifdef CONFIG_IDF_TARGET
-        if (cfg->use_cert_bundle) {
-            mbedtls_ssl_conf_authmode(&t->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-            esp_crt_bundle_attach(&t->conf);
-        } else {
-            mbedtls_ssl_conf_authmode(&t->conf, tls_map_verify(cfg->verify));
-        }
-#else
         mbedtls_ssl_conf_authmode(&t->conf, tls_map_verify(cfg->verify));
         if (cfg->verify == TLS_VERIFY_NONE)
             log_emit(LOG_WARN,
                      "[tls] peer verification disabled (no CA certificate)");
-#endif
     }
 
     if (mbedtls_ssl_setup(&t->ssl, &t->conf) != 0) goto fail;

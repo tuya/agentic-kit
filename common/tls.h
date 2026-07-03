@@ -31,13 +31,22 @@
 extern "C" {
 #endif
 
-/* Peer-certificate verification mode used when no CA cert (and no ESP cert
- * bundle) is supplied. */
+/* Peer-certificate verification mode used when no CA cert is supplied and no
+ * cert-bundle callback is set. */
 typedef enum {
     TLS_VERIFY_NONE = 0,   /* do not verify the peer certificate          */
     TLS_VERIFY_OPTIONAL,   /* verify but continue the handshake on failure */
     TLS_VERIFY_REQUIRED,   /* fail the handshake on verification error     */
 } tls_verify_t;
+
+/* Platform-supplied callback that attaches a trusted-cert bundle to the
+ * mbedTLS SSL config.  The argument is a mbedtls_ssl_config* passed as void*
+ * so the public header need not include mbedTLS.  When non-NULL, the TLS
+ * layer sets VERIFY_REQUIRED and invokes this during setup.
+ *
+ * Example (ESP-IDF):  .cert_bundle_attach = (tls_cert_bundle_attach_fn)esp_crt_bundle_attach
+ */
+typedef void (*tls_cert_bundle_attach_fn)(void *ssl_config);
 
 /* Connection configuration.  Borrowed pointers must outlive tls_connect(). */
 typedef struct {
@@ -46,10 +55,12 @@ typedef struct {
     const char  *sni;             /* SNI hostname; NULL -> use host            */
     const char  *cacert;          /* CA cert: full PEM or bare base64 body;
                                      NULL -> none (see verify / use_cert_bundle) */
-    tls_verify_t verify;          /* applied only when cacert == NULL and no
-                                     cert bundle is attached                   */
-    bool         use_cert_bundle; /* ESP-IDF only: attach esp_crt_bundle and
-                                     require verification (ignored elsewhere)  */
+    tls_verify_t verify;          /* applied only when cacert == NULL and
+                                     cert_bundle_attach is NULL                */
+    tls_cert_bundle_attach_fn cert_bundle_attach; /* platform cert-bundle attach
+                                     callback; when set, verification is
+                                     REQUIRED and this is called during setup.
+                                     NULL -> use verify / cacert path.         */
     bool         force_tls12;     /* pin min == max == TLS 1.2                 */
     const int   *ciphersuites;    /* 0-terminated mbedTLS suite ids; NULL ->
                                      mbedTLS defaults                          */

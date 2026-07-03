@@ -320,6 +320,7 @@ tai_ctx_t *tai_ctx_init(void *mem, const tai_config_t *cfg)
     ctx->ping_timeout_ms   = cfg->ping_timeout_ms   ? cfg->ping_timeout_ms   : 90000U;
     ctx->connect_timeout_ms = cfg->connect_timeout_ms ? cfg->connect_timeout_ms : 5000U;
     ctx->disable_tls      = cfg->disable_tls;
+    ctx->cert_bundle_attach = cfg->cert_bundle_attach;
 
     /* Initialise mutex */
     ctx->mutex = cfg->pal->mutex_create();
@@ -410,8 +411,8 @@ int tai_connect(tai_ctx_t *ctx)
             .host                 = ctx->host,
             .port                 = ctx->port,
             .sni                  = ctx->tls_sni,
-            .verify               = TLS_VERIFY_OPTIONAL,  /* non-ESP: optional, matches legacy */
-            .use_cert_bundle      = true,                 /* ESP-IDF: attach esp_crt_bundle */
+            .verify               = TLS_VERIFY_OPTIONAL,  /* fallback when no cert bundle */
+            .cert_bundle_attach   = ctx->cert_bundle_attach,
             .handshake_timeout_ms = ctx->connect_timeout_ms, /* bound the TLS phase too */
             .pal                  = ctx->pal,
         };
