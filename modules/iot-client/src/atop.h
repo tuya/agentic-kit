@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include "iot_client.h"
 #include "iot_ota.h"   /* iot_ota_status_t (shared between atop and public OTA API) */
+#include "tls.h"
 
 /**
  * @brief Device activation request structure
@@ -28,6 +29,7 @@
     const char *host;         // Server host (optional, defaults to TUYA_DEFAULT_HOST)
     uint16_t port;            // Server port (optional, defaults to TUYA_DEFAULT_PORT)
     const char *cacert;       // CA certificate PEM content
+    tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback
 } activite_request_t;
 
 typedef struct   {
@@ -77,6 +79,7 @@ typedef struct {
     const char *host;                // Server host (optional, defaults to TUYA_DEFAULT_HOST)
     uint16_t port;                   // Server port (optional, defaults to TUYA_DEFAULT_PORT)
     const char *cacert;              // CA certificate PEM content
+    tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback
 } ai_token_request_t;
 
 /**
@@ -102,6 +105,7 @@ typedef struct {
     const char *host;         // Server host
     uint16_t port;            // Server port
     const char *cacert;       // CA certificate PEM content
+    tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback
 } qrcode_info_request_t;
 
 /**
@@ -121,6 +125,7 @@ typedef struct {
     const char *host;          // Server host (optional, defaults to TUYA_DEFAULT_HOST)
     uint16_t port;             // Server port (optional, defaults to TUYA_DEFAULT_PORT)
     const char *cacert;        // CA certificate PEM content
+    tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback
 } device_meta_save_request_t;
 
 /**
@@ -162,6 +167,7 @@ typedef struct {
     const char *host;         // Server host (optional, defaults to TUYA_DEFAULT_HOST)
     uint16_t port;            // Server port (optional, defaults to TUYA_DEFAULT_PORT)
     const char *cacert;       // CA certificate PEM content
+    tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback
 } schema_newest_request_t;
 
 /**
@@ -203,6 +209,7 @@ typedef struct {
     const char *host;
     uint16_t port;
     const char *cacert;
+    tls_cert_bundle_attach_fn cert_bundle_attach;
 } ota_upgrade_request_t;
 
 /**
@@ -234,6 +241,7 @@ typedef struct {
     const char *host;
     uint16_t port;
     const char *cacert;
+    tls_cert_bundle_attach_fn cert_bundle_attach;
 } ota_version_update_request_t;
 
 /**
@@ -248,6 +256,7 @@ typedef struct {
     const char *host;
     uint16_t port;
     const char *cacert;
+    tls_cert_bundle_attach_fn cert_bundle_attach;
 } ota_status_update_request_t;
 
 /**

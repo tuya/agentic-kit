@@ -24,6 +24,7 @@ static void parse_ip_array(cJSON *arr, char out[][64], int *count, int max) {
 }
 
 static int dns_http_request(const pal_t *pal, const char *host, uint16_t port, const char *cacert,
+                            tls_cert_bundle_attach_fn cert_bundle_attach,
                             const char *method, const char *path,
                             const char *body, cJSON **out_json) {
     http_client_header_t headers[] = {
@@ -35,6 +36,7 @@ static int dns_http_request(const pal_t *pal, const char *host, uint16_t port, c
     http_client_status_t status = http_client_request(
         &(const http_client_request_t){
             .cacert = cacert,
+            .cert_bundle_attach = cert_bundle_attach,
             .host = host,
             .port = port,
             .method = method,
@@ -109,7 +111,7 @@ int iot_dns_query(const pal_t *pal, const iot_dns_query_request_t *request,
     if (!json_body) return OPRT_MALLOC_FAILED;
 
     cJSON *root = NULL;
-    int ret = dns_http_request(pal, host, port, request->cacert,
+    int ret = dns_http_request(pal, host, port, request->cacert, request->cert_bundle_attach,
                               "POST", "/v1/dns_query", json_body, &root);
     cJSON_free(json_body);
     if (ret != OPRT_OK) return ret;
@@ -196,7 +198,7 @@ int iot_dns_url_config(const pal_t *pal, const iot_dns_url_config_request_t *req
     if (!json_body) return OPRT_MALLOC_FAILED;
 
     cJSON *root = NULL;
-    int ret = dns_http_request(pal, host, port, request->cacert,
+    int ret = dns_http_request(pal, host, port, request->cacert, request->cert_bundle_attach,
                               "POST", "/v2/url_config", json_body, &root);
     cJSON_free(json_body);
     if (ret != OPRT_OK) return ret;
@@ -317,7 +319,7 @@ int iot_dns_get_ca_cert(const pal_t *pal, const iot_dns_ca_cert_request_t *reque
     }
 
     cJSON *root = NULL;
-    int ret = dns_http_request(pal, dns_host, dns_port, request->cacert,
+    int ret = dns_http_request(pal, dns_host, dns_port, request->cacert, request->cert_bundle_attach,
                                "GET", path, NULL, &root);
     pal->free(path);
     if (ret != OPRT_OK) return ret;

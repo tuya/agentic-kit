@@ -109,9 +109,10 @@ static void *connect_tcp(const pal_t *pal, const char *host, uint16_t port, uint
     return handle;
 }
 
-static int connect_tls(struct HTTPNetworkContext *ctx, const char *host, uint16_t port, const char *cacert) {
+static int connect_tls(struct HTTPNetworkContext *ctx, const char *host, uint16_t port,
+                       const char *cacert, tls_cert_bundle_attach_fn cert_bundle_attach) {
     bool has_cacert = (cacert && cacert[0] != '\0');
-    if (!has_cacert) {
+    if (!has_cacert && !cert_bundle_attach) {
         log_warn("No CA certificate provided - server verification disabled");
     }
 
@@ -120,6 +121,7 @@ static int connect_tls(struct HTTPNetworkContext *ctx, const char *host, uint16_
         .port         = port,
         .sni          = host,
         .cacert       = has_cacert ? cacert : NULL,
+        .cert_bundle_attach = cert_bundle_attach,
         .verify       = TLS_VERIFY_NONE,   // no CA -> no verification (legacy behaviour)
         .force_tls12  = true,
         .ciphersuites = tls_ciphersuites_tuya_default(),
@@ -175,7 +177,8 @@ http_client_status_t http_client_request(const http_client_request_t *request,
 
     // Determine if TLS should be used
     bool use_tls = (request->port == 443) ||
-                   (request->cacert != NULL && request->cacert[0] != '\0');
+                   (request->cacert != NULL && request->cacert[0] != '\0') ||
+                   (request->cert_bundle_attach != NULL);
     if (request->port == 80) {
         use_tls = false;
     }
@@ -199,7 +202,7 @@ http_client_status_t http_client_request(const http_client_request_t *request,
     int connect_ret = OPRT_COMMUNICATION_ERROR;
     if (use_tls) {
         connect_ret = connect_tls(network_ctx, request->host, request->port,
-                                  request->cacert);
+                                  request->cacert, request->cert_bundle_attach);
     } else {
         network_ctx->tcp_handle = connect_tcp(network_ctx->pal, request->host, request->port,
                                               network_ctx->timeout_ms);

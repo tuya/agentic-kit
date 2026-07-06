@@ -21,6 +21,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "nvs_flash.h"
+#include "esp_crt_bundle.h"
 #include "app_config.h"
 #include "tuya_ble_nimble.h"
 #include "iot_client.h"
@@ -166,6 +167,7 @@ static esp_err_t activate_device_with_ble_token(void)
         .timeout_ms = 120000,
         .env = PROD,
         .mqtt_disable_tls = false,
+        .cert_bundle_attach = (tls_cert_bundle_attach_fn)esp_crt_bundle_attach,
     };
 
     ESP_LOGI(TAG, "Starting activation with BLE token: %s", s_wifi_creds.token);

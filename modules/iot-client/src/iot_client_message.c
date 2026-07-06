@@ -63,7 +63,8 @@ static int iot_client_message_try_connect(iot_client_t *client)
         return OPRT_COMMUNICATION_ERROR;
     }
 
-    mqtt_tls_config_t tls_cfg = { .cacert = client->cacert };
+    mqtt_tls_config_t tls_cfg = { .cacert = client->cacert,
+                                  .cert_bundle_attach = client->cert_bundle_attach };
     mqtt_client_config_t mqtt_cfg = {
         .broker_url = client->mqtt_url,
         .client_id = client->devid,

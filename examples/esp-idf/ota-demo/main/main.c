@@ -298,6 +298,7 @@ void app_main(void)
         .env              = DEFAULT_ENV,
         .mqtt_disable_tls = false,
         .mqtt_auto_connect = false,
+        .cert_bundle_attach = (tls_cert_bundle_attach_fn)esp_crt_bundle_attach,
         .message_callback = NULL,
         .schema           = NULL,
         .schema_id        = NULL,

@@ -275,6 +275,7 @@ static int activate_device(const pal_t *pal, on_boarding_config_t *on_boarding, 
         }
     }
     request.cacert = on_boarding->cacert;
+    request.cert_bundle_attach = on_boarding->cert_bundle_attach;
 
     log_info("Sending activation request with:");
     log_info("  - Token: [%zu chars, prefix=%.4s...]",
@@ -536,6 +537,7 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
         .host = on_boarding->dns_host,
         .port = on_boarding->dns_port,
         .cacert = on_boarding->cacert,
+        .cert_bundle_attach = on_boarding->cert_bundle_attach,
         .env = on_boarding->env == PRE ? "pre" : "prod",
         .uuid = on_boarding->uuid,
         .config = dns_keys,
@@ -583,6 +585,8 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
     if (!on_boarding->mqtt_disable_tls) {
         if (on_boarding->cacert && on_boarding->cacert[0] != '\0') {
             tls_config.cacert = on_boarding->cacert;
+        } else if (on_boarding->cert_bundle_attach) {
+            tls_config.cert_bundle_attach = on_boarding->cert_bundle_attach;
         } else {
             log_warn("MQTT TLS without CA certificate - server verification disabled");
         }

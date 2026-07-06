@@ -7,6 +7,7 @@
 
 #include "pal.h"
 #include "log.h"
+#include "tls.h"
 
 #if defined(__GNUC__) && (__GNUC__ >= 4)
 #define IOT_API __attribute__((visibility("default")))
@@ -93,6 +94,7 @@ typedef struct {
     bool mqtt_disable_tls;         // false = mqtts (TLS, default), true = mqtt (TCP)
     bool mqtt_auto_connect;        // true = connect MQTT after init/activation; false (default) = caller invokes iot_client_message_connect() manually
     const char *cacert;            // CA cert for all TLS (MQTT/HTTPS/IoT-DNS) (PEM, caller-owned, must outlive client)
+    tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (NULL = none)
     iot_message_callback_t message_callback; // MQTT message callback
 
     /* ---- DP layer restore (all caller-owned, may be NULL) ---- */
@@ -117,6 +119,7 @@ typedef struct {
     bool mqtt_disable_tls;         // false = mqtts (TLS, default), true = mqtt (TCP)
     bool mqtt_auto_connect;        // true = connect MQTT after init/activation; false (default) = caller invokes iot_client_message_connect() manually
     const char *cacert;            // CA cert for all TLS (MQTT/HTTPS/IoT-DNS) (PEM, caller-owned, must outlive client)
+    tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (NULL = none)
     iot_message_callback_t message_callback; // MQTT message callback
 } iot_on_boarding_config_t;
 
@@ -146,6 +149,7 @@ struct iot_dp_context;
     const pal_t *pal;             // PAL adapter
 
     const char *cacert;           // CA certificate for all TLS (MQTT/HTTPS/IoT-DNS) (caller-owned, points to user buffer/flash)
+    tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (borrowed, NULL = none)
     struct mqtt_client *mqtt;     // Internal MQTT client handle
     iot_message_callback_t message_callback;  // User callback for incoming messages
 
@@ -257,6 +261,7 @@ typedef struct {
     iot_region_t region;      // Region (AY = China, default)
     iot_env_t env;            // Environment (PROD or PRE)
     const char *cacert;       // CA cert for HTTPS/IoT-DNS TLS (PEM, caller-owned)
+    tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (NULL = none)
 } iot_qrcode_request_t;
 
 /**

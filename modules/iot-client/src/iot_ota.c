@@ -35,6 +35,7 @@ int iot_ota_report_version(iot_client_t *client, const char *sw_ver)
         .host    = host[0] ? host : NULL,
         .port    = port,
         .cacert  = client->cacert,
+        .cert_bundle_attach = client->cert_bundle_attach,
     };
 
     return atop_version_update(client->pal, &req);
@@ -61,6 +62,7 @@ int iot_ota_check_upgrade(iot_client_t *client, int channel, const char *sw_ver,
         .host    = host[0] ? host : NULL,
         .port    = port,
         .cacert  = client->cacert,
+        .cert_bundle_attach = client->cert_bundle_attach,
     };
 
     ota_upgrade_response_t resp = {0};
@@ -99,6 +101,7 @@ int iot_ota_report_status(iot_client_t *client, int channel, iot_ota_status_t st
         .host    = host[0] ? host : NULL,
         .port    = port,
         .cacert  = client->cacert,
+        .cert_bundle_attach = client->cert_bundle_attach,
     };
 
     return atop_upgrade_status_update(client->pal, &req);

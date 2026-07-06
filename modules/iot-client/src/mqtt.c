@@ -65,6 +65,7 @@ struct mqtt_client {
     bool connected;
     bool use_tls;
     const char *cacert;
+    tls_cert_bundle_attach_fn cert_bundle_attach;
     const pal_t *pal;
 
     // SUBACK tracking
@@ -190,9 +191,10 @@ static void *connect_to_broker(mqtt_client *client) {
 }
 
 // Returns: OPRT_OK on success, OPRT_TLS_HANDSHAKE_FAILED on failure.
-static int connect_to_broker_tls(NetworkContext_t *network_ctx, const char *host, int port, const char *cacert) {
+static int connect_to_broker_tls(NetworkContext_t *network_ctx, const char *host, int port,
+                                 const char *cacert, tls_cert_bundle_attach_fn cert_bundle_attach) {
     bool has_cacert = (cacert && cacert[0] != '\0');
-    if (!has_cacert) {
+    if (!has_cacert && !cert_bundle_attach) {
         log_warn("No CA certificate provided - server verification disabled");
     }
 
@@ -201,6 +203,7 @@ static int connect_to_broker_tls(NetworkContext_t *network_ctx, const char *host
         .port         = (uint16_t)port,
         .sni          = host,
         .cacert       = has_cacert ? cacert : NULL,
+        .cert_bundle_attach = cert_bundle_attach,
         .verify       = TLS_VERIFY_NONE,   // no CA -> no verification (legacy behaviour)
         .force_tls12  = true,
         .ciphersuites = tls_ciphersuites_tuya_default(),
@@ -314,8 +317,14 @@ mqtt_client *mqtt_client_create_with_config(const mqtt_client_config_t *config) 
             log_info("TLS enabled with CA cert PEM");
         } else {
             client->cacert = NULL;
-            log_warn("TLS enabled without CA certificate - server verification disabled");
+            if (config->tls_config && config->tls_config->cert_bundle_attach) {
+                log_info("TLS enabled with platform cert bundle");
+            } else {
+                log_warn("TLS enabled without CA certificate - server verification disabled");
+            }
         }
+        if (config->tls_config)
+            client->cert_bundle_attach = config->tls_config->cert_bundle_attach;
     }
 
     // Copy client configuration
@@ -387,7 +396,8 @@ int mqtt_client_connect(mqtt_client *client) {
     // Establish connection (TCP or TLS)
     if (client->use_tls) {
         int tls_ret = connect_to_broker_tls(&client->network_context, client->broker_host,
-                                            client->broker_port, client->cacert);
+                                            client->broker_port, client->cacert,
+                                            client->cert_bundle_attach);
         if (tls_ret != 0) {
             release_mqtt_buffer(client);
             return tls_ret;
