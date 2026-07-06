@@ -110,6 +110,7 @@ static int iot_client_dns_resolve(iot_client_t *client)
     };
     iot_dns_url_config_request_t dns_req = {
         .cacert = client->cacert,
+        .cert_bundle_attach = client->cert_bundle_attach,
         .host = NULL,
         .port = 0,
         .region = iot_region_to_string(client->region),
@@ -207,6 +208,7 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
     client->env = config->env;
     client->mqtt_disable_tls = config->mqtt_disable_tls;
     client->cacert = config->cacert;
+    client->cert_bundle_attach = config->cert_bundle_attach;
     client->message_callback = config->message_callback;
 
     /* DP layer: restore persisted schema_id / schema from config (restart path).
@@ -250,6 +252,7 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
             .host        = host,
             .port        = meta_port,
             .cacert      = client->cacert,
+            .cert_bundle_attach = client->cert_bundle_attach,
         };
         device_meta_save_response_t meta_resp = {0};
         int ret = atop_device_meta_save(pal, &meta_req, &meta_resp);
@@ -336,6 +339,7 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
     ob_cfg.env = config->env;
     ob_cfg.mqtt_disable_tls = config->mqtt_disable_tls;
     ob_cfg.cacert = config->cacert;
+    ob_cfg.cert_bundle_attach = config->cert_bundle_attach;
     ob_cfg.dns_host = NULL;
     ob_cfg.dns_port = 0;
 
@@ -359,6 +363,7 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
     client_config.mqtt_disable_tls = config->mqtt_disable_tls;
     client_config.mqtt_auto_connect = config->mqtt_auto_connect;
     client_config.cacert = config->cacert;
+    client_config.cert_bundle_attach = config->cert_bundle_attach;
     client_config.message_callback = config->message_callback;
     /* schema / schema_id come from the activation response. iot_client_init()
      * copies them and rebuilds the DP registry from the schema (dp_state is then
@@ -424,6 +429,7 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
     ob_cfg.env = config->env;
     ob_cfg.mqtt_disable_tls = config->mqtt_disable_tls;
     ob_cfg.cacert = config->cacert;
+    ob_cfg.cert_bundle_attach = config->cert_bundle_attach;
     ob_cfg.dns_host = NULL;
     ob_cfg.dns_port = 0;
 
@@ -445,6 +451,7 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
     client_config.mqtt_disable_tls = config->mqtt_disable_tls;
     client_config.mqtt_auto_connect = config->mqtt_auto_connect;
     client_config.cacert = config->cacert;
+    client_config.cert_bundle_attach = config->cert_bundle_attach;
     client_config.message_callback = config->message_callback;
     /* schema / schema_id come from the activation response. iot_client_init()
      * copies them and rebuilds the DP registry from the schema (dp_state is then
@@ -485,6 +492,7 @@ IOT_API int iot_client_get_session_token(iot_client_t *client, const char *agent
         .host = host,
         .port = parsed_port,
         .cacert = client->cacert,
+        .cert_bundle_attach = client->cert_bundle_attach,
     };
 
     ai_token_response_t resp = {0};
@@ -532,6 +540,7 @@ IOT_API int iot_get_ca_certificate(iot_client_t *client, const char *host, uint1
         .host = IOT_DNS_DEFAULT_HOST,
         .port = IOT_DNS_DEFAULT_PORT,
         .cacert = client->cacert,
+        .cert_bundle_attach = client->cert_bundle_attach,
         .target_host = host,
         .target_port = port,
         .public_key_algorithm = "ECDSA",
@@ -576,6 +585,7 @@ IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, iot_qrcode_
     };
     iot_dns_url_config_request_t dns_req = {
         .cacert       = request->cacert,
+        .cert_bundle_attach = request->cert_bundle_attach,
         .host         = NULL,
         .port         = 0,
         .region       = region_str,
@@ -614,6 +624,7 @@ IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, iot_qrcode_
         .host    = host,
         .port    = port,
         .cacert  = request->cacert,
+        .cert_bundle_attach = request->cert_bundle_attach,
     };
 
     qrcode_info_response_t resp = {0};

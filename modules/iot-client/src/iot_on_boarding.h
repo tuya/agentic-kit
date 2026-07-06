@@ -16,6 +16,7 @@ typedef struct {
     const char *skill_param;
     char firmware_key[64];
     const char *cacert;         // CA cert for all TLS (caller-owned)
+    tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback
     int timeout_ms;
     iot_env_t env;
     bool mqtt_disable_tls;

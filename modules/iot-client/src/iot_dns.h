@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include "iot_config_defaults.h"
+#include "tls.h"
 
 #define IOT_DNS_DEFAULT_HOST "h1.iot-dns.com"
 #define IOT_DNS_DEFAULT_PORT 443
@@ -35,6 +36,7 @@ typedef struct {
     const char *host;
     uint16_t port;
     const char *cacert;
+    tls_cert_bundle_attach_fn cert_bundle_attach;
     const iot_dns_domain_t *domains;
     int domain_count;
 } iot_dns_query_request_t;
@@ -79,6 +81,7 @@ typedef struct {
     const char *host;
     uint16_t port;
     const char *cacert;
+    tls_cert_bundle_attach_fn cert_bundle_attach;
     const char *region;
     const char *env;
     const char *uuid;
@@ -114,6 +117,7 @@ typedef struct {
     const char *host;               // DNS service host (NULL = IOT_DNS_DEFAULT_HOST)
     uint16_t port;                  // DNS service port (0 = IOT_DNS_DEFAULT_PORT)
     const char *cacert;             // CA cert for TLS to DNS service
+    tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback
     const char *target_host;        // Host to query CA certificate for (required)
     uint16_t target_port;           // Target service port (0 = 443)
     const char *public_key_algorithm; // "RSA" or "ECDSA" (NULL = "RSA")

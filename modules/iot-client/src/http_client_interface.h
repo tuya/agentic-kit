@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "iot_client.h"
+#include "tls.h"
 
 typedef enum {
     HTTP_CLIENT_SUCCESS = 0,
@@ -20,6 +21,7 @@ typedef struct {
 
 typedef struct {
     const char *cacert;        // CA certificate PEM content for TLS verification
+    tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (NULL = none)
     const char *host;
     uint16_t port;
     const char *method;

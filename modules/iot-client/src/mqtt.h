@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include "iot_client.h"
+#include "tls.h"
 
 // MQTT message callback type
 typedef void (*mqtt_message_callback_t)(const char *topic, size_t topic_len,
@@ -19,6 +20,7 @@ typedef struct mqtt_client mqtt_client;
  */
 typedef struct {
     const char *cacert;            // CA certificate PEM content
+    tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (NULL = none)
     const char *client_cert;       // Client certificate PEM content (NULL if not needed)
     const char *client_key;        // Client key PEM content (NULL if not needed)
     bool verify_peer;              // Whether to verify peer certificate

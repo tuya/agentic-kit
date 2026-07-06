@@ -569,6 +569,7 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
       log_info("Connecting to server: %s:%d", server_host, server_port);
 
       http_status = http_client_request(&(const http_client_request_t){.cacert = request->cacert,
+                                                                       .cert_bundle_attach = request->cert_bundle_attach,
                                                                        .host = server_host,
                                                                        .port = server_port,
                                                                        .method = "POST",

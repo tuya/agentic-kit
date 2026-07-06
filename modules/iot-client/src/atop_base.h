@@ -24,6 +24,7 @@
  #include <stdbool.h>
  #include "cJSON.h"
  #include "iot_client.h"
+ #include "tls.h"
 
  typedef struct {
      const char *path;
@@ -40,6 +41,7 @@
      const char *host;      // Server host (optional, defaults to TUYA_DEFAULT_HOST)
      uint16_t port;          // Server port (optional, defaults to TUYA_DEFAULT_PORT)
      const char *cacert; // CA certificate PEM content for TLS verification
+     tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback
  } atop_base_request_t;
 
  typedef struct {

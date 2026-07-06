@@ -318,6 +318,7 @@ void app_main(void)
         .region           = AY,
         .env              = PROD,
         .mqtt_disable_tls = false,
+        .cert_bundle_attach = (tls_cert_bundle_attach_fn)esp_crt_bundle_attach,
         .message_callback = NULL,
         .schema           = NULL,   /* restart path: fill from persisted storage if used */
         .schema_id        = NULL,

@@ -892,6 +892,7 @@ int iot_dp_schema_check_update(iot_client_t *client)
         .host      = host[0] ? host : NULL,
         .port      = port,
         .cacert    = client->cacert,
+        .cert_bundle_attach = client->cert_bundle_attach,
     };
     schema_newest_response_t resp = {0};
     int rt = atop_schema_newest_get(pal, &req, &resp);

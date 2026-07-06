@@ -227,7 +227,8 @@ int atop_activate_request(const pal_t *pal, const activite_request_t *request, a
                                         .user_data = request->user_data,
                                         .host = request->host,
                                         .port = request->port,
-                                        .cacert = request->cacert};
+                                        .cacert = request->cacert,
+                                        .cert_bundle_attach = request->cert_bundle_attach};
 
     /* ATOP service request send */
     atop_base_response_t *atop_response = pal->malloc(sizeof(atop_base_response_t));
@@ -346,6 +347,7 @@ int atop_device_meta_save(const pal_t *pal, const device_meta_save_request_t *re
         .host = request->host,
         .port = request->port,
         .cacert = request->cacert,
+        .cert_bundle_attach = request->cert_bundle_attach,
     };
 
     atop_base_response_t atop_response = {0};
@@ -432,6 +434,7 @@ int atop_qrcode_info_get(const pal_t *pal, const qrcode_info_request_t *request,
         .host = request->host,
         .port = request->port,
         .cacert = request->cacert,
+        .cert_bundle_attach = request->cert_bundle_attach,
     };
 
     atop_base_response_t atop_response = {0};
@@ -535,6 +538,7 @@ int atop_ai_token_get(const pal_t *pal, const ai_token_request_t *request, ai_to
         .host = request->host,
         .port = request->port,
         .cacert = request->cacert,
+        .cert_bundle_attach = request->cert_bundle_attach,
     };
 
     atop_base_response_t atop_response = {0};
@@ -639,6 +643,7 @@ int atop_schema_newest_get(const pal_t *pal, const schema_newest_request_t *requ
         .host = request->host,
         .port = request->port,
         .cacert = request->cacert,
+        .cert_bundle_attach = request->cert_bundle_attach,
     };
 
     atop_base_response_t atop_response = {0};
@@ -771,6 +776,7 @@ int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota
         .host = request->host,
         .port = request->port,
         .cacert = request->cacert,
+        .cert_bundle_attach = request->cert_bundle_attach,
     };
 
     atop_base_response_t atop_response = {0};
@@ -908,6 +914,7 @@ int atop_version_update(const pal_t *pal, const ota_version_update_request_t *re
         .host = request->host,
         .port = request->port,
         .cacert = request->cacert,
+        .cert_bundle_attach = request->cert_bundle_attach,
     };
 
     atop_base_response_t atop_response = {0};
@@ -974,6 +981,7 @@ int atop_upgrade_status_update(const pal_t *pal, const ota_status_update_request
         .host = request->host,
         .port = request->port,
         .cacert = request->cacert,
+        .cert_bundle_attach = request->cert_bundle_attach,
     };
 
     atop_base_response_t atop_response = {0};
