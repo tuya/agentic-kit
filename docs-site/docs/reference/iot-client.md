@@ -91,6 +91,7 @@ sidebar_position: 3
 | `mqtt_disable_tls` | `bool` | `false`（默认）使用 MQTTS，`true` 使用明文 MQTT |
 | `mqtt_auto_connect` | `bool` | `true` 初始化后自动连接 MQTT；`false`（默认）需手动调用 |
 | `cacert` | `const char *` | CA 证书 PEM（用于 MQTT/HTTPS/IoT-DNS TLS，调用方持有，需在 client 生命周期内有效） |
+| `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | 平台证书包回调（如 ESP-IDF 的 `esp_crt_bundle_attach`），NULL 表示不使用。详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
 | `message_callback` | `iot_message_callback_t` | MQTT 消息回调，可为 NULL |
 
 ### `iot_on_boarding_config_t`
@@ -111,6 +112,7 @@ sidebar_position: 3
 | `mqtt_disable_tls` | `bool` | TLS 开关 |
 | `mqtt_auto_connect` | `bool` | `true` 激活后自动连接 MQTT；`false`（默认）需手动调用 |
 | `cacert` | `const char *` | CA 证书 PEM（用于 MQTT/HTTPS/IoT-DNS TLS，调用方持有） |
+| `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | 平台证书包回调（如 ESP-IDF 的 `esp_crt_bundle_attach`），NULL 表示不使用。详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
 | `message_callback` | `iot_message_callback_t` | MQTT 消息回调 |
 
 ### `iot_client_t`（返回实例）
@@ -250,6 +252,7 @@ int iot_get_qrcode_info(const iot_qrcode_request_t *request,
 | `region` | `iot_region_t` | 数据中心区域 |
 | `env` | `iot_env_t` | 环境 |
 | `cacert` | `const char *` | CA 证书 PEM（用于 HTTPS/IoT-DNS TLS，调用方持有） |
+| `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | 平台证书包回调（如 ESP-IDF 的 `esp_crt_bundle_attach`），NULL 表示不使用。详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
 
 **响应 `iot_qrcode_response_t`：**
 
