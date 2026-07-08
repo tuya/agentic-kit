@@ -253,6 +253,19 @@ int tai_send_image_with_text(tai_ctx_t *ctx,
                              uint8_t format,
                              uint16_t width, uint16_t height);
 
+/* Send an image + streamed audio in ONE event (multimodal query):
+ *   EventStart -> Image(OneShot) -> Audio(START..MIDDLE..END)
+ *   -> EventPayloadsEnd -> EventEnd
+ * Usage: _start(img+audio params) -> _chunk(pcm) x N -> _end().
+ * chunk/end share tai_send_audio_chunk/_end semantics. */
+int tai_send_image_audio_start(tai_ctx_t *ctx,
+                               const uint8_t *img_data, size_t img_len,
+                               uint8_t img_format, uint16_t width, uint16_t height,
+                               uint8_t codec, uint8_t channels,
+                               uint8_t bit_depth, uint32_t sample_rate);
+int tai_send_image_audio_chunk(tai_ctx_t *ctx, const uint8_t *pcm, size_t len);
+int tai_send_image_audio_end  (tai_ctx_t *ctx);
+
 int tai_chat_break(tai_ctx_t *ctx);
 
 int tai_send_mcp_response(tai_ctx_t *ctx, const char *json_rpc_response);

@@ -227,7 +227,23 @@ static uint64_t pal_time_ms(void)
 /* -------------------------------------------------------------------------
  * Memory
  * ------------------------------------------------------------------------- */
-static void *pal_malloc(size_t sz) { return pvPortMalloc(sz); }
+#ifdef ESP_PLATFORM
+#include "esp_heap_caps.h"
+#endif
+
+/* Large buffers (e.g. image payloads for tai_send_image*) are routed to PSRAM
+ * on ESP-IDF to avoid exhausting the scarce internal DRAM heap. vPortFree /
+ * heap_caps_free share the same underlying heap, so pal_free stays uniform. */
+static void *pal_malloc(size_t sz)
+{
+#ifdef ESP_PLATFORM
+    if (sz >= 4096) {
+        void *p = heap_caps_malloc(sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (p) return p;
+    }
+#endif
+    return pvPortMalloc(sz);
+}
 static void  pal_free(void *p)     { vPortFree(p); }
 
 /* -------------------------------------------------------------------------

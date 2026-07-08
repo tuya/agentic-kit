@@ -853,6 +853,63 @@ int tai_send_image_with_text(tai_ctx_t *ctx,
 }
 
 /* =========================================================================
+ * tai_send_image_audio_start / _chunk / _end
+ *   EventStart -> Image(OneShot) -> Audio(START..MIDDLE..END)
+ *   -> EventPayloadsEnd -> EventEnd
+ * ========================================================================= */
+int tai_send_image_audio_start(tai_ctx_t *ctx,
+                               const uint8_t *img_data, size_t img_len,
+                               uint8_t img_format, uint16_t width, uint16_t height,
+                               uint8_t codec, uint8_t channels,
+                               uint8_t bit_depth, uint32_t sample_rate)
+{
+    if (!ctx || !ctx->connected || !img_data) return TAI_ERR_ARGS;
+    TAI_LOGI(ctx->pal, TAG, "image_audio_start: img=%zu bytes %ux%u codec=%u",
+             img_len, width, height, codec);
+    ctx_lock(ctx);
+
+    int app_len, rc, heap = 0;
+    size_t need = 256 + 8 + img_len;
+    uint8_t *app_buf = get_send_buf(ctx, need, &heap);
+    size_t app_buf_size = heap ? need : sizeof(ctx->tx_app_buf);
+    if (!app_buf) { ctx_unlock(ctx); return TAI_ERR_MEM; }
+
+    app_len = tai_proto_build_event_start(ctx, ctx->tx_app_buf,
+                                           sizeof(ctx->tx_app_buf));
+    if (app_len < 0) { put_send_buf(ctx, app_buf, heap); ctx_unlock(ctx); return app_len; }
+    rc = send_app(ctx, ctx->tx_app_buf, (size_t)app_len);
+    if (rc != TAI_OK) { put_send_buf(ctx, app_buf, heap); ctx_unlock(ctx); return rc; }
+    ctx->event_open = 1;
+
+    app_len = tai_proto_build_image(ctx, TAI_DATA_ID_IMAGE_UP, TAI_STREAM_ONE_SHOT,
+                                     img_format, width, height,
+                                     img_data, img_len, app_buf, app_buf_size);
+    if (app_len < 0) { put_send_buf(ctx, app_buf, heap); ctx_unlock(ctx); return app_len; }
+    rc = send_app(ctx, app_buf, (size_t)app_len);
+    put_send_buf(ctx, app_buf, heap);
+    if (rc != TAI_OK) { ctx_unlock(ctx); return rc; }
+
+    ctx->audio_codec       = codec;
+    ctx->audio_channels    = channels;
+    ctx->audio_bit_depth   = bit_depth;
+    ctx->audio_sample_rate = sample_rate;
+    ctx->audio_started     = 0;
+
+    ctx_unlock(ctx);
+    return TAI_OK;
+}
+
+int tai_send_image_audio_chunk(tai_ctx_t *ctx, const uint8_t *pcm, size_t len)
+{
+    return tai_send_audio_chunk(ctx, pcm, len);
+}
+
+int tai_send_image_audio_end(tai_ctx_t *ctx)
+{
+    return tai_send_audio_end(ctx);
+}
+
+/* =========================================================================
  * tai_chat_break
  * ========================================================================= */
 int tai_chat_break(tai_ctx_t *ctx)

@@ -581,6 +581,54 @@ static void test_image_query(void)
 }
 
 /* =========================================================================
+ * Test 3b: image + streamed audio in one event (photo + voice question)
+ * ========================================================================= */
+static void test_image_audio_query(void)
+{
+    SECTION("image_audio_query");
+
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx(ctx_mem);
+    CHECK(ctx != NULL);
+
+    CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+    uint8_t tx[32768];
+    (void)tai_loopback_pop_sent(tx, sizeof(tx));
+
+    /* Fake JPEG bytes. Large enough (>1KB) to exercise mid-size packet path. */
+    uint8_t img[4096];
+    for (size_t i = 0; i < sizeof(img); i++) img[i] = (uint8_t)(i & 0xFF);
+
+    uint8_t chunk[320];
+    memset(chunk, 0x42, sizeof(chunk));
+
+    CHECK_EQ_INT(tai_send_image_audio_start(ctx, img, sizeof(img), TAI_IMG_JPEG,
+                                             640, 480,
+                                             TAI_AUDIO_PCM, 1, 16, 16000),
+                 TAI_OK);
+    CHECK_EQ_INT(tai_send_image_audio_chunk(ctx, chunk, sizeof(chunk)), TAI_OK);
+    CHECK_EQ_INT(tai_send_image_audio_end(ctx), TAI_OK);
+
+    sleep_ms(20);
+    size_t txn = tai_loopback_pop_sent(tx, sizeof(tx));
+    captured_pkt_t pkts[16];
+    int np = decode_captured(tx, txn, 32, pkts, 16);
+
+    /* EventStart + Image + Audio(START) + Audio(END)
+     * + EventPayloadsEnd + EventEnd = 6. */
+    CHECK_EQ_INT(np, 6);
+    CHECK_EQ_INT(pkts[0].pkt_type, TAI_PKT_EVENT);  /* EventStart */
+    CHECK_EQ_INT(pkts[1].pkt_type, TAI_PKT_IMAGE);  /* Image OneShot */
+    CHECK_EQ_INT(pkts[2].pkt_type, TAI_PKT_AUDIO);  /* chunk (START) */
+    CHECK_EQ_INT(pkts[3].pkt_type, TAI_PKT_AUDIO);  /* END */
+    CHECK_EQ_INT(pkts[4].pkt_type, TAI_PKT_EVENT);  /* PayloadsEnd */
+    CHECK_EQ_INT(pkts[5].pkt_type, TAI_PKT_EVENT);  /* EventEnd */
+
+    tai_disconnect(ctx);
+    tai_ctx_deinit(ctx);
+}
+
+/* =========================================================================
  * Test 4: server EOF triggers on_disconnect
  * ========================================================================= */
 static void test_disconnect_eof(void)
@@ -615,6 +663,7 @@ int main(void)
     test_text_query();
     test_audio_roundtrip();
     test_image_query();
+    test_image_audio_query();
     test_disconnect_eof();
 
     printf("\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
