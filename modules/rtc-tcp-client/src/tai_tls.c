@@ -167,7 +167,12 @@ int tai_tls_send(tai_tls_t *tls, const uint8_t *buf, size_t len)
     if (!tls) return TAI_ERR_ARGS;
     size_t written = 0;
     uint64_t start = tls->pal->time_ms();
-    const uint64_t limit_ms = 3000;
+    /* Whole-frame send deadline. Multimodal frames (a one-shot image can be
+     * tens of KB) over a power-saving Wi-Fi link can stall for seconds while
+     * the socket buffer drains; 3s was too tight and produced spurious
+     * TAI_ERR_NET on large image frames. 15s only bites a genuinely stuck
+     * link (small packets that succeed return immediately). */
+    const uint64_t limit_ms = 15000;
 
     while (written < len) {
         tls->pal->mutex_lock(tls->yield_mutex);
