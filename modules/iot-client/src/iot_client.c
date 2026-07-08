@@ -266,7 +266,10 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
 
     /* Report firmware version to cloud (enables OTA upgrade checks) */
     {
-        int ret = iot_ota_report_version(client, IOT_SDK_SW_VER);
+        const char *fw_ver = (config->sw_ver && config->sw_ver[0])
+                             ? config->sw_ver
+                             : IOT_SDK_SW_VER;
+        int ret = iot_ota_report_version(client, fw_ver);
         if (ret != OPRT_OK) {
             log_warn("iot_ota_report_version failed: %d (non-fatal)", ret);
         }
@@ -322,7 +325,10 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
     strncpy(ob_cfg.authkey, config->authkey, sizeof(ob_cfg.authkey) - 1);
     strncpy(ob_cfg.product_key, config->product_key, sizeof(ob_cfg.product_key) - 1);
 
-    strncpy(ob_cfg.sw_ver, IOT_SDK_SW_VER, sizeof(ob_cfg.sw_ver) - 1);
+    const char *sw_ver = (config->sw_ver && config->sw_ver[0])
+                         ? config->sw_ver
+                         : IOT_SDK_SW_VER;
+    strncpy(ob_cfg.sw_ver, sw_ver, sizeof(ob_cfg.sw_ver) - 1);
     strncpy(ob_cfg.pv, IOT_SDK_PV, sizeof(ob_cfg.pv) - 1);
     strncpy(ob_cfg.bv, IOT_SDK_BV, sizeof(ob_cfg.bv) - 1);
 
@@ -362,6 +368,7 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
     client_config.cacert = config->cacert;
     client_config.cert_bundle_attach = config->cert_bundle_attach;
     client_config.message_callback = config->message_callback;
+    client_config.sw_ver = sw_ver;
     /* schema / schema_id come from the activation response. iot_client_init()
      * copies them and rebuilds the DP registry from the schema (dp_state is then
      * initialized from the schema); first activation has no persisted DP values. */
@@ -413,7 +420,10 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
     strncpy(ob_cfg.authkey, config->authkey, sizeof(ob_cfg.authkey) - 1);
     strncpy(ob_cfg.product_key, config->product_key, sizeof(ob_cfg.product_key) - 1);
 
-    strncpy(ob_cfg.sw_ver, IOT_SDK_SW_VER, sizeof(ob_cfg.sw_ver) - 1);
+    const char *sw_ver = (config->sw_ver && config->sw_ver[0])
+                         ? config->sw_ver
+                         : IOT_SDK_SW_VER;
+    strncpy(ob_cfg.sw_ver, sw_ver, sizeof(ob_cfg.sw_ver) - 1);
     strncpy(ob_cfg.pv, IOT_SDK_PV, sizeof(ob_cfg.pv) - 1);
     strncpy(ob_cfg.bv, IOT_SDK_BV, sizeof(ob_cfg.bv) - 1);
 
@@ -450,6 +460,7 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
     client_config.cacert = config->cacert;
     client_config.cert_bundle_attach = config->cert_bundle_attach;
     client_config.message_callback = config->message_callback;
+    client_config.sw_ver = sw_ver;
     /* schema / schema_id come from the activation response. iot_client_init()
      * copies them and rebuilds the DP registry from the schema (dp_state is then
      * initialized from the schema); first activation has no persisted DP values. */

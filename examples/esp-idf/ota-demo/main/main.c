@@ -303,6 +303,7 @@ void app_main(void)
         .schema           = NULL,
         .schema_id        = NULL,
         .dp_state         = NULL,
+        .sw_ver           = desc->version,
     };
     memcpy((char *)iot_cfg.devid,      DEFAULT_DEVID,      strlen(DEFAULT_DEVID));
     memcpy((char *)iot_cfg.secret_key, DEFAULT_SECRET_KEY, strlen(DEFAULT_SECRET_KEY));

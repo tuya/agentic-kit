@@ -41,9 +41,15 @@
 
 #define IOT_DEFAULT_PORT 443
 
+#ifndef IOT_SDK_SW_VER
 #define IOT_SDK_SW_VER  "1.0.0"
+#endif
+#ifndef IOT_SDK_PV
 #define IOT_SDK_PV      "2.3"
+#endif
+#ifndef IOT_SDK_BV
 #define IOT_SDK_BV      "2.0"
+#endif
 #define SDK_VERSION "agentic-kit_0.1.0"
 
 /**
