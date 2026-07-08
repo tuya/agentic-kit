@@ -24,6 +24,7 @@
 #define OPRT_NOT_SUPPORTED            (-0x0005) //-5, Not supported
 #define OPRT_MALLOC_FAILED            (-0x0006) //-6, Memory allocation failed
 #define OPRT_TLS_HANDSHAKE_FAILED     (-0x0007) //-7, TLS handshake failed
+#define OPRT_DEVICE_NOT_EXIST         (-0x0008) //-8, Device removed/unbound on the cloud (re-provision needed)
 
 /* ---- Logging subsystem ----
  * The IoT SDK shares the process-wide log facade (see log.h).

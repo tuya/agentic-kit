@@ -369,7 +369,9 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
      errorCode = cJSON_GetObjectItem(root, "errorCode")->valuestring;
 
      if (strcasecmp(errorCode, "GATEWAY_NOT_EXISTS") == 0) {
-         rt = OPRT_COMMUNICATION_ERROR;
+         /* Device was removed/unbound on the cloud — distinct from a transient
+          * comms error so callers can re-provision instead of retrying. */
+         rt = OPRT_DEVICE_NOT_EXIST;
      }
 
      // free cJSON object
