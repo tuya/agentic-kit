@@ -1,3 +1,74 @@
+# =============================================================================
+# Dual-mode build:
+#   - Under ESP-IDF (ESP_PLATFORM set): register the whole repo as ONE ESP-IDF
+#     component so downstream projects can pull it via the component manager
+#     (git tag / override_path). All sources live inside the repo, so a git
+#     dependency clones a self-contained component.
+#   - Otherwise: fall through to the standalone POSIX CMake library + tests.
+# =============================================================================
+if(ESP_PLATFORM)
+    idf_component_register(
+        SRCS
+            # rtc-tcp-client (TAI 2.1)
+            "modules/rtc-tcp-client/src/tai_attrs.c"
+            "modules/rtc-tcp-client/src/tai_client.c"
+            "modules/rtc-tcp-client/src/tai_crypto.c"
+            "modules/rtc-tcp-client/src/tai_packet.c"
+            "modules/rtc-tcp-client/src/tai_pkt_log.c"
+            "modules/rtc-tcp-client/src/tai_protocol.c"
+            "modules/rtc-tcp-client/src/tai_tls.c"
+            "modules/rtc-tcp-client/src/tai_transport.c"
+            # iot-client
+            "modules/iot-client/src/atop.c"
+            "modules/iot-client/src/atop_base.c"
+            "modules/iot-client/src/cipher_wrapper.c"
+            "modules/iot-client/src/http_client_interface.c"
+            "modules/iot-client/src/iot_client.c"
+            "modules/iot-client/src/iot_client_message.c"
+            "modules/iot-client/src/iot_dns.c"
+            "modules/iot-client/src/iot_dp.c"
+            "modules/iot-client/src/iot_on_boarding.c"
+            "modules/iot-client/src/mqtt.c"
+            # tuya-ble (provisioning protocol layer)
+            "modules/tuya-ble/src/tuya_ble_prov.c"
+            # PAL (FreeRTOS+lwIP) and common log facade
+            "pal/pal_freertos.c"
+            "common/log.c"
+            # vendored coreHTTP
+            "third_party/coreHTTP/source/core_http_client.c"
+            "third_party/coreHTTP/source/dependency/3rdparty/llhttp/src/api.c"
+            "third_party/coreHTTP/source/dependency/3rdparty/llhttp/src/http.c"
+            "third_party/coreHTTP/source/dependency/3rdparty/llhttp/src/llhttp.c"
+            # vendored coreMQTT
+            "third_party/coreMQTT/source/core_mqtt.c"
+            "third_party/coreMQTT/source/core_mqtt_serializer.c"
+            "third_party/coreMQTT/source/core_mqtt_state.c"
+        INCLUDE_DIRS
+            "modules/rtc-tcp-client/include"
+            "modules/iot-client/include"
+            "modules/tuya-ble/include"
+            "pal"
+            "common"
+        PRIV_INCLUDE_DIRS
+            "modules/rtc-tcp-client/src"
+            "modules/iot-client/src"
+            "third_party/coreHTTP/source/include"
+            "third_party/coreHTTP/source/interface"
+            "third_party/coreHTTP/source/dependency/3rdparty/llhttp/include"
+            "third_party/coreMQTT/source/include"
+            "third_party/coreMQTT/source/interface"
+            "third_party/cJSON"
+        REQUIRES mbedtls json freertos lwip esp_event esp_netif esp_timer esp_wifi esp_driver_i2s
+    )
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        HTTP_DO_NOT_USE_CUSTOM_CONFIG
+        MQTT_DO_NOT_USE_CUSTOM_CONFIG
+        IOT_DO_NOT_USE_CUSTOM_CONFIG
+    )
+    target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-error=format)
+    return()
+endif()
+
 cmake_minimum_required(VERSION 3.20)
 
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)

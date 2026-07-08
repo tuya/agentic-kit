@@ -1,0 +1,19 @@
+version: "0.3.0"
+description: "Tuya Agentic-kit — device-side multimodal C SDK for the Tuya AI platform (voice chat, image understanding/generation, device-side MCP). ESP-IDF component."
+url: "https://github.com/tuya/agentic-kit"
+repository: "https://github.com/tuya/agentic-kit.git"
+documentation: "https://github.com/tuya/agentic-kit/blob/master/README.md"
+issues: "https://github.com/tuya/agentic-kit/issues"
+license: "Apache-2.0"
+tags:
+  - tuya
+  - agentic
+  - iot
+  - voice
+  - mcp
+dependencies:
+  idf: ">=5.0"
+# ESP32 family targets validated so far. Add more as they are verified.
+targets:
+  - esp32
+  - esp32s3
