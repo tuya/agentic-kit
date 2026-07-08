@@ -16,9 +16,11 @@
 
 #include "scan_by_app_pair_demo.h"
 
-#define DEFAULT_UUID         "uuid9425d7b7f6060cbc"
-#define DEFAULT_AUTHKEY      "XvROCNN7e9HjaEonGBCnb7BLiinNN1jl"
-#define DEFAULT_PRODUCT_KEY  "50fdsoli99bkgwri"
+/* Fill with your own device license triple from the Tuya IoT platform.
+ * Never commit real credentials. */
+#define DEFAULT_UUID         "uuidxxxxxxxxxxxxxxxx"
+#define DEFAULT_AUTHKEY      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+#define DEFAULT_PRODUCT_KEY  "xxxxxxxxxxxxxxxx"
 
 static void print_usage(const char *prog)
 {
