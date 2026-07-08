@@ -318,7 +318,7 @@ void app_main(void)
 
     /* 3. Check cloud for firmware upgrade */
     iot_ota_upgrade_info_t info = {0};
-    int rc = iot_ota_check_upgrade(iot, 0, desc->version, &info);
+    int rc = iot_ota_check_upgrade(iot, 0, &info);
     if (rc != OPRT_OK) {
         ESP_LOGE(TAG, "iot_ota_check_upgrade failed: %d", rc);
         iot_ota_upgrade_info_free(iot, &info);

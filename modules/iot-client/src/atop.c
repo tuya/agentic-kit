@@ -746,9 +746,6 @@ int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota
         return OPRT_MALLOC_FAILED;
     }
     cJSON_AddNumberToObject(root, "type", request->channel);
-    if (request->sw_ver && request->sw_ver[0] != '\0') {
-        cJSON_AddStringToObject(root, "softVer", request->sw_ver);
-    }
     cJSON_AddNumberToObject(root, "t", (double)timestamp);
 
     char *post_data = cJSON_PrintUnformatted(root);

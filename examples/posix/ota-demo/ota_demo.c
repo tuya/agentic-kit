@@ -114,7 +114,7 @@ int demo_ota_run(const char *devid, const char *secret_key, const char *local_ke
     /* 2. Check for firmware upgrade */
     printf("[%s] checking cloud for firmware upgrade...\n", TAG);
     iot_ota_upgrade_info_t info = {0};
-    int rc = iot_ota_check_upgrade(client, 0, sw_ver, &info);
+    int rc = iot_ota_check_upgrade(client, 0, &info);
     if (rc != OPRT_OK) {
         fprintf(stderr, "[%s] iot_ota_check_upgrade failed: %d\n", TAG, rc);
         iot_ota_upgrade_info_free(client, &info);

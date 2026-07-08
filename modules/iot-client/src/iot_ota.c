@@ -41,7 +41,7 @@ int iot_ota_report_version(iot_client_t *client, const char *sw_ver)
     return atop_version_update(client->pal, &req);
 }
 
-int iot_ota_check_upgrade(iot_client_t *client, int channel, const char *sw_ver,
+int iot_ota_check_upgrade(iot_client_t *client, int channel,
                           iot_ota_upgrade_info_t *info)
 {
     if (client == NULL || info == NULL) {
@@ -58,7 +58,6 @@ int iot_ota_check_upgrade(iot_client_t *client, int channel, const char *sw_ver,
         .devid   = client->devid,
         .key     = client->secret_key,
         .channel = channel,
-        .sw_ver  = sw_ver,
         .host    = host[0] ? host : NULL,
         .port    = port,
         .cacert  = client->cacert,
