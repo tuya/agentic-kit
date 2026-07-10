@@ -47,6 +47,11 @@ agentic_kit_require_dependency(cJSON)
 agentic_kit_require_dependency(coreHTTP)
 agentic_kit_require_dependency(coreMQTT)
 
+# mbedTLS uses its vendored default config. The SDK deliberately does not set
+# MBEDTLS_USER_CONFIG_FILE or alter mbedTLS's global config (allocator, record
+# sizes): the host application may share the same mbedTLS, so those are the
+# integrator's to own (see common/tls.h).
+
 if(NOT TARGET MbedTLS::mbedtls)
     add_subdirectory("${mbedtls_source_dir}" "${CMAKE_BINARY_DIR}/third_party/mbedtls" EXCLUDE_FROM_ALL)
 endif()

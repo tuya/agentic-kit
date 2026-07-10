@@ -170,7 +170,7 @@ static void on_schema_update(const char *schema_id, const char *new_schema, void
  * Returns the allocated cert (assign to client->cacert; free at shutdown) or NULL. */
 static char *ensure_mqtt_ca(iot_client_t *client)
 {
-    if (client->mqtt_disable_tls || client->cacert || !client->mqtt_url)
+    if (client->mqtt_disable_tls || client->cacert || client->mqtt_url[0] == '\0')
         return NULL;
 
     char scheme[8] = {0};

@@ -44,24 +44,19 @@ static void mqtt_message_handler(const char *topic, size_t topic_len,
 
 static int iot_client_message_try_connect(iot_client_t *client)
 {
-    size_t devid_len = strlen(client->devid);
-    size_t topic_buf_len = 17 + devid_len + 1;
-    char *subscribe_topic = (char *)client->pal->malloc(topic_buf_len);
-    if (!subscribe_topic)
-        return OPRT_MALLOC_FAILED;
-    int sn_ret = snprintf(subscribe_topic, topic_buf_len,
+    /* Connect is rare (not a hot path); the subscribe topic lives on the stack
+     * for the call -- mqtt_client_create_with_config copies it (mqtt.c:327), so
+     * no malloc/free is needed. */
+    char subscribe_topic[64];
+    int sn_ret = snprintf(subscribe_topic, sizeof(subscribe_topic),
              "smart/device/in/%s", client->devid);
-    if (sn_ret < 0 || (size_t)sn_ret >= topic_buf_len) {
-        client->pal->free(subscribe_topic);
+    if (sn_ret < 0 || (size_t)sn_ret >= (int)sizeof(subscribe_topic))
         return OPRT_COMMUNICATION_ERROR;
-    }
 
     char password[17] = {0};
     int md5_ret = iot_md5_password(client->secret_key, password);
-    if (md5_ret != 0) {
-        client->pal->free(subscribe_topic);
+    if (md5_ret != 0)
         return OPRT_COMMUNICATION_ERROR;
-    }
 
     mqtt_tls_config_t tls_cfg = { .cacert = client->cacert,
                                   .cert_bundle_attach = client->cert_bundle_attach };
@@ -80,7 +75,6 @@ static int iot_client_message_try_connect(iot_client_t *client)
     client->mqtt = mqtt_client_create_with_config(&mqtt_cfg);
     if (!client->mqtt) {
         log_error("Failed to create MQTT client");
-        client->pal->free(subscribe_topic);
         return OPRT_COMMUNICATION_ERROR;
     }
 
@@ -89,7 +83,6 @@ static int iot_client_message_try_connect(iot_client_t *client)
         log_error("Failed to connect to MQTT broker: %d", ret);
         mqtt_client_destroy(client->mqtt);
         client->mqtt = NULL;
-        client->pal->free(subscribe_topic);
         return (ret == OPRT_TLS_HANDSHAKE_FAILED) ? OPRT_TLS_HANDSHAKE_FAILED
                                                   : OPRT_COMMUNICATION_ERROR;
     }
@@ -98,18 +91,16 @@ static int iot_client_message_try_connect(iot_client_t *client)
         log_error("Failed to subscribe to %s", subscribe_topic);
         mqtt_client_destroy(client->mqtt);
         client->mqtt = NULL;
-        client->pal->free(subscribe_topic);
         return OPRT_COMMUNICATION_ERROR;
     }
 
     log_info("MQTT connected and subscribed to %s", subscribe_topic);
-    client->pal->free(subscribe_topic);
     return OPRT_OK;
 }
 
 int iot_client_message_connect(iot_client_t *client)
 {
-    if (!client || !client->mqtt_url || client->devid[0] == '\0') {
+    if (!client || client->mqtt_url[0] == '\0' || client->devid[0] == '\0') {
         return OPRT_INVALID_PARAMETER;
     }
 
@@ -161,29 +152,26 @@ int iot_client_message_publish(iot_client_t *client,
         return OPRT_COMMUNICATION_ERROR;
     }
 
-    size_t topic_len = 18 + strlen(client->devid) + 1;
-    char *topic = (char *)client->pal->malloc(topic_len);
-    if (!topic) {
+    /* Outbound topic is a short fixed format (prefix 17 + devid <=31 < 64);
+     * build it on the stack per publish (no persistent field), matching the
+     * subscribe topic in iot_client_message_try_connect. The publish path
+     * already mallocs the ciphertext, so a stack snprintf adds no churn. */
+    char pub_topic[64];
+    int sn = snprintf(pub_topic, sizeof(pub_topic),
+                      "smart/device/out/%s", client->devid);
+    if (sn < 0 || (size_t)sn >= sizeof(pub_topic)) {
         client->pal->free(encrypted);
-        return OPRT_MALLOC_FAILED;
-    }
-    int sn = snprintf(topic, topic_len, "smart/device/out/%s", client->devid);
-    if (sn < 0 || (size_t)sn >= topic_len) {
-        client->pal->free(encrypted);
-        client->pal->free(topic);
         return OPRT_COMMUNICATION_ERROR;
     }
 
-    ret = mqtt_client_publish(client->mqtt, topic, encrypted, encrypted_len);
+    ret = mqtt_client_publish(client->mqtt, pub_topic, encrypted, encrypted_len);
     client->pal->free(encrypted);
-
     if (ret != 0) {
-        log_error("Failed to publish to %s", topic);
-        client->pal->free(topic);
+        log_error("Failed to publish to %s", pub_topic);
         return OPRT_COMMUNICATION_ERROR;
     }
 
-    log_debug("Published encrypted message to %s (%u bytes)", topic, (unsigned)encrypted_len);
-    client->pal->free(topic);
+    log_debug("Published encrypted message to %s (%u bytes)",
+              pub_topic, (unsigned)encrypted_len);
     return OPRT_OK;
 }

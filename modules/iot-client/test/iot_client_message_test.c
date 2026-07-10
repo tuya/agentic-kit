@@ -224,7 +224,7 @@ static int test_raw_message(void)
     strncpy((char *)client->devid, TEST_DEVID, sizeof(client->devid) - 1);
     strncpy((char *)client->secret_key, TEST_SECRET_KEY, sizeof(client->secret_key) - 1);
     strncpy((char *)client->local_key, TEST_LOCAL_KEY, sizeof(client->local_key) - 1);
-    client->mqtt_url = TEST_MQTT_URL;
+    snprintf(client->mqtt_url, sizeof(client->mqtt_url), "%s", TEST_MQTT_URL);
     client->cacert = g_cacert;
     client->message_callback = test_message_callback;
 
@@ -259,7 +259,7 @@ static int test_raw_message(void)
     }
 
     /* don't free mqtt_url/cacert — they point to static/global data */
-    client->mqtt_url = NULL;
+    client->mqtt_url[0] = '\0';
     client->cacert = NULL;
     pal->free(client);
     return result;
@@ -280,7 +280,7 @@ static int test_invalid_format_message(void)
     strncpy((char *)client->devid, TEST_DEVID, sizeof(client->devid) - 1);
     strncpy((char *)client->secret_key, TEST_SECRET_KEY, sizeof(client->secret_key) - 1);
     strncpy((char *)client->local_key, TEST_LOCAL_KEY, sizeof(client->local_key) - 1);
-    client->mqtt_url = "mqtts://127.0.0.1:11886";
+    snprintf(client->mqtt_url, sizeof(client->mqtt_url), "%s", "mqtts://127.0.0.1:11886");
     client->cacert = g_cacert;
     client->message_callback = test_message_callback;
 
@@ -306,7 +306,7 @@ static int test_invalid_format_message(void)
         }
     }
 
-    client->mqtt_url = NULL;
+    client->mqtt_url[0] = '\0';
     client->cacert = NULL;
     pal->free(client);
     return result;
@@ -327,7 +327,7 @@ static int test_decrypt_fail_wrong_key(void)
     strncpy((char *)client->devid, TEST_DEVID, sizeof(client->devid) - 1);
     strncpy((char *)client->secret_key, TEST_SECRET_KEY, sizeof(client->secret_key) - 1);
     strncpy((char *)client->local_key, TEST_LOCAL_KEY, sizeof(client->local_key) - 1);
-    client->mqtt_url = "mqtts://127.0.0.1:11887";
+    snprintf(client->mqtt_url, sizeof(client->mqtt_url), "%s", "mqtts://127.0.0.1:11887");
     client->cacert = g_cacert;
     client->message_callback = test_message_callback;
 
@@ -353,7 +353,7 @@ static int test_decrypt_fail_wrong_key(void)
         }
     }
 
-    client->mqtt_url = NULL;
+    client->mqtt_url[0] = '\0';
     client->cacert = NULL;
     pal->free(client);
     return result;
@@ -374,7 +374,7 @@ static int test_encrypted_message(void)
     strncpy((char *)client->devid, TEST_DEVID, sizeof(client->devid) - 1);
     strncpy((char *)client->secret_key, TEST_SECRET_KEY, sizeof(client->secret_key) - 1);
     strncpy((char *)client->local_key, TEST_LOCAL_KEY, sizeof(client->local_key) - 1);
-    client->mqtt_url = TEST_MQTT_URL;
+    snprintf(client->mqtt_url, sizeof(client->mqtt_url), "%s", TEST_MQTT_URL);
     client->cacert = g_cacert;
     client->message_callback = test_message_callback;
 
@@ -397,7 +397,7 @@ static int test_encrypted_message(void)
     if (ret != OPRT_OK) {
         printf("  iot_client_message_publish failed: %d\n", ret);
         iot_client_message_disconnect(client);
-        client->mqtt_url = NULL;
+        client->mqtt_url[0] = '\0';
         client->cacert = NULL;
         pal->free(client);
         return -1;
@@ -418,7 +418,7 @@ static int test_encrypted_message(void)
         result = 0;
     }
 
-    client->mqtt_url = NULL;
+    client->mqtt_url[0] = '\0';
     client->cacert = NULL;
     pal->free(client);
     return result;
@@ -442,8 +442,8 @@ static int test_iot_client_init_autoconnect_no_url(void)
     }
 
     int result = 0;
-    if (client->mqtt_url != NULL) {
-        printf("  expected mqtt_url=NULL (no devid → DNS skipped), got '%s'\n", client->mqtt_url);
+    if (client->mqtt_url[0] != '\0') {
+        printf("  expected mqtt_url unset (no devid → DNS skipped), got '%s'\n", client->mqtt_url);
         result = -1;
     }
     if (client->mqtt != NULL) {

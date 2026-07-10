@@ -56,6 +56,10 @@ struct iot_dp_context {
     iot_dp_save_callback_t       save_cb;   void *save_cb_user;
 };
 
+/* dp_storage in iot_client_t holds this struct inline; fail the build if it grows past it. */
+_Static_assert(sizeof(struct iot_dp_context) <= IOT_DP_CONTEXT_STORAGE,
+               "iot_dp_context outgrew IOT_DP_CONTEXT_STORAGE (bump it in iot_client.h)");
+
 typedef enum { DP_SEL_ALL, DP_SEL_DIRTY, DP_SEL_ONE } dp_sel_t;
 
 /* ============================================================================
@@ -98,18 +102,13 @@ static struct iot_dp_context *dp_ensure_context(iot_client_t *client)
     if (client->dp) return client->dp;
 
     const pal_t *pal = client->pal;
-    struct iot_dp_context *ctx = (struct iot_dp_context *)pal->malloc(sizeof(*ctx));
-    if (!ctx) {
-        log_error("dp: context allocation failed");
-        return NULL;
-    }
+    struct iot_dp_context *ctx = (struct iot_dp_context *)client->dp_storage;
     memset(ctx, 0, sizeof(*ctx));
     ctx->loose = true;
     ctx->mutex = pal->mutex_create();
     if (!ctx->mutex) {
         log_error("dp: mutex creation failed");
-        pal->free(ctx);
-        return NULL;
+        return NULL;   /* dp_storage is inline; nothing to free */
     }
     client->dp = ctx;
     return ctx;
@@ -523,12 +522,12 @@ static char *dp_build_state_json(iot_client_t *client, bool include_raw)
         if (dp_add_value(dps, key, e, pal) != OPRT_OK) { cJSON_Delete(root); return NULL; }
     }
 
+    /* cJSON's allocator is the pal allocator (cJSON_InitHooks in iot_init), so the
+     * printed string is already pal-owned -- return it directly; callers free it
+     * via pal->free. Avoids a second malloc + copy per state build. */
     char *s = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
-    if (!s) return NULL;
-    char *copy = pal_strdup(pal, s);
-    cJSON_free(s);
-    return copy;
+    return s;
 }
 
 /* Build a {"protocol":3,"t":..,"data":{"dps":{...}}} report (lock held). */
@@ -561,13 +560,13 @@ static char *dp_build_report_json(iot_client_t *client, dp_sel_t sel, uint8_t on
         cnt++;
     }
 
+    /* cJSON allocs via the pal allocator -- return the printed string directly
+     * (caller frees via pal->free); avoids a second malloc + copy per report. */
     char *s = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (!s) return NULL;
-    char *copy = pal_strdup(pal, s);
-    cJSON_free(s);
     *count_out = cnt;
-    return copy;
+    return s;
 }
 
 /* Build the current snapshot under the lock, then fire the save callback OUTSIDE it. */
@@ -1138,5 +1137,4 @@ void iot_dp_deinit(iot_client_t *client)
     dp_entries_free(pal, entries, count);
     pal->mutex_destroy(ctx->mutex);
     client->dp = NULL;
-    pal->free(ctx);
 }

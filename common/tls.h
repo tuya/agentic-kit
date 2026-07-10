@@ -16,6 +16,18 @@
  * recursive mutex, releasing it during tcp_poll waits, so a worker thread and a
  * sender thread may interleave freely (the rtc model).  The handshake DRBG is a
  * process-wide, lazily-seeded singleton shared by all connections.
+ *
+ * mbedTLS configuration is the integrator's responsibility.  This SDK does NOT
+ * touch mbedTLS's process-global configuration -- the allocator
+ * (mbedtls_platform_set_calloc_free), threading callbacks
+ * (mbedtls_threading_set_alt), and record-buffer sizes
+ * (MBEDTLS_SSL_{IN,OUT}_CONTENT_LEN) are owned by the application, because the
+ * host may share the same mbedTLS instance and last-writer-wins on those
+ * globals would corrupt its state.  To route mbedTLS through your own heap
+ * (e.g. the same allocator the SDK's pal uses, to keep one coalescing heap),
+ * call mbedtls_platform_set_calloc_free() yourself at startup -- once,
+ * single-threaded, before any SDK init -- and build mbedTLS with
+ * MBEDTLS_PLATFORM_MEMORY.
  */
 
 #ifndef COMMON_TLS_H

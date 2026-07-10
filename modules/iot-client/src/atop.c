@@ -231,23 +231,21 @@ int atop_activate_request(const pal_t *pal, const activite_request_t *request, a
                                         .cert_bundle_attach = request->cert_bundle_attach};
 
     /* ATOP service request send */
-    atop_base_response_t *atop_response = pal->malloc(sizeof(atop_base_response_t));
-    if (atop_response == NULL) {
-        return OPRT_MALLOC_FAILED;
-    }
-    rt = atop_base_request(pal,&atop_request, atop_response);
+    /* Stack-allocated like the other ATOP service calls; atop_base_response_free
+     * still releases the detached cJSON `result` subtree. Heap-allocating it was
+     * the lone inconsistency here and leaked `buffer` if that malloc failed. */
+    atop_base_response_t atop_response = {0};
+    rt = atop_base_request(pal, &atop_request, &atop_response);
     pal->free(buffer);
     if (OPRT_OK != rt) {
         log_error("atop_base_request error:%d", rt);
-        pal->free(atop_response);
         return rt;
     }
 
-    cJSON *result = atop_response->result;
+    cJSON *result = atop_response.result;
     if (result == NULL) {
         log_error("activate response no result");
-        atop_base_response_free(pal,atop_response);
-        pal->free(atop_response);
+        atop_base_response_free(pal, &atop_response);
         return OPRT_COMMUNICATION_ERROR;
     }
 
@@ -266,13 +264,11 @@ int atop_activate_request(const pal_t *pal, const activite_request_t *request, a
     if (!response->devid || !response->secret_key || !response->local_key) {
         log_error("activate response missing required fields");
         atop_activate_response_free(pal, response);
-        atop_base_response_free(pal,atop_response);
-        pal->free(atop_response);
+        atop_base_response_free(pal, &atop_response);
         return OPRT_COMMUNICATION_ERROR;
     }
 
-    atop_base_response_free(pal,atop_response);
-    pal->free(atop_response);
+    atop_base_response_free(pal, &atop_response);
     return rt;
 }
 
@@ -568,7 +564,7 @@ int atop_ai_token_get(const pal_t *pal, const ai_token_request_t *request, ai_to
             cJSON_free(json_str);
         }
     }
-    atop_base_response_free(pal,&atop_response);
+    atop_base_response_free(pal, &atop_response);
 
     if (response->token == NULL) {
         return OPRT_MALLOC_FAILED;
@@ -794,7 +790,7 @@ int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota
         /* success=true but result=null → cloud has no upgrade configured for this device */
         log_debug("atop_upgrade_get: no upgrade available (success=%d)", atop_response.success);
         atop_base_response_free(pal, &atop_response);
-        return OPRT_OK;
+        return OPRT_OK;   /* no-upgrade is success; response->has_upgrade stays false */
     }
 
     /* The result object contains firmware upgrade info.
@@ -812,7 +808,7 @@ int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota
     if (chosen_url == NULL) {
         log_debug("atop_upgrade_get: no cdnUrl/httpsUrl (no upgrade)");
         atop_base_response_free(pal, &atop_response);
-        return OPRT_OK;
+        return OPRT_OK;   /* no-upgrade is success; response->has_upgrade stays false */
     }
 
     response->has_upgrade = true;

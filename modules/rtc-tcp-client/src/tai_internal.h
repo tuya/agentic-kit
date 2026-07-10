@@ -501,7 +501,7 @@ int tai_crypto_derive_keys(uint8_t proto_ver,
 /*
  * tai_pkt_log.c
  */
-void tai_log_packet(const pal_t *pal, uint8_t proto_ver,
+void tai_log_packet(uint8_t proto_ver,
                     int is_send,
                     uint8_t pkt_type,
                     const tai_attr_t *attrs, int attr_count,

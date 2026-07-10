@@ -62,7 +62,7 @@
 
 /* Worker task tunables — override via -D at build time if needed. */
 #ifndef PAL_FR_TASK_STACK_WORDS
-#define PAL_FR_TASK_STACK_WORDS  (6 * 1024 / sizeof(StackType_t))
+#define PAL_FR_TASK_STACK_WORDS  4096
 #endif
 #ifndef PAL_FR_TASK_PRIORITY
 #define PAL_FR_TASK_PRIORITY     (tskIDLE_PRIORITY + 5)

@@ -40,7 +40,7 @@
  #define DEFAULT_RESPONSE_BUFFER_LEN (1024)
  #define AES_GCM128_NONCE_LEN        12
  #define AES_GCM128_TAG_LEN          16
- #define URL_PARAM_SIGN_BUFFER_LEN   (512)
+ #define URL_PARAM_SIGN_BUFFER_LEN   (256)
 
 
  // Error check macro
@@ -62,21 +62,19 @@
      size_t printlen = 0;
      int i = 0;
      uint8_t digest[MD5SUM_LENGTH];
+     (void)pal;   /* sign buffer is stack-allocated now; pal unused here */
 
-     char *buffer = pal->malloc(URL_PARAM_SIGN_BUFFER_LEN);
-     TUYA_CHECK_NULL_RETURN(buffer, OPRT_MALLOC_FAILED);
+     char buffer[URL_PARAM_SIGN_BUFFER_LEN];
 
      for (i = 0; i < param_num; ++i) {
          int ret = snprintf(buffer + printlen, URL_PARAM_SIGN_BUFFER_LEN - printlen, "%s=%s||", params[i].key, params[i].value);
          if (ret < 0 || (size_t)ret >= URL_PARAM_SIGN_BUFFER_LEN - printlen) {
-             pal->free(buffer);
              return OPRT_COMMUNICATION_ERROR;
          }
          printlen += (size_t)ret;
      }
      int ret = snprintf(buffer + printlen, URL_PARAM_SIGN_BUFFER_LEN - printlen, "%s", (char *)key);
      if (ret < 0 || (size_t)ret >= URL_PARAM_SIGN_BUFFER_LEN - printlen) {
-     pal->free(buffer);
          return OPRT_COMMUNICATION_ERROR;
      }
      printlen += (size_t)ret;
@@ -88,7 +86,6 @@
      if (md5_ret == 0) md5_ret = mbedtls_md5_update(&ctx, (const uint8_t *)buffer, printlen);
      if (md5_ret == 0) md5_ret = mbedtls_md5_finish(&ctx, digest);
      mbedtls_md5_free(&ctx);
-     pal->free(buffer);
      if (md5_ret != 0) {
          log_error("MD5 computation failed: -0x%04x", -md5_ret);
          return OPRT_COMMUNICATION_ERROR;

@@ -122,7 +122,7 @@ static void log_send_packet(tai_ctx_t *ctx,
     if (tai_packet_decode(ctx->proto_ver, app_bytes, app_len,
                           &pkt_type, attrs, TAI_MAX_ATTRS, &attr_count,
                           &payload, &payload_len) == TAI_OK) {
-        tai_log_packet(ctx->pal, ctx->proto_ver, 1,
+        tai_log_packet(ctx->proto_ver, 1,
                        pkt_type, attrs, attr_count, payload, payload_len);
     }
 }
@@ -628,7 +628,7 @@ static int process_app_packet(tai_ctx_t *ctx,
         return TAI_PROTO_ERR_PKT_DECODE;   /* fatal cause, returned to the worker */
     }
 
-    tai_log_packet(ctx->pal, ctx->proto_ver, 0,
+    tai_log_packet(ctx->proto_ver, 0,
                    pkt_type, attrs, attr_count, payload, payload_len);
 
     /* Returns TAI_OK, a TAI_PROTO_ERR_* detail, or TAI_RX_PEER_CLOSE|code. */
