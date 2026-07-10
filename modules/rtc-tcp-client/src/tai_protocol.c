@@ -575,6 +575,21 @@ int tai_proto_dispatch(tai_ctx_t *ctx,
         break;
     }
 
+    case TAI_PKT_IMAGE: {
+        /* Received image (e.g. a cloud-generated picture). Payload starts with
+         * the 8-byte media header ([data_id:2][packed_48:6]); stream_flag is
+         * the top 2 bits of byte 2. Deliver each chunk to on_image; the caller
+         * accumulates START..END (or a single ONE_SHOT) and decodes the result.
+         * Image-params (payload-type/format/w/h) ride on the START attrs. */
+        if (payload_len < 8) break;
+        uint8_t stream_flag = (payload[2] >> 6) & 0x03;
+        const uint8_t *img = payload + 8;
+        size_t img_len = payload_len - 8;
+        if (ctx->on_image)
+            ctx->on_image(ctx, img, img_len, stream_flag, ctx->user_data);
+        break;
+    }
+
     case TAI_PKT_EVENT: {
         uint16_t        evt_type;
         const uint8_t  *evt_data;

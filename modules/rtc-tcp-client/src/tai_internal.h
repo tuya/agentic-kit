@@ -235,6 +235,7 @@ struct tai_ctx {
     void (*on_audio)(tai_ctx_t *, const uint8_t *, size_t,
                      uint32_t, uint16_t, void *);
     void (*on_text) (tai_ctx_t *, const char *, size_t, uint8_t, void *);
+    void (*on_image)(tai_ctx_t *, const uint8_t *, size_t, uint8_t, void *);
     void (*on_event)(tai_ctx_t *, uint16_t, const uint8_t *, size_t, void *);
     void (*on_disconnect)(tai_ctx_t *, uint16_t, void *);
     void *user_data;

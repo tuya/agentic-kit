@@ -189,6 +189,12 @@ typedef struct tai_config {
      * All callbacks are invoked from the background receive thread.
      * on_audio: called for each decoded audio chunk (PCM or Opus bytes).
      * on_text:  called for each text fragment; stream_flag is TAI_STREAM_*.
+     * on_image: called for each fragment of a received image (e.g. a
+     *           cloud-generated picture). data/len is one chunk of the raw
+     *           encoded image (typically JPEG); stream_flag is TAI_STREAM_*
+     *           (START carries the first bytes, END terminates, ONE_SHOT is a
+     *           complete image in a single call). The caller accumulates the
+     *           chunks and decodes once the stream ends.
      * on_event: called for all other events (MCPCmd, ChatBreak, ServerVAD...).
      * on_disconnect: called when the server closes the connection.
      * user_data: passed unchanged to every callback.
@@ -199,6 +205,10 @@ typedef struct tai_config {
                      void *user_data);
     void (*on_text) (tai_ctx_t *ctx,
                      const char *text, size_t len,
+                     uint8_t stream_flag,
+                     void *user_data);
+    void (*on_image)(tai_ctx_t *ctx,
+                     const uint8_t *data, size_t len,
                      uint8_t stream_flag,
                      void *user_data);
     void (*on_event)(tai_ctx_t *ctx,
