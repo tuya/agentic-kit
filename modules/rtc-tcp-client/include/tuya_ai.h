@@ -181,6 +181,25 @@ typedef struct tai_text_msg {
     uint8_t        _reserved[8];
 } tai_text_msg_t;
 
+/* --- Image --------------------------------------------------------------- */
+/* A received image (e.g. a cloud-generated picture) arrives as a stream of
+ * chunks: START (or ONE_SHOT) carries the first bytes and the image-params,
+ * MIDDLE continues, END terminates (len may be 0). The caller accumulates the
+ * chunks by stream_flag and decodes once the stream ends. format/width/height
+ * are populated from image-params on START/ONE_SHOT and 0 on MIDDLE/END. */
+typedef struct tai_image_msg {
+    const uint8_t *data;            /* encoded image bytes (JPEG/PNG); callback-lifetime */
+    size_t         len;
+    uint8_t        format;          /* TAI_IMG_JPEG / TAI_IMG_PNG / 0=unknown     */
+    uint16_t       width;           /* px, 0 if unknown / not on this chunk       */
+    uint16_t       height;          /* px, 0 if unknown                          */
+    uint8_t        stream_flag;     /* TAI_STREAM_*                              */
+    uint16_t       data_id;         /* Data ID                                   */
+    const char    *event_id;        /* turn id, borrowed; "" if none             */
+    uint64_t       timestamp_ms;    /* stream-start ts (media header)            */
+    uint8_t        _reserved[8];
+} tai_image_msg_t;
+
 /* --- Event (generic) ----------------------------------------------------- */
 typedef struct tai_event_msg {
     uint16_t       event_type;      /* TAI_EVT_*                                 */
@@ -293,6 +312,7 @@ typedef struct tai_config {
      */
     void (*on_audio)     (tai_ctx_t *ctx, const tai_audio_msg_t      *msg, void *user_data);
     void (*on_text)      (tai_ctx_t *ctx, const tai_text_msg_t       *msg, void *user_data);
+    void (*on_image)     (tai_ctx_t *ctx, const tai_image_msg_t      *msg, void *user_data);
     void (*on_event)     (tai_ctx_t *ctx, const tai_event_msg_t      *msg, void *user_data);
     void (*on_disconnect)(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *user_data);
     void *user_data;

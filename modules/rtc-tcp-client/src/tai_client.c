@@ -312,6 +312,7 @@ tai_ctx_t *tai_ctx_init(void *mem, const tai_config_t *cfg)
     ctx->agent_token           = cfg->agent_token;
     ctx->on_audio              = cfg->on_audio;
     ctx->on_text               = cfg->on_text;
+    ctx->on_image              = cfg->on_image;
     ctx->on_event              = cfg->on_event;
     ctx->on_disconnect         = cfg->on_disconnect;
     ctx->user_data             = cfg->user_data;

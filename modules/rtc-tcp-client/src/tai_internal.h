@@ -294,6 +294,7 @@ struct tai_ctx {
     /* Receive callbacks (struct-based; see tuya_ai.h) */
     void (*on_audio)     (tai_ctx_t *, const tai_audio_msg_t      *, void *);
     void (*on_text)      (tai_ctx_t *, const tai_text_msg_t       *, void *);
+    void (*on_image)     (tai_ctx_t *, const tai_image_msg_t      *, void *);
     void (*on_event)     (tai_ctx_t *, const tai_event_msg_t      *, void *);
     void (*on_disconnect)(tai_ctx_t *, const tai_disconnect_msg_t *, void *);
     void *user_data;

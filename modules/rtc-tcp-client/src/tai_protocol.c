@@ -518,6 +518,24 @@ static void emit_event(tai_ctx_t *ctx, uint16_t event_type,
     ctx->on_event(ctx, &m, ctx->user_data);
 }
 
+static void emit_image(tai_ctx_t *ctx, const uint8_t *data, size_t len,
+                       uint8_t format, uint16_t width, uint16_t height,
+                       uint8_t stream_flag, uint16_t data_id, uint64_t ts_ms)
+{
+    if (!ctx->on_image) return;
+    tai_image_msg_t m = {0};
+    m.data         = data;
+    m.len          = len;
+    m.format       = format;
+    m.width        = width;
+    m.height       = height;
+    m.stream_flag  = stream_flag;
+    m.data_id      = data_id;
+    m.event_id     = ctx->rx_event_id;
+    m.timestamp_ms = ts_ms;
+    ctx->on_image(ctx, &m, ctx->user_data);
+}
+
 /* Strict known-event set: an unknown event type is fail-fast (§3.4). */
 static int is_known_event(uint16_t t)
 {
@@ -651,6 +669,41 @@ static int media_text(tai_ctx_t *ctx,
     return TAI_OK;
 }
 
+/* IMAGE packet payload: [data_id:2][48-bit stream_flag|ts_ms][image bytes…].
+ * A received image is delivered chunk-by-chunk (the caller reassembles by
+ * stream_flag). image-params (attr 90) on START/ONE_SHOT carries
+ * "payload_type format width height"; format/width/height are 0 otherwise. */
+static int media_image(tai_ctx_t *ctx,
+                       const tai_attr_t *attrs, int attr_count,
+                       const uint8_t *payload, size_t payload_len)
+{
+    if (payload_len < 8) {
+        TAI_LOGW(ctx->pal, TAG, "image media header truncated (%zu < 8)", payload_len);
+        return TAI_PROTO_ERR_MEDIA_HDR;
+    }
+    uint16_t data_id = 0; uint8_t stream_flag = 0; uint64_t ts_ms = 0;
+    tai_unpack_media_hdr(payload, 8, &data_id, &stream_flag, &ts_ms);
+
+    uint8_t format = 0; uint16_t width = 0, height = 0;
+    const tai_attr_t *ip = tai_attr_find(attrs, attr_count, TAI_ATTR_IMAGE_PARAMS);
+    if (ip && ip->len > 0) {
+        char tmp[64];
+        size_t cplen = ip->len < sizeof(tmp) - 1 ? ip->len : sizeof(tmp) - 1;
+        memcpy(tmp, ip->value, cplen);
+        tmp[cplen] = '\0';
+        unsigned f[4] = {0};
+        sscanf(tmp, "%u %u %u %u", &f[0], &f[1], &f[2], &f[3]);
+        format = (uint8_t)f[1];   /* f[0]=payload_type, f[1]=format, f[2]=w, f[3]=h */
+        width  = (uint16_t)f[2];
+        height = (uint16_t)f[3];
+    }
+
+    latch_event_id(ctx, attrs, attr_count);
+    emit_image(ctx, payload + 8, payload_len - 8, format, width, height,
+               stream_flag, data_id, ts_ms);
+    return TAI_OK;
+}
+
 int tai_proto_dispatch(tai_ctx_t *ctx,
                         uint8_t pkt_type,
                         const tai_attr_t *attrs, int attr_count,
@@ -670,6 +723,9 @@ int tai_proto_dispatch(tai_ctx_t *ctx,
 
     case TAI_PKT_TEXT:
         return media_text(ctx, attrs, attr_count, payload, payload_len);
+
+    case TAI_PKT_IMAGE:
+        return media_image(ctx, attrs, attr_count, payload, payload_len);
 
     case TAI_PKT_EVENT: {
         uint16_t        evt_type;
