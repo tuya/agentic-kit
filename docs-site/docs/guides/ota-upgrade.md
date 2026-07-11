@@ -39,8 +39,8 @@ SDK 只提供**云端协议原语**——版本上报、升级查询、状态回
 
 | API | 云端接口 | 用途 |
 |-----|---------|------|
-| `iot_ota_report_version` | `tuya.device.versions.update` (v4.1) | 上报当前固件版本（`iot_client_init` 也会自动调用） |
-| `iot_ota_check_upgrade` | `tuya.device.upgrade.get` (v4.4) | 查询是否有待升级固件，返回 URL / 版本 / 大小 / 哈希 |
+| `iot_ota_report_version` | `tuya.device.versions.update` (v4.1) | 上报当前固件版本（`iot_client_init` 会用 `iot_client_config_t.sw_ver` 自动调用，NULL 时用 SDK 默认 `IOT_SDK_SW_VER`） |
+| `iot_ota_check_upgrade` | `tuya.device.upgrade.get` (v4.4) | 查询是否有待升级固件，返回 URL / 版本 / 大小 / 哈希（云端与已上报的版本比较，不再传版本号） |
 | `iot_ota_report_status` | `tuya.device.upgrade.status.update` (v4.1) | 回报升级生命周期状态 |
 
 ### `iot_ota_check_upgrade` 返回的升级信息
@@ -49,7 +49,7 @@ SDK 只提供**云端协议原语**——版本上报、升级查询、状态回
 typedef struct {
     bool  has_upgrade;   // 云端是否有升级
     char *version;       // 目标版本号
-    char *url;           // 固件下载 URL（HTTPS）
+    char *url;           // 固件下载 URL（优先 cdnUrl，回退 httpsUrl）
     long  file_size;     // 固件大小（字节）
     int   channel;       // 固件通道（0 = 主 MCU）
     char *md5;           // MD5 校验（可能为 NULL）
@@ -77,15 +77,15 @@ typedef enum {
 
 ### 1. 分区表
 
-OTA 需要两个 app 分区（`ota_0` / `ota_1`）和一个 `otadata` 分区。demo 使用的 `partitions.csv`（8MB flash）：
+OTA 需要两个 app 分区（`ota_0` / `ota_1`）和一个 `otadata` 分区。demo 使用的 `partitions.csv`（16MB flash，每个 app 分区 4MB，可容纳约 4MB 的固件）：
 
 ```csv
 # Name,   Type, SubType, Offset,  Size, Flags
 nvs,      data, nvs,     0x9000,  0x6000,
 phy_init, data, phy,     0xf000,  0x1000,
 otadata,  data, ota,     0x10000, 0x2000,
-ota_0,    app,  ota_0,   0x20000, 1500K,
-ota_1,    app,  ota_1,   ,        1500K,
+ota_0,    app,  ota_0,   0x20000, 4M,
+ota_1,    app,  ota_1,   ,        4M,
 ```
 
 ### 2. sdkconfig 关键项
@@ -93,8 +93,8 @@ ota_1,    app,  ota_1,   ,        1500K,
 ```ini
 # 给 TLS + HTTP + esp_ota 留够栈
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
-# 8MB flash
-CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+# 16MB flash（容纳双 4MB OTA 分区）
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 # 自定义分区表
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
@@ -120,12 +120,14 @@ iot_client_config_t iot_cfg = {
     .env        = DEFAULT_ENV,
     /* mqtt_auto_connect = false: 只用 ATOP HTTP，不连 MQTT */
     .mqtt_auto_connect = false,
+    /* 应用固件版本：init 时自动上报，供云端 OTA 比较（NULL 用 SDK 默认） */
+    .sw_ver     = desc->version,
 };
 iot_client_t *iot = iot_client_init(&iot_cfg);
 
-/* 查询升级，传入当前版本号供云端比较 */
+/* 查询升级（云端与 init 时上报的 sw_ver 比较，无需再传版本号） */
 iot_ota_upgrade_info_t info = {0};
-int rc = iot_ota_check_upgrade(iot, 0, desc->version, &info);
+int rc = iot_ota_check_upgrade(iot, 0, &info);
 if (rc == OPRT_OK && info.has_upgrade) {
     ESP_LOGI(TAG, "upgrade -> %s  url=%s  size=%ld",
              info.version, info.url, info.file_size);

@@ -8,6 +8,7 @@
 - 图片理解与生成
 - 设备侧 MCP（Model Context Protocol）支持
 - 设备数据点（DP）管理：schema 校验、本地缓存、批量上报、下行回调、状态持久化
+- OTA 固件升级：云端协议（版本上报 / 升级检查 / 状态回报），下载与烧录由应用负责
 - 芯片和操作系统无关：macOS、Linux、FreeRTOS (ESP32)、MIPS、ARM
 - 全球化部署，支持多数据中心区域
 
@@ -17,7 +18,7 @@
 |------|--------|------|
 | RTC TCP Client | `tuya_ai.h` | tRTC(tuya自研RTC协议) TCP 实现，开源实现，PAL 可移植 |
 | RTC Client | `stm_open.h` | tRTC(tuya自研RTC协议) UDP 实现，预编译静态库形式 |
-| IoT Client | `iot_client.h`、`iot_dp.h` | 设备激活、MQTT 连接、会话令牌获取；数据点（DP）管理（schema 校验 / 缓存 / 上下行 / 持久化） |
+| IoT Client | `iot_client.h`、`iot_dp.h`、`iot_ota.h` | 设备激活、MQTT 连接、会话令牌获取；数据点（DP）管理（schema 校验 / 缓存 / 上下行 / 持久化）；OTA 固件升级（云端协议） |
 | Tuya BLE | `tuya_ble_nimble.h` | BLE 蓝牙配网（ESP-IDF） |
 
 ## 环境要求
@@ -64,6 +65,9 @@ cmake --build build
 
 # 设备数据点（DP）管理
 ./build/dp_management_demo
+
+# OTA 固件升级（云端协议）
+./build/ota_demo
 ```
 
 ## 项目结构

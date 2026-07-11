@@ -15,19 +15,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (v4.4), `tuya.device.versions.update` (v4.1), and
   `tuya.device.upgrade.status.update` (v4.1).
   - `iot_ota_report_version` — reports the device's current firmware version
-    (also auto-called during `iot_client_init`, so the cloud can evaluate
-    upgrades).
+    (auto-called during `iot_client_init` from `iot_client_config_t.sw_ver`, so
+    the cloud can evaluate upgrades against the running version).
   - `iot_ota_check_upgrade` — queries the cloud for a pending upgrade and
     returns version, download URL (`cdnUrl` preferred, `httpsUrl` fallback),
-    file size, and MD5/HMAC hashes.
+    file size, and MD5/HMAC hashes. Takes no `sw_ver` argument — the cloud
+    compares against the version already reported at init.
   - `iot_ota_report_status` — drives the upgrade lifecycle
     (UPGRADING → FINI / EXEC / ABORT).
+  - **Application-supplied firmware version.** `iot_client_config_t.sw_ver` and
+    `iot_on_boarding_config_t.sw_ver` let the app report its own version
+    (`NULL` = SDK default `IOT_SDK_SW_VER`); `IOT_SDK_SW_VER` / `IOT_SDK_PV` /
+    `IOT_SDK_BV` are now `#ifndef`-guarded so they can also be overridden at
+    compile time.
   - The SDK handles **only the cloud protocol**; the application owns download
     and flash (e.g. ESP-IDF `esp_ota_*` or a vendor bootloader API).
   - `atop_base` gains an AES-128-ECB fallback decrypt path for older (`et=1`)
     cloud responses.
   - Unit tests with mocked ATOP endpoints (`iot_ota_test`), a POSIX `ota-demo`,
-    and an ESP-IDF `ota-demo` with a two-partition OTA table.
+    and an ESP-IDF `ota-demo` with dual 4 MB OTA partitions on 16 MB flash
+    (sized for ~4 MB firmware images).
 
 ### Changed
 
