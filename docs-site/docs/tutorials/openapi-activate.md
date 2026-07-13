@@ -8,6 +8,10 @@ sidebar_position: 6
 
 > 对应示例：`examples/posix/pair/api-activate/`
 
+:::tip
+OpenAPI配网需要新建云项目并关联App，请先参考 [创建 App 和云项目](../guides/create-cloud-project.md) 完成云端配置。
+:::
+
 本章介绍第三种配网方式：**不依赖涂鸦 App，通过涂鸦 OpenAPI（Cloud API）在
 服务端完成用户创建和配网 Token 生成，再将 Token 传给设备完成激活**。
 
@@ -15,7 +19,6 @@ sidebar_position: 6
 设备厂商可能：
 
 - 拥有自己的 App 或后台系统，不希望依赖涂鸦 App
-- 需要在生产线上批量激活设备
 - 设备没有屏幕也没有摄像头
 
 此时可以通过涂鸦 OpenAPI 直接在服务端完成用户同步和配网 Token 的生成，然后
