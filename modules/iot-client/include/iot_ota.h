@@ -97,14 +97,11 @@ OTA_API int iot_ota_report_version(iot_client_t *client, const char *sw_ver);
  *
  * @param[in]  client   IoT client instance (must be initialized)
  * @param[in]  channel  Firmware channel (0 = main MCU firmware)
- * @param[in]  sw_ver   Current firmware version string sent to cloud for
- *                      comparison (e.g. "1.0.0"); pass NULL to omit
  * @param[out] info     Output: upgrade info (caller must free with
  *                      iot_ota_upgrade_info_free())
  * @return OPRT_OK on success (including no-upgrade case), error code on failure
  */
 OTA_API int iot_ota_check_upgrade(iot_client_t *client, int channel,
-                                  const char *sw_ver,
                                   iot_ota_upgrade_info_t *info);
 
 /**

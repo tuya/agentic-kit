@@ -205,7 +205,6 @@ typedef struct {
     const char *devid;
     const char *key;
     int channel;        /**< firmware type/channel (0 = main MCU) */
-    const char *sw_ver; /**< current firmware version (sent as softVer for server-side comparison) */
     const char *host;
     uint16_t port;
     const char *cacert;

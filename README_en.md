@@ -8,6 +8,7 @@ Multimodal device-side SDK for connecting smart hardware to the Tuya AI platform
 - Image understanding and generation
 - Device-side MCP (Model Context Protocol) support
 - Device data point (DP) management: schema validation, local cache, batch reporting, downlink callbacks, state persistence
+- OTA firmware upgrade: cloud protocol (version report / upgrade check / status report); download and flash owned by the application
 - Platform and chip agnostic: macOS, Linux, FreeRTOS (ESP32), MIPS, ARM
 - Global deployment with multiple data center regions
 
@@ -15,9 +16,9 @@ Multimodal device-side SDK for connecting smart hardware to the Tuya AI platform
 
 | Module | Header | Description |
 |--------|--------|-------------|
-| RTC TCP Client | `tuya_ai.h` | tRTC (Tuya RTC protocol), TCP implementation, fullly open sourced with PAL portability |
+| RTC TCP Client | `tuya_ai.h` | tRTC (Tuya RTC protocol), TCP implementation, fully open sourced with PAL portability |
 | RTC Client | `stm_open.h` | tRTC (Tuya RTC protocol), UDP implementation, pre-compiled static library |
-| IoT Client | `iot_client.h`, `iot_dp.h` | Device activation, MQTT, session token; Data Point (DP) management (schema validation / cache / up- & downlink / persistence) |
+| IoT Client | `iot_client.h`, `iot_dp.h`, `iot_ota.h` | Device activation, MQTT, session token; Data Point (DP) management (schema validation / cache / up- & downlink / persistence); OTA firmware upgrade (cloud protocol) |
 | Tuya BLE | `tuya_ble_nimble.h` | BLE provisioning (ESP-IDF) |
 
 ## Prerequisites
@@ -62,6 +63,9 @@ Then run:
 
 # Device data point (DP) management
 ./build/dp_management_demo
+
+# OTA firmware upgrade (cloud protocol)
+./build/ota_demo
 ```
 
 ## Project Structure

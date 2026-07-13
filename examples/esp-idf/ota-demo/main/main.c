@@ -303,6 +303,7 @@ void app_main(void)
         .schema           = NULL,
         .schema_id        = NULL,
         .dp_state         = NULL,
+        .sw_ver           = desc->version,
     };
     memcpy((char *)iot_cfg.devid,      DEFAULT_DEVID,      strlen(DEFAULT_DEVID));
     memcpy((char *)iot_cfg.secret_key, DEFAULT_SECRET_KEY, strlen(DEFAULT_SECRET_KEY));
@@ -317,7 +318,7 @@ void app_main(void)
 
     /* 3. Check cloud for firmware upgrade */
     iot_ota_upgrade_info_t info = {0};
-    int rc = iot_ota_check_upgrade(iot, 0, desc->version, &info);
+    int rc = iot_ota_check_upgrade(iot, 0, &info);
     if (rc != OPRT_OK) {
         ESP_LOGE(TAG, "iot_ota_check_upgrade failed: %d", rc);
         iot_ota_upgrade_info_free(iot, &info);

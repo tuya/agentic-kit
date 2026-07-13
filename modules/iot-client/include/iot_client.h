@@ -101,6 +101,7 @@ typedef struct {
     const char *schema;            // Persisted DP schema JSON to restore on restart (NULL = none / loose mode)
     const char *schema_id;         // Persisted schema id (stable key for schema upgrade query)
     const char *dp_state;          // Persisted DP current state {"dps":{...}} to restore (no dirty, no report)
+    const char *sw_ver;            // Application firmware version (e.g. "1.2.3"); NULL = use SDK default IOT_SDK_SW_VER
 } iot_client_config_t;
 
 /**
@@ -121,6 +122,7 @@ typedef struct {
     const char *cacert;            // CA cert for all TLS (MQTT/HTTPS/IoT-DNS) (PEM, caller-owned, must outlive client)
     tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (NULL = none)
     iot_message_callback_t message_callback; // MQTT message callback
+    const char *sw_ver;            // Application firmware version (e.g. "1.2.3"); NULL = use SDK default IOT_SDK_SW_VER
 } iot_on_boarding_config_t;
 
 

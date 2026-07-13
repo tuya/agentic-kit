@@ -93,6 +93,10 @@ sidebar_position: 3
 | `cacert` | `const char *` | CA 证书 PEM（用于 MQTT/HTTPS/IoT-DNS TLS，调用方持有，需在 client 生命周期内有效） |
 | `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | 平台证书包回调（如 ESP-IDF 的 `esp_crt_bundle_attach`），NULL 表示不使用。详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
 | `message_callback` | `iot_message_callback_t` | MQTT 消息回调，可为 NULL |
+| `schema` | `const char *` | 重启时用于恢复的 DP schema JSON（调用方持有，NULL = 不恢复 / 宽松模式） |
+| `schema_id` | `const char *` | 持久化的 schema id（schema 升级查询的稳定 key，可为 NULL） |
+| `dp_state` | `const char *` | 持久化的 DP 当前状态 `{"dps":{...}}`，用于恢复（不置脏、不上报，可为 NULL） |
+| `sw_ver` | `const char *` | 应用固件版本号（如 `"1.2.3"`），`iot_client_init` 时自动上报供云端 OTA 比较；NULL 表示使用 SDK 默认 `IOT_SDK_SW_VER`。详见 [OTA 升级](../guides/ota-upgrade.md) |
 
 ### `iot_on_boarding_config_t`
 
@@ -114,6 +118,7 @@ sidebar_position: 3
 | `cacert` | `const char *` | CA 证书 PEM（用于 MQTT/HTTPS/IoT-DNS TLS，调用方持有） |
 | `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | 平台证书包回调（如 ESP-IDF 的 `esp_crt_bundle_attach`），NULL 表示不使用。详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
 | `message_callback` | `iot_message_callback_t` | MQTT 消息回调 |
+| `sw_ver` | `const char *` | 应用固件版本号（如 `"1.2.3"`），激活后自动上报供云端 OTA 比较；NULL 表示使用 SDK 默认 `IOT_SDK_SW_VER`。详见 [OTA 升级](../guides/ota-upgrade.md) |
 
 ### `iot_client_t`（返回实例）
 

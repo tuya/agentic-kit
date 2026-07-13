@@ -27,7 +27,7 @@ Demonstrates a complete firmware OTA upgrade flow using the agentic-kit `iot_ota
 
 ## Partition Table
 
-Uses a custom partition table (`partitions.csv`) with two 1.5MB OTA partitions (`ota_0`, `ota_1`) on 8MB flash. The binary is ~1.1MB (WiFi + TLS + HTTP + OTA).
+Uses a custom partition table (`partitions.csv`) with two 4MB OTA partitions (`ota_0`, `ota_1`) on 16MB flash, sized for firmware images up to ~4MB. The demo binary itself is ~1.1MB (WiFi + TLS + HTTP + OTA).
 
 ## How It Works
 

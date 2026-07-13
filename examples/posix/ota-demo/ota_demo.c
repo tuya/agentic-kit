@@ -98,6 +98,7 @@ int demo_ota_run(const char *devid, const char *secret_key, const char *local_ke
         .env               = PROD,
         .mqtt_disable_tls  = false,
         .mqtt_auto_connect = false,
+        .sw_ver            = sw_ver,
     };
     strncpy(cfg.devid,      devid,      sizeof(cfg.devid) - 1);
     strncpy(cfg.secret_key, secret_key, sizeof(cfg.secret_key) - 1);
@@ -108,22 +109,12 @@ int demo_ota_run(const char *devid, const char *secret_key, const char *local_ke
         fprintf(stderr, "[%s] iot_client_init failed\n", TAG);
         return -1;
     }
-    printf("[%s] client initialized (devid=%s)\n", TAG, client->devid);
+    printf("[%s] client initialized (devid=%s, sw_ver=%s)\n", TAG, client->devid, sw_ver);
 
-    /* 2. Report current firmware version */
-    printf("[%s] reporting firmware version: %s\n", TAG, sw_ver);
-    int rc = iot_ota_report_version(client, sw_ver);
-    if (rc != OPRT_OK) {
-        fprintf(stderr, "[%s] iot_ota_report_version failed: %d\n", TAG, rc);
-        /* non-fatal — continue to upgrade check */
-    } else {
-        printf("[%s] version reported successfully\n", TAG);
-    }
-
-    /* 3. Check for firmware upgrade */
+    /* 2. Check for firmware upgrade */
     printf("[%s] checking cloud for firmware upgrade...\n", TAG);
     iot_ota_upgrade_info_t info = {0};
-    rc = iot_ota_check_upgrade(client, 0, sw_ver, &info);
+    int rc = iot_ota_check_upgrade(client, 0, &info);
     if (rc != OPRT_OK) {
         fprintf(stderr, "[%s] iot_ota_check_upgrade failed: %d\n", TAG, rc);
         iot_ota_upgrade_info_free(client, &info);
@@ -138,7 +129,7 @@ int demo_ota_run(const char *devid, const char *secret_key, const char *local_ke
         return 0;
     }
 
-    /* 4. Print upgrade info */
+    /* 3. Print upgrade info */
     printf("[%s] ===== firmware upgrade available =====\n", TAG);
     printf("[%s]   version : %s\n", TAG, info.version ? info.version : "?");
     printf("[%s]   url     : %s\n", TAG, info.url);
@@ -147,14 +138,14 @@ int demo_ota_run(const char *devid, const char *secret_key, const char *local_ke
     printf("[%s]   md5     : %s\n", TAG, info.md5 ? info.md5 : "(none)");
     printf("[%s]   hmac    : %s\n", TAG, info.hmac ? info.hmac : "(none)");
 
-    /* 5. Report UPGRADING status */
+    /* 4. Report UPGRADING status */
     printf("[%s] reporting UPGRADING status...\n", TAG);
     rc = iot_ota_report_status(client, info.channel, OTA_STATUS_UPGRADING);
     if (rc != OPRT_OK) {
         fprintf(stderr, "[%s] failed to report UPGRADING: %d\n", TAG, rc);
     }
 
-    /* 6. Optionally download the firmware image */
+    /* 5. Optionally download the firmware image */
     int result = 0;
     if (auto_download && info.url) {
         char out_path[256];

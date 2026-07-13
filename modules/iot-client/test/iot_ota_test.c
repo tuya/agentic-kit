@@ -196,7 +196,6 @@ static int test_upgrade_get_with_upgrade(void)
         .devid   = TEST_DEVID,
         .key     = TEST_SEC_KEY,
         .channel = 0,
-        .sw_ver  = "1.0.0",
         .host    = MOCK_HOST,
         .port    = MOCK_PORT,
         .cacert  = g_cacert,
