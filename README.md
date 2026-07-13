@@ -87,4 +87,10 @@ third_party/          # 第三方库
 docs-site/            # 文档站点
 ```
 
+## 许可证
+
+本项目整体基于 [Apache License 2.0](LICENSE) 开源。
+
+**例外**：`modules/rtc-client/` 模块**不开源**，其中的预编译静态库（`libstm.a`）及配套头文件为 Tuya Inc. 专有资产。客户可自由使用、复制、分发该模块，包括嵌入到硬件产品中（无论是否结合 agentic-kit 使用），唯一限制是**不得对预编译库进行逆向工程、反编译或反汇编**。详见 [modules/rtc-client/LICENSE](modules/rtc-client/LICENSE)。
+
 

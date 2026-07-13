@@ -84,3 +84,9 @@ common/               # Shared utilities and logging
 third_party/          # Bundled third-party libraries
 docs-site/            # Documentation website
 ```
+
+## License
+
+This project is licensed under the [Apache License 2.0](LICENSE).
+
+**Exception**: The `modules/rtc-client/` module is **not open source**. The pre-compiled static libraries (`libstm.a`) and accompanying header files are proprietary assets of Tuya Inc. Clients are free to use, copy, modify, merge, publish, and distribute this module, including embedding it in hardware products (whether or not combined with agentic-kit). The **sole restriction** is that clients may **not** reverse engineer, decompile, or disassemble the pre-compiled libraries. See [modules/rtc-client/LICENSE](modules/rtc-client/LICENSE) for details.
