@@ -79,6 +79,12 @@ typedef struct {
     uint8_t  audio_concat[8192];    /* concatenation of all delivered frames     */
     size_t   audio_concat_len;
 
+    int      image_calls;
+    size_t   image_bytes;
+    uint8_t  image_last_flag;
+    uint8_t  image_format;
+    uint16_t image_w, image_h;
+
     int      event_calls;
     uint16_t event_types[16];
     int      event_count;
@@ -108,6 +114,12 @@ static void st_reset(void)
     g_st.audio_sample_rate = 0;
     g_st.audio_frame_duration = 0;
     g_st.audio_concat_len = 0;
+    g_st.image_calls      = 0;
+    g_st.image_bytes      = 0;
+    g_st.image_last_flag  = 0xFF;
+    g_st.image_format     = 0;
+    g_st.image_w          = 0;
+    g_st.image_h          = 0;
     g_st.event_calls      = 0;
     g_st.event_count      = 0;
     g_st.event_payload_len = 0;
@@ -154,6 +166,19 @@ static void on_audio(tai_ctx_t *ctx, const tai_audio_msg_t *msg, void *ud)
     }
     g_st.audio_sample_rate    = msg->sample_rate;
     g_st.audio_frame_duration = msg->frame_duration;
+    pthread_mutex_unlock(&g_st.mtx);
+}
+
+static void on_image(tai_ctx_t *ctx, const tai_image_msg_t *msg, void *ud)
+{
+    (void)ctx; (void)ud;
+    pthread_mutex_lock(&g_st.mtx);
+    g_st.image_calls++;
+    g_st.image_bytes    += msg->len;
+    g_st.image_last_flag = msg->stream_flag;
+    if (msg->format) g_st.image_format = msg->format;
+    if (msg->width)  g_st.image_w      = msg->width;
+    if (msg->height) g_st.image_h      = msg->height;
     pthread_mutex_unlock(&g_st.mtx);
 }
 
@@ -377,6 +402,31 @@ static size_t server_send_audio(tai_ctx_t *ctx,
                        payload, (size_t)hlen + alen, frame_seq);
 }
 
+/* Send one IMAGE chunk. image_params_str (e.g. "0 1 320 480" = raw/JPEG/w/h)
+ * rides on START/ONE_SHOT only; pass NULL for MIDDLE/END. */
+static size_t server_send_image(tai_ctx_t *ctx,
+                                uint8_t stream_flag,
+                                const char *image_params_str,
+                                const uint8_t *img, size_t ilen,
+                                uint16_t frame_seq)
+{
+    uint8_t payload[4096];
+    int hlen = tai_pack_media_hdr(TAI_VER_21, TAI_DATA_ID_IMAGE_UP,
+                                   stream_flag, ctx->pal->time_ms(),
+                                   payload, sizeof(payload));
+    if (hlen <= 0) return 0;
+    if ((size_t)hlen + ilen > sizeof(payload)) return 0;
+    if (ilen) memcpy(payload + hlen, img, ilen);
+
+    tai_attr_t attrs[1];
+    int na = 0;
+    if (image_params_str)
+        attrs[na++] = tai_attr_strv(TAI_ATTR_IMAGE_PARAMS, image_params_str);
+
+    return server_send(ctx, TAI_PKT_IMAGE, na ? attrs : NULL, na,
+                       payload, (size_t)hlen + ilen, frame_seq);
+}
+
 /* =========================================================================
  * Helpers: transport fragmentation
  *
@@ -481,6 +531,7 @@ static tai_ctx_t *setup_ctx(void *mem)
     cfg.pal              = tai_pal_loopback();
     cfg.on_text          = on_text;
     cfg.on_audio         = on_audio;
+    cfg.on_image         = on_image;
     cfg.on_event         = on_event;
     cfg.on_disconnect    = on_disconnect;
 
@@ -1016,13 +1067,50 @@ static void test_fail_fast(void)
  * by delivering a valid TEXT right after the unknown packet and seeing it
  * arrive with no disconnect.
  * ========================================================================= */
+/* =========================================================================
+ * Test: received image (on_image, downlink). The server streams an image as
+ * START (carrying image-params) + END; the client must deliver each chunk to
+ * on_image with the parsed format/size and the raw bytes, with no disconnect.
+ * ========================================================================= */
+static void test_image_recv(void)
+{
+    SECTION("image_recv");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    uint8_t tx[2048];
+
+    tai_ctx_t *ctx = setup_ctx(ctx_mem);
+    CHECK(ctx != NULL);
+    CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+    (void)tai_loopback_pop_sent(tx, sizeof(tx));
+
+    /* on_image delivers raw encoded bytes verbatim (no decode); a byte pattern
+     * stands in for the JPEG body. */
+    uint8_t body[64];
+    for (int i = 0; i < (int)sizeof(body); i++) body[i] = (uint8_t)i;
+
+    /* "0 1 320 480" = payload_type RAW, format JPEG, 320x480. */
+    server_send_image(ctx, TAI_STREAM_START, "0 1 320 480", body, sizeof(body), 1);
+    server_send_image(ctx, TAI_STREAM_END,   NULL,          NULL, 0,            2);
+
+    CHECK(WAIT_FOR(g_st.image_calls >= 2, 1000));
+    CHECK_EQ_INT((int)g_st.image_bytes, (int)sizeof(body));  /* START body + END(0) */
+    CHECK_EQ_INT(g_st.image_format, TAI_IMG_JPEG);
+    CHECK_EQ_INT(g_st.image_w, 320);
+    CHECK_EQ_INT(g_st.image_h, 480);
+    CHECK_EQ_INT(g_st.image_last_flag, TAI_STREAM_END);
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);
+
+    tai_disconnect(ctx); tai_ctx_deinit(ctx);
+}
+
 static void test_unknown_tolerated(void)
 {
     SECTION("unknown_tolerated");
     static uint8_t ctx_mem[sizeof(struct tai_ctx)];
     uint8_t tx[2048];
 
-    /* --- unknown packet type: an inbound IMAGE packet the device never expects. --- */
+    /* --- unknown packet type: a reserved type the device does not implement.
+     * (IMAGE, once an example here, is now a handled type — see on_image.) --- */
     {
         tai_ctx_t *ctx = setup_ctx(ctx_mem);
         CHECK(ctx != NULL);
@@ -1030,7 +1118,8 @@ static void test_unknown_tolerated(void)
         (void)tai_loopback_pop_sent(tx, sizeof(tx));
 
         uint8_t pl[4] = {0};
-        server_send(ctx, TAI_PKT_IMAGE, NULL, 0, pl, sizeof(pl), 1);
+        const uint8_t TAI_PKT_RESERVED_UNKNOWN = 99;   /* not enumerated / not dispatched */
+        server_send(ctx, TAI_PKT_RESERVED_UNKNOWN, NULL, 0, pl, sizeof(pl), 1);
         /* A valid TEXT after the unknown packet: if the unknown frame was
          * skipped cleanly (stream in sync) this arrives; if it desynced or tore
          * down, text never comes. */
@@ -1823,6 +1912,7 @@ int main(void)
     test_text_query();
     test_audio_roundtrip();
     test_image_query();
+    test_image_recv();
     test_disconnect_eof();
     test_session_close_then_transport();
     test_liveness_during_stream();
