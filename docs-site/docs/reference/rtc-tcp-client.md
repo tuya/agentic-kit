@@ -16,7 +16,7 @@ sidebar_position: 1
 
 - **简洁 API**：类型化发送函数（`tai_send_text`、`tai_send_audio_*`、`tai_send_image`），无需手动组装数据结构体
 - **后台接收线程**：`tai_connect` 后自动启动后台线程处理接收和 keepalive
-- **回调驱动**：通过 `on_audio`、`on_text`、`on_event`、`on_disconnect` 接收数据
+- **回调驱动**：通过 `on_audio`、`on_text`、`on_image`、`on_event`、`on_disconnect` 接收数据
 - **无外部依赖**：用户 PAL 只需提供原始 TCP 和平台原语；TLS 和加密由 SDK 内部通过 bundled mbedTLS 处理
 
 
@@ -200,6 +200,7 @@ sidebar_position: 1
 |------|------|------|
 | `on_audio` | function pointer | 音频数据回调 |
 | `on_text` | function pointer | 文本数据回调 |
+| `on_image` | function pointer | 图像数据回调（云端生成的图片） |
 | `on_event` | function pointer | 事件回调（MCP、打断、VAD 等） |
 | `on_disconnect` | function pointer | 断连回调 |
 | `user_data` | `void *` | 透传到所有回调 |
@@ -211,6 +212,7 @@ sidebar_position: 1
 ```c
 void (*on_audio)     (tai_ctx_t *ctx, const tai_audio_msg_t      *msg, void *user_data);
 void (*on_text)      (tai_ctx_t *ctx, const tai_text_msg_t       *msg, void *user_data);
+void (*on_image)     (tai_ctx_t *ctx, const tai_image_msg_t      *msg, void *user_data);
 void (*on_event)     (tai_ctx_t *ctx, const tai_event_msg_t      *msg, void *user_data);
 void (*on_disconnect)(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *user_data);
 ```
@@ -241,6 +243,24 @@ void (*on_disconnect)(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *use
 | `data_id` | `uint16_t` | 数据 ID：`TAI_DATA_ID_TEXT_DOWN`(4) |
 | `seq` | `uint32_t` | 每事件内文本序号（varint） |
 | `event_id` | `const char *` | turn id（借用）；无则为 `""` |
+
+`tai_image_msg_t`（图像回调）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `data` | `const uint8_t *` | 编码图像字节（JPEG/PNG）；回调生命周期内有效 |
+| `len` | `size_t` | 数据字节数 |
+| `format` | `uint8_t` | `TAI_IMG_JPEG` / `TAI_IMG_PNG` / 0=未知 |
+| `width` | `uint16_t` | 宽（px），未知或非 START/ONE_SHOT 包时为 0 |
+| `height` | `uint16_t` | 高（px），未知或非 START/ONE_SHOT 包时为 0 |
+| `stream_flag` | `uint8_t` | `TAI_STREAM_*` |
+| `data_id` | `uint16_t` | 数据 ID（取自媒体头） |
+| `event_id` | `const char *` | turn id（借用）；无则为 `""` |
+| `timestamp_ms` | `uint64_t` | 流起始时间戳（媒体头） |
+
+:::note 流式接收
+接收到的图片以分片流形式到达：START（或 ONE_SHOT）携带首字节与 image-params，MIDDLE 继续，END 结束（len 可能为 0）。调用方按 `stream_flag` 累积分片，在流结束后（END 或 ONE_SHOT）解码整图。`format`/`width`/`height` 仅在 START/ONE_SHOT 从 image-params 解析得到，MIDDLE/END 时为 0。
+:::
 
 `tai_event_msg_t`（事件回调）：
 
@@ -538,6 +558,7 @@ tai_config_t cfg = {
     .pal              = &my_pal,
     .on_audio         = my_on_audio,
     .on_text          = my_on_text,
+    .on_image         = my_on_image,
     .on_event         = my_on_event,
     .on_disconnect    = my_on_disconnect,
 };
