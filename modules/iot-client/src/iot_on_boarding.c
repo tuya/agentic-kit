@@ -65,8 +65,8 @@ static void parse_activation_message(const pal_t *pal, const char *json_str, act
         const char *r = region->valuestring;
         if (strcmp(r, "AY") == 0) {
             message->region = AY;
-        } else if (strcmp(r, "US") == 0) {
-            message->region = US;
+        } else if (strcmp(r, "AZ") == 0) {
+            message->region = AZ;
         } else if (strcmp(r, "EU") == 0) {
             message->region = EU;
         } else if (strcmp(r, "IN") == 0) {
@@ -380,8 +380,8 @@ static int __token_to_region(const char *token, iot_region_t *region)
 
     if (strcmp(prefix, "AY") == 0) {
         *region = AY;
-    } else if (strcmp(prefix, "US") == 0) {
-        *region = US;
+    } else if (strcmp(prefix, "AZ") == 0) {
+        *region = AZ;
     } else if (strcmp(prefix, "UE") == 0) {
         *region = UEAZ;
     } else if (strcmp(prefix, "EU") == 0) {

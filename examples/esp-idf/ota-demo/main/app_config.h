@@ -10,7 +10,7 @@
 #define DEFAULT_SECRET_KEY   "xxxxxxxxxxxxxxxx"
 #define DEFAULT_LOCAL_KEY    "xxxxxxxxxxxxxxxx"
 
-/* Device region: AY, US, EU, UEAZ, WEAZ, IN, SG */
+/* Device region: AY, AZ, EU, UEAZ, WEAZ, IN, SG */
 #define DEFAULT_REGION       AY
 #define DEFAULT_ENV          PROD
 

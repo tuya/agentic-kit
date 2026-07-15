@@ -352,8 +352,8 @@ char *iot_region_to_host(iot_region_t region, iot_env_t env)
                 switch (region) {
                     case AY:
                         return IOT_CN_PRE_HOST;
-                    case US:
-                        return IOT_US_PRE_HOST;
+                    case AZ:
+                        return IOT_AZ_PRE_HOST;
                     case UEAZ:
                         return IOT_UEAZ_PRE_HOST;
                     case EU:
@@ -369,8 +369,8 @@ char *iot_region_to_host(iot_region_t region, iot_env_t env)
             switch (region) {
                 case AY:
                     return IOT_CN_HOST;
-                case US:
-                    return IOT_US_HOST;
+                case AZ:
+                    return IOT_AZ_HOST;
                 case UEAZ:
                     return IOT_UEAZ_HOST;
                 case EU:
