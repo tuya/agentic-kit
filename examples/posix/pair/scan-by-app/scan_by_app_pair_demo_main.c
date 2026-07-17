@@ -27,7 +27,7 @@ static void print_usage(const char *prog)
     printf("  %s <token>          Token pairing   (activate directly)\n", prog);
     printf("\n");
     printf("Token format: [region:2][activation_token][secret:4]\n");
-    printf("  region  : AY, US, UE, EU, WE, IN, SG\n");
+    printf("  region  : AY, AZ, UE, EU, WE, IN, SG\n");
     printf("  Example : AYabcdef12340000\n");
 }
 

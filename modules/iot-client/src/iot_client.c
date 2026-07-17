@@ -36,7 +36,7 @@ static const char *iot_region_to_string(iot_region_t region)
 {
     switch (region) {
         case AY:   return "AY";
-        case US:   return "US";
+        case AZ:   return "AZ";
         case UEAZ: return "UEAZ";
         case EU:   return "EU";
         case WEAZ: return "WEAZ";

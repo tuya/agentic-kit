@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- iot-client — US region renamed to AZ(#7).
+  - The IoT DNS region string and token prefix for the US West (Oregon) data
+    center is `AZ`, not `US`. The enum member `US` is renamed to `AZ`,
+    `iot_region_to_string()` now returns `"AZ"`, and the host macros
+    `IOT_US_HOST` / `IOT_US_PRE_HOST` are renamed to `IOT_AZ_HOST` /
+    `IOT_AZ_PRE_HOST` (values unchanged). NVS-stored region integers are
+    unaffected (enum ordinal 1 is preserved).
+
 ## [0.3.0] - 2026-07-13
 
 ### Added
