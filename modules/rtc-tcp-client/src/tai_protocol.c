@@ -210,7 +210,10 @@ int tai_proto_build_event_start(tai_ctx_t *ctx,
      * {"chatAttributes":"<escaped-json>"} */
     size_t ud_cap = strlen("chatAttributes") + 2 * strlen(udata) + 32;
     char *ud_json = (char *)ctx->pal->malloc(ud_cap);
-    if (!ud_json) return TAI_ERR_MEM;
+    if (!ud_json) {
+        TAI_LOGE(ctx->pal, TAG, "build_event_start: user-data alloc failed (%zu bytes)", ud_cap);
+        return TAI_ERR_MEM;
+    }
 
     build_userdata_json(ud_json, ud_cap,
                         "chatAttributes", udata);
