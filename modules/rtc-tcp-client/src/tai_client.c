@@ -173,7 +173,10 @@ static int send_one_frame_sg(tai_ctx_t *ctx, uint8_t frag_flag, uint16_t seq,
     if (ctx->sig_len > 0) {
         tai_seg_t segs[2] = { { head, head_len }, { pay, pay_len } };
         int rc = tai_frame_hmac_sg(segs, 2, ctx->sign_key, ctx->sig_len, ctx->tx_sig);
-        if (rc != TAI_OK) return rc;                 /* pre-wire: recoverable */
+        if (rc != TAI_OK) {
+            TAI_LOGE(ctx->pal, TAG, "frame HMAC sign failed: %d", rc);
+            return rc;                               /* pre-wire: recoverable */
+        }
     }
 
     /* From here on, any failure has committed bytes to the wire and desyncs the
@@ -325,7 +328,10 @@ tai_ctx_t *tai_ctx_init(void *mem, const tai_config_t *cfg)
 
     /* Initialise mutex */
     ctx->mutex = cfg->pal->mutex_create();
-    if (!ctx->mutex) return NULL;
+    if (!ctx->mutex) {
+        TAI_LOGE(ctx->pal, TAG, "ctx_init: mutex_create failed");
+        return NULL;
+    }
 
     /* Seed the shared crypto RNG once, here at construction (single-threaded,
      * before tai_connect() spawns the receive thread). */
