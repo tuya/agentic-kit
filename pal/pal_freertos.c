@@ -59,6 +59,7 @@
 #include "lwip/netdb.h"
 
 #include "pal.h"
+#include "log.h"
 
 /* Worker task tunables — override via -D at build time if needed. */
 #ifndef PAL_FR_TASK_STACK_WORDS
@@ -95,11 +96,19 @@ static void *pal_tcp_connect(const char *host, uint16_t port, uint32_t timeout_m
     hints.ai_family   = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
 
-    if (getaddrinfo(host, port_str, &hints, &res) != 0 || !res)
+    int gai_rc = getaddrinfo(host, port_str, &hints, &res);
+    if (gai_rc != 0 || !res) {
+        log_emit(LOG_ERROR, "[pal] getaddrinfo(%s:%u) failed: %d",
+                 host, (unsigned)port, gai_rc);
         return NULL;
+    }
 
     int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (fd < 0) { freeaddrinfo(res); return NULL; }
+    if (fd < 0) {
+        log_emit(LOG_ERROR, "[pal] socket() failed: errno=%d", errno);
+        freeaddrinfo(res);
+        return NULL;
+    }
 
     /* Non-blocking connect so we can bound it with select() (O_NONBLOCK / F_*
      * come from lwip/sockets.h; lwip_fcntl is always available). */
@@ -108,6 +117,8 @@ static void *pal_tcp_connect(const char *host, uint16_t port, uint32_t timeout_m
 
     int rc = connect(fd, res->ai_addr, res->ai_addrlen);
     if (rc != 0 && errno != EINPROGRESS) {
+        log_emit(LOG_ERROR, "[pal] connect(%s:%u) failed: errno=%d",
+                 host, (unsigned)port, errno);
         close(fd);
         freeaddrinfo(res);
         return NULL;
@@ -130,6 +141,9 @@ static void *pal_tcp_connect(const char *host, uint16_t port, uint32_t timeout_m
             sel = select(fd + 1, NULL, &wfds, NULL, &tv);
         } while (sel < 0 && errno == EINTR);
         if (sel <= 0) {  /* timeout (0) or error (<0) */
+            log_emit(LOG_ERROR, "[pal] connect(%s:%u) %s (errno=%d)",
+                     host, (unsigned)port,
+                     sel == 0 ? "timed out" : "select failed", errno);
             close(fd);
             freeaddrinfo(res);
             return NULL;
@@ -137,6 +151,8 @@ static void *pal_tcp_connect(const char *host, uint16_t port, uint32_t timeout_m
         int soerr = 0;
         socklen_t sl = sizeof(soerr);
         if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &sl) != 0 || soerr != 0) {
+            log_emit(LOG_ERROR, "[pal] connect(%s:%u) failed: errno=%d",
+                     host, (unsigned)port, soerr);
             close(fd);
             freeaddrinfo(res);
             return NULL;
@@ -151,7 +167,11 @@ static void *pal_tcp_connect(const char *host, uint16_t port, uint32_t timeout_m
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
     fr_tcp_t *h = (fr_tcp_t *)pvPortMalloc(sizeof(fr_tcp_t));
-    if (!h) { close(fd); return NULL; }
+    if (!h) {
+        log_emit(LOG_ERROR, "[pal] tcp handle alloc failed");
+        close(fd);
+        return NULL;
+    }
     h->fd = fd;
     h->last_rcvtimeo_ms = UINT32_MAX;
     h->last_sndtimeo_ms = UINT32_MAX;
@@ -184,6 +204,7 @@ static int pal_tcp_send(void *handle, const uint8_t *buf, size_t len,
     if (n == 0) return 0;
     if (errno == EAGAIN || errno == EWOULDBLOCK)
         return PAL_ERR_AGAIN;
+    log_emit(LOG_ERROR, "[pal] tcp_send failed: errno=%d", errno);
     return PAL_ERR_NET;
 }
 
@@ -213,6 +234,7 @@ static int pal_tcp_recv(void *handle, uint8_t *buf, size_t buf_len,
     if (n == 0) return 0; /* EOF */
     if (errno == EAGAIN || errno == EWOULDBLOCK)
         return PAL_ERR_AGAIN;
+    log_emit(LOG_ERROR, "[pal] tcp_recv failed: errno=%d", errno);
     return PAL_ERR_NET;
 }
 
