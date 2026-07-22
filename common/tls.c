@@ -303,12 +303,22 @@ int tls_write(tls_t *t, const uint8_t *buf, size_t len, uint32_t timeout_ms)
         if (n > 0) { written += (size_t)n; continue; }
         if (n == MBEDTLS_ERR_SSL_WANT_WRITE || n == MBEDTLS_ERR_SSL_WANT_READ) {
             uint64_t elapsed = t->pal->time_ms() - start;
-            if (elapsed >= timeout_ms) return TLS_ERR_NET;
+            if (elapsed >= timeout_ms) {
+                /* Deadline hit while still draining -- distinguish this from a
+                 * hard mbedTLS error below so a slow/backed-up link is not
+                 * misread as a broken connection. */
+                log_emit(LOG_ERROR,
+                         "[tls] write timed out after %ums (%u/%u bytes sent)",
+                         (unsigned)timeout_ms, (unsigned)written, (unsigned)len);
+                return TLS_ERR_NET;
+            }
             uint32_t remaining = (uint32_t)(timeout_ms - elapsed);
             int ev = (n == MBEDTLS_ERR_SSL_WANT_READ) ? 1 : 2;
             t->pal->tcp_poll(t->tcp_handle, ev, remaining);
             continue;
         }
+        /* Fatal write error -- log the raw mbedTLS cause before collapsing. */
+        log_emit(LOG_ERROR, "[tls] write failed: -0x%04X", (unsigned)-n);
         return TLS_ERR_NET;
     }
     return TLS_OK;
@@ -332,6 +342,11 @@ int tls_read(tls_t *t, uint8_t *buf, size_t len, uint32_t timeout_ms)
         if (n != MBEDTLS_ERR_SSL_WANT_READ &&
             n != MBEDTLS_ERR_SSL_WANT_WRITE &&
             n != MBEDTLS_ERR_SSL_TIMEOUT) {
+            /* Fatal read error (peer reset, TLS record/MAC failure, fatal alert,
+             * underlying socket error). `n` is the raw mbedTLS cause -- log it
+             * before collapsing to TLS_ERR_NET, which otherwise hides which
+             * fault occurred from callers that only see -3. */
+            log_emit(LOG_ERROR, "[tls] read failed: -0x%04X", (unsigned)-n);
             return TLS_ERR_NET;
         }
 

@@ -89,5 +89,8 @@ int rng_bytes(const pal_t *pal, uint8_t *buf, size_t len)
     pal->mutex_lock(g_rng_mutex);
     int rc = mbedtls_ctr_drbg_random(&g_drbg, buf, len);
     pal->mutex_unlock(g_rng_mutex);
+    if (rc != 0) {
+        log_emit(LOG_ERROR, "[rng] DRBG random failed: -0x%04x", (unsigned) -rc);
+    }
     return rc == 0 ? 0 : -1;
 }
