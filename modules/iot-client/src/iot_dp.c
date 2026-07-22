@@ -122,7 +122,10 @@ static char *dp_base64_encode(const pal_t *pal, const uint8_t *data, size_t len)
     mbedtls_base64_encode(NULL, 0, &olen, src, len);   /* olen = required size (incl NUL) */
     if (olen == 0) olen = 1;
     char *out = (char *)pal->malloc(olen);
-    if (!out) return NULL;
+    if (!out) {
+        log_error("dp: base64 encode alloc failed (%zu bytes)", olen);
+        return NULL;
+    }
     if (mbedtls_base64_encode((unsigned char *)out, olen, &olen, src, len) != 0) {
         pal->free(out);
         return NULL;
@@ -198,6 +201,7 @@ static iot_dp_entry_t *dp_parse_schema(const pal_t *pal, const char *schema, siz
 
     iot_dp_entry_t *entries = (iot_dp_entry_t *)pal->malloc(sizeof(iot_dp_entry_t) * (size_t)n);
     if (!entries) {
+        log_error("dp: alloc schema entries failed (%d DPs)", n);
         cJSON_Delete(root);
         return NULL;
     }
@@ -346,7 +350,10 @@ static int dp_store(const pal_t *pal, iot_dp_entry_t *e, const iot_dp_value_t *v
         break;
     case IOT_DP_TYPE_STRING: {
         char *copy = pal_strdup(pal, v->value.string ? v->value.string : "");
-        if (!copy) return OPRT_MALLOC_FAILED;
+        if (!copy) {
+            log_error("dp: string value alloc failed for dp %u", (unsigned)e->id);
+            return OPRT_MALLOC_FAILED;
+        }
         if (e->str_buf) pal->free(e->str_buf);
         e->str_buf = copy;
         e->cur.value.string = e->str_buf;
@@ -356,7 +363,10 @@ static int dp_store(const pal_t *pal, iot_dp_entry_t *e, const iot_dp_value_t *v
         uint8_t *copy = NULL;
         if (v->value.raw.len > 0) {
             copy = (uint8_t *)pal->malloc(v->value.raw.len);
-            if (!copy) return OPRT_MALLOC_FAILED;
+            if (!copy) {
+                log_error("dp: raw value alloc failed for dp %u (%zu bytes)", (unsigned)e->id, v->value.raw.len);
+                return OPRT_MALLOC_FAILED;
+            }
             memcpy(copy, v->value.raw.data, v->value.raw.len);
         }
         if (e->raw_buf) pal->free(e->raw_buf);
@@ -806,7 +816,10 @@ int iot_dp_validate_json(iot_client_t *client, const char *dp_state_json)
     const pal_t *pal = client->pal;
 
     cJSON *root = cJSON_Parse(dp_state_json);
-    if (!root) return OPRT_DP_SCHEMA_PARSE_FAILED;
+    if (!root) {
+        log_warn("dp: validate JSON parse failed");
+        return OPRT_DP_SCHEMA_PARSE_FAILED;
+    }
     cJSON *dps = cJSON_GetObjectItem(root, "dps");
     if (!cJSON_IsObject(dps)) {
         cJSON_Delete(root);
@@ -896,6 +909,7 @@ int iot_dp_schema_check_update(iot_client_t *client)
     schema_newest_response_t resp = {0};
     int rt = atop_schema_newest_get(pal, &req, &resp);
     if (rt != OPRT_OK) {
+        log_warn("dp: schema newest get failed (%d)", rt);
         atop_schema_newest_response_free(pal, &resp);
         return rt;
     }
@@ -907,6 +921,7 @@ int iot_dp_schema_check_update(iot_client_t *client)
 
     char *new_schema = pal_strdup(pal, resp.schema);
     if (!new_schema) {
+        log_error("dp: schema copy alloc failed");
         atop_schema_newest_response_free(pal, &resp);
         return OPRT_MALLOC_FAILED;
     }

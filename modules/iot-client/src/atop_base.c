@@ -164,6 +164,7 @@
      size_t buflen = AES_GCM128_NONCE_LEN + ilen + AES_GCM128_TAG_LEN;
      uint8_t *encrypted_buffer = pal->malloc(buflen);
      if (encrypted_buffer == NULL) {
+         log_error("encrypted_buffer malloc fail");
          return OPRT_MALLOC_FAILED;
      }
 
@@ -409,6 +410,7 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
      }
 
      if (cJSON_GetObjectItem(root, "errorCode") == NULL) {
+         log_error("not found json errorCode key");
          cJSON_Delete(root);
          return OPRT_COMMUNICATION_ERROR;
      }

@@ -67,6 +67,7 @@ int iot_ota_check_upgrade(iot_client_t *client, int channel,
     ota_upgrade_response_t resp = {0};
     int rt = atop_upgrade_get(client->pal, &req, &resp);
     if (rt != OPRT_OK) {
+        log_error("atop_upgrade_get failed: %d", rt);
         return rt;
     }
 

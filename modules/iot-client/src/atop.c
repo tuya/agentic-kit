@@ -567,6 +567,7 @@ int atop_ai_token_get(const pal_t *pal, const ai_token_request_t *request, ai_to
     atop_base_response_free(pal, &atop_response);
 
     if (response->token == NULL) {
+        log_error("Failed to allocate token");
         return OPRT_MALLOC_FAILED;
     }
 
@@ -743,6 +744,7 @@ int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota
 
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
+        log_error("atop_upgrade_get: failed to create JSON object");
         return OPRT_MALLOC_FAILED;
     }
     cJSON_AddNumberToObject(root, "type", request->channel);
@@ -751,6 +753,7 @@ int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota
     char *post_data = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (post_data == NULL) {
+        log_error("atop_upgrade_get: failed to print JSON");
         return OPRT_MALLOC_FAILED;
     }
 
@@ -880,6 +883,7 @@ int atop_version_update(const pal_t *pal, const ota_version_update_request_t *re
     #define VER_UPDATE_BUF_LEN 256
     char *post_data = (char *)pal->malloc(VER_UPDATE_BUF_LEN);
     if (post_data == NULL) {
+        log_error("atop_version_update: malloc failed");
         return OPRT_MALLOC_FAILED;
     }
 
@@ -888,6 +892,7 @@ int atop_version_update(const pal_t *pal, const ota_version_update_request_t *re
         "\\\"baselineVer\\\":\\\"%s\\\",\\\"softVer\\\":\\\"%s\\\"}]\",\"t\":%" PRIu32 "}",
         request->channel, pv, bv, request->sw_ver, timestamp);
     if (write_len < 0 || (size_t)write_len >= VER_UPDATE_BUF_LEN) {
+        log_error("atop_version_update: failed to build post data, write_len=%d", write_len);
         pal->free(post_data);
         return OPRT_COMMUNICATION_ERROR;
     }
@@ -948,6 +953,7 @@ int atop_upgrade_status_update(const pal_t *pal, const ota_status_update_request
     #define STATUS_UPD_BUF_LEN 128
     char *post_data = (char *)pal->malloc(STATUS_UPD_BUF_LEN);
     if (post_data == NULL) {
+        log_error("atop_upgrade_status_update: malloc failed");
         return OPRT_MALLOC_FAILED;
     }
 

@@ -63,6 +63,7 @@ static int dns_http_request(const pal_t *pal, const char *host, uint16_t port, c
 
     char *body_str = pal->malloc(http_resp.body_length + 1);
     if (!body_str) {
+        log_error("iot_dns: alloc response buffer failed (%u bytes)", (unsigned)(http_resp.body_length + 1));
         http_client_free(pal, &http_resp);
         return OPRT_MALLOC_FAILED;
     }
@@ -95,7 +96,10 @@ int iot_dns_query(const pal_t *pal, const iot_dns_query_request_t *request,
     uint16_t port = request->port > 0 ? request->port : IOT_DNS_DEFAULT_PORT;
 
     cJSON *req_arr = cJSON_CreateArray();
-    if (!req_arr) return OPRT_MALLOC_FAILED;
+    if (!req_arr) {
+        log_error("iot_dns: cJSON_CreateArray failed for dns_query request");
+        return OPRT_MALLOC_FAILED;
+    }
 
     for (int i = 0; i < request->domain_count; i++) {
         cJSON *item = cJSON_CreateObject();
@@ -108,7 +112,10 @@ int iot_dns_query(const pal_t *pal, const iot_dns_query_request_t *request,
 
     char *json_body = cJSON_PrintUnformatted(req_arr);
     cJSON_Delete(req_arr);
-    if (!json_body) return OPRT_MALLOC_FAILED;
+    if (!json_body) {
+        log_error("iot_dns: cJSON_PrintUnformatted failed for dns_query body");
+        return OPRT_MALLOC_FAILED;
+    }
 
     cJSON *root = NULL;
     int ret = dns_http_request(pal, host, port, request->cacert, request->cert_bundle_attach,
@@ -119,6 +126,7 @@ int iot_dns_query(const pal_t *pal, const iot_dns_query_request_t *request,
     response->results = pal->malloc(
         sizeof(iot_dns_domain_result_t) * request->domain_count);
     if (!response->results) {
+        log_error("iot_dns: alloc dns_query results failed (%d domains)", request->domain_count);
         cJSON_Delete(root);
         return OPRT_MALLOC_FAILED;
     }
@@ -176,7 +184,10 @@ int iot_dns_url_config(const pal_t *pal, const iot_dns_url_config_request_t *req
     uint16_t port = request->port > 0 ? request->port : IOT_DNS_DEFAULT_PORT;
 
     cJSON *req_obj = cJSON_CreateObject();
-    if (!req_obj) return OPRT_MALLOC_FAILED;
+    if (!req_obj) {
+        log_error("iot_dns: cJSON_CreateObject failed for url_config request");
+        return OPRT_MALLOC_FAILED;
+    }
 
     if (request->region) cJSON_AddStringToObject(req_obj, "region", request->region);
     cJSON_AddStringToObject(req_obj, "env", request->env);
@@ -195,7 +206,10 @@ int iot_dns_url_config(const pal_t *pal, const iot_dns_url_config_request_t *req
 
     char *json_body = cJSON_PrintUnformatted(req_obj);
     cJSON_Delete(req_obj);
-    if (!json_body) return OPRT_MALLOC_FAILED;
+    if (!json_body) {
+        log_error("iot_dns: cJSON_PrintUnformatted failed for url_config body");
+        return OPRT_MALLOC_FAILED;
+    }
 
     cJSON *root = NULL;
     int ret = dns_http_request(pal, host, port, request->cacert, request->cert_bundle_attach,
@@ -215,6 +229,7 @@ int iot_dns_url_config(const pal_t *pal, const iot_dns_url_config_request_t *req
         if (n > 0) {
             response->ca_arr = pal->malloc(sizeof(char *) * n);
             if (!response->ca_arr) {
+                log_error("iot_dns: alloc caArr failed (%d entries)", n);
                 cJSON_Delete(root);
                 return OPRT_MALLOC_FAILED;
             }
@@ -236,6 +251,7 @@ int iot_dns_url_config(const pal_t *pal, const iot_dns_url_config_request_t *req
 
     response->endpoints = pal->malloc(sizeof(iot_dns_endpoint_t) * max_ep);
     if (!response->endpoints) {
+        log_error("iot_dns: alloc endpoints failed (%d entries)", max_ep);
         cJSON_Delete(root);
         iot_dns_url_config_response_free(pal, response);
         return OPRT_MALLOC_FAILED;
@@ -309,11 +325,15 @@ int iot_dns_get_ca_cert(const pal_t *pal, const iot_dns_ca_cert_request_t *reque
     size_t algo_len = strlen(algo);
     size_t path_len = 62 + host_len + algo_len;
     char *path = (char *)pal->malloc(path_len);
-    if (!path) return OPRT_MALLOC_FAILED;
+    if (!path) {
+        log_error("iot_dns: alloc ca-cert path failed (%u bytes)", (unsigned)path_len);
+        return OPRT_MALLOC_FAILED;
+    }
     int sn = snprintf(path, path_len,
              "/api/v1/ca-certificate?host=%s&port=%u&public_key_algorithm=%s",
              request->target_host, target_port, algo);
     if (sn < 0 || (size_t)sn >= path_len) {
+        log_error("iot_dns: build ca-cert path failed: ret %d, cap %u", sn, (unsigned)path_len);
         pal->free(path);
         return OPRT_COMMUNICATION_ERROR;
     }
@@ -333,7 +353,10 @@ int iot_dns_get_ca_cert(const pal_t *pal, const iot_dns_ca_cert_request_t *reque
 
     cJSON_Delete(root);
 
-    if (!response->ca_certificate) return OPRT_MALLOC_FAILED;
+    if (!response->ca_certificate) {
+        log_error("iot_dns: alloc ca_certificate failed");
+        return OPRT_MALLOC_FAILED;
+    }
     return OPRT_OK;
 }
 
