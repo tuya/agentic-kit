@@ -560,6 +560,7 @@ IOT_API int iot_get_ca_certificate(iot_client_t *client, const char *host, uint1
         log_error("iot_dns_get_ca_cert failed: %d", ret);
         return ret;
     }
+
     size_t cert_len = resp.ca_certificate ? strlen(resp.ca_certificate) : 0;
     if (cert_len == 0) {
         log_error("iot_get_ca_certificate: no CA cert for %s:%u", host, port);
@@ -644,6 +645,7 @@ IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, char *url, 
     qrcode_info_response_t resp = {0};
     ret = atop_qrcode_info_get(pal, &req, &resp);
     if (ret != OPRT_OK) {
+        log_error("atop_qrcode_info_get failed: %d", ret);
         return ret;
     }
 

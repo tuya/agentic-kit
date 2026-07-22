@@ -107,6 +107,7 @@ static int32_t transport_send(NetworkContext_t *pNetworkContext,
             return 0;
         }
         if (bytes_sent < 0) {
+            log_error("TCP send failed: %d", bytes_sent);
             return OPRT_COMMUNICATION_ERROR;
         }
         return (int32_t)bytes_sent;
@@ -147,6 +148,7 @@ static int32_t transport_recv(NetworkContext_t *pNetworkContext,
             return OPRT_OK;
         }
         if (bytes_received < 0) {
+            log_error("TCP recv failed: %d", bytes_received);
             return OPRT_COMMUNICATION_ERROR;
         }
         return (int32_t)bytes_received;
