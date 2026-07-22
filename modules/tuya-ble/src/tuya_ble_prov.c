@@ -222,7 +222,11 @@ static int tuya_ble_send(tuya_ble_prov_state_t *state, uint16_t cmd,
 
     uint16_t frame_len = BLE_FRAME_HEADER_LEN + data_len + BLE_FRAME_CRC_LEN;
     uint8_t *frame = state->tx_frame;
-    if (frame_len > sizeof(state->tx_frame)) return -1;
+    if (frame_len > sizeof(state->tx_frame)) {
+        TUYA_BLE_HAL_LOGE("[TX] frame too large: %u > %u",
+                          (unsigned)frame_len, (unsigned)sizeof(state->tx_frame));
+        return -1;
+    }
 
     uint32_t send_sn = ++state->sn;
     frame[0] = (send_sn >> 24) & 0xFF;
@@ -480,7 +484,11 @@ static void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, u
 
     if (encrypt_mode == ENCRYPTION_MODE_NONE) {
         frame_len = packet_len - 1;
-        if (frame_len > sizeof(state->rx_frame)) return;
+        if (frame_len > sizeof(state->rx_frame)) {
+            TUYA_BLE_HAL_LOGW("[RX] plaintext frame too large: %u > %u",
+                              (unsigned)frame_len, (unsigned)sizeof(state->rx_frame));
+            return;
+        }
         memcpy(frame, &packet[1], frame_len);
     } else {
         if (packet_len < 18) {
