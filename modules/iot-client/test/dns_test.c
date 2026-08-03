@@ -103,6 +103,35 @@ static void stop_mock(void)
     }
 }
 
+/* ========== Static region -> host mapping ========== */
+
+/* Every enum region must map to its own PROD ATOP host — a region falling
+ * through to the China default silently sends ATOP traffic to the wrong data
+ * center (regression: SG was missing and hit a1.tuyacn.com). */
+static int test_region_to_host_prod_mapping(void)
+{
+    static const struct { iot_region_t region; const char *host; } cases[] = {
+        { AY,   IOT_CN_HOST },
+        { AZ,   IOT_AZ_HOST },
+        { UEAZ, IOT_UEAZ_HOST },
+        { EU,   IOT_EU_HOST },
+        { WEAZ, IOT_WEAZ_HOST },
+        { IN,   IOT_IN_HOST },
+        { SG,   IOT_SG_HOST },
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        const char *host = iot_region_to_host(cases[i].region, PROD);
+        if (!host || strcmp(host, cases[i].host) != 0) {
+            printf("  region %d: expected %s, got %s\n",
+                   (int)cases[i].region, cases[i].host, host ? host : "(null)");
+            return -1;
+        }
+    }
+    printf("  all %zu regions map to their own PROD host\n",
+           sizeof(cases) / sizeof(cases[0]));
+    return OPRT_OK;
+}
+
 /* ========== Parameter validation tests ========== */
 
 static int test_dns_query_null_params(void)
@@ -662,6 +691,9 @@ int main(void)
         return 1;
     }
     sleep(1);
+
+    /* Static region -> host mapping */
+    RUN_TEST(test_region_to_host_prod_mapping);
 
     /* Parameter validation */
     RUN_TEST(test_dns_query_null_params);

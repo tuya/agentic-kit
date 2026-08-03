@@ -379,6 +379,8 @@ char *iot_region_to_host(iot_region_t region, iot_env_t env)
                     return IOT_WEAZ_HOST;
                 case IN:
                     return IOT_IN_HOST;
+                case SG:
+                    return IOT_SG_HOST;
                 default:
                     return IOT_DEFAULT_HOST;
                 }

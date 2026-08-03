@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- iot-client — SG region no longer falls back to the China ATOP host(#9).
+  - `iot_region_to_host()` was missing a `case SG:`, so token-based
+    activation and every ATOP fallback path (session token, DP schema
+    update, OTA, version report when IoT-DNS is unavailable) for Singapore
+    devices went to `a1.tuyacn.com` instead of `a1-sg.iotbing.com`. The
+    `IOT_SG_HOST` macro existed but was never referenced. MQTT is
+    unaffected — its URL comes exclusively from IoT-DNS.
+
 - iot-client — US region renamed to AZ(#7).
   - The IoT DNS region string and token prefix for the US West (Oregon) data
     center is `AZ`, not `US`. The enum member `US` is renamed to `AZ`,

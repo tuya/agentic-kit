@@ -148,7 +148,7 @@ struct iot_dp_context;
     char mqtt_url[64];            // MQTT broker URL (inline, mqtt://|mqtts://; "" = unresolved)
     char *schema;                 // Device schema JSON (dynamically allocated)
 
-    iot_region_t region;           // Server region (CN, AZ, EU, IN)
+    iot_region_t region;           // Server region (AY/AZ/UEAZ/EU/WEAZ/IN/SG)
     iot_env_t env;                 // Environment (PROD or PRE)
     bool mqtt_disable_tls;         // false = mqtts (TLS), true = mqtt (TCP)
     const pal_t *pal;             // PAL adapter
