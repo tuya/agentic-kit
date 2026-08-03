@@ -383,7 +383,7 @@ int tai_send_mcp_response(tai_ctx_t *ctx, const char *json_rpc_response);
  *
  *   1. Compile-time maximum (TAI_LOG_LEVEL, default 4 = DEBUG).
  *      Messages above this level are optimised away at build time.
- *   2. Runtime level, set via tai_set_log_level().  Default: TAI_LOG_DEBUG.
+ *   2. Runtime level, set via tai_set_log_level().  Default: TAI_LOG_INFO.
  *
  * These thin inlines exist for source-compatibility with callers; new
  * code should prefer log_set_level() / log_get_level() directly.

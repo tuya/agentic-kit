@@ -19,7 +19,7 @@ Multimodal device-side SDK for connecting smart hardware to the Tuya AI platform
 | RTC TCP Client | `tuya_ai.h` | tRTC (Tuya RTC protocol), TCP implementation, fully open sourced with PAL portability |
 | RTC Client | `stm_open.h` | tRTC (Tuya RTC protocol), UDP implementation, pre-compiled static library |
 | IoT Client | `iot_client.h`, `iot_dp.h`, `iot_ota.h` | Device activation, MQTT, session token; Data Point (DP) management (schema validation / cache / up- & downlink / persistence); OTA firmware upgrade (cloud protocol) |
-| Tuya BLE | `tuya_ble_nimble.h` | BLE provisioning (ESP-IDF) |
+| Tuya BLE | `tuya_ble_prov.h` | BLE provisioning (ESP-IDF) |
 
 ## Prerequisites
 
@@ -42,30 +42,30 @@ cmake .. && make
 ```
 ## Run Examples
 
-Build the posix examples:
+Build the posix examples (a standalone project — use a separate build directory so it does not clash with the SDK's `build/` cache above):
 
 ```sh
-cmake -S examples/posix -B build
-cmake --build build
+cmake -S examples/posix -B build-examples
+cmake --build build-examples
 ```
 
 Then run:
 
 ```sh
 # Voice/text chat (RTC TCP Client)
-./build/tai_text_chat_demo
+./build-examples/tai_text_chat_demo
 
 # Device scan QR pairing
-./build/scan_by_device_pair_demo
+./build-examples/scan_by_device_pair_demo
 
 # App scan QR pairing
-./build/scan_by_app_pair_demo
+./build-examples/scan_by_app_pair_demo
 
 # Device data point (DP) management
-./build/dp_management_demo
+./build-examples/dp_management_demo
 
 # OTA firmware upgrade (cloud protocol)
-./build/ota_demo
+./build-examples/ota_demo
 ```
 
 ## Project Structure

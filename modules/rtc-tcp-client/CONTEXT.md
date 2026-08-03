@@ -75,7 +75,7 @@ The liveness exchange the background thread runs: it sends a Ping every `ping_in
 (default 60 s) and treats the Connection as dead if no inbound traffic — a Pong *or any*
 received data — arrives within `ping_timeout_ms` (default 90 s), then fires `on_disconnect`.
 Counting any receive, not just Pong, keeps a long downstream stream from tripping a spurious
-timeout (see [ADR 0001](docs/adr/0001-receive-worker-callback-greedy-nest.md)).
+timeout.
 _Avoid_: heartbeat, poll.
 
 **Chat break**:
@@ -125,7 +125,7 @@ with another sender (including the worker's Ping). The receive buffers are touch
 the worker, so receiving — and the user callbacks dispatched from it — is lock-free; mbedTLS
 read and write are serialised inside the TLS layer, so the worker can read while a caller
 writes. (The shared PAL mutex is *recursive*, but TAI does not rely on that — the recursion
-exists for the IoT DP layer; see [ADR 0001](docs/adr/0001-receive-worker-callback-greedy-nest.md).)
+exists for the IoT DP layer; see the `mutex_create` contract in `pal/pal.h`.)
 
 ### Sending
 
@@ -234,8 +234,7 @@ freed memory. Because it joins the worker, it must run on a thread *other* than 
 (no join), so it is safe from any thread including a receive callback; the owning thread must
 still call `tai_disconnect` afterwards to join and release. Receive callbacks therefore have a
 re-entrancy contract — may call `tai_send_*`, must not call `tai_disconnect` / `tai_ctx_deinit`,
-must not block — captured in [ADR 0001](docs/adr/0001-receive-worker-callback-greedy-nest.md)
-and `tuya_ai.h`.
+must not block — captured in the callback-contract block in `tuya_ai.h`.
 
 ### Invariants
 

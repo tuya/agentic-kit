@@ -84,8 +84,10 @@ tRTC（Tuya RTC）是涂鸦自研的实时通信协议。Agentic-kit 提供两�
 | rtc-client（`stm_open_*`） | UDP | 预编译静态库 | 快速集成、弱网场景 |
 
 设备通过 tRTC 通道发送语音/图片/文本给云端 AI，接收 AI 返回的 TTS 音频、文字
-回复、以及 MCP 工具调用指令。这条通道由 SDK 内部管理 TLS 加密、心跳保活、
-断线重连，你只需实现回调处理业务逻辑。
+回复、以及 MCP 工具调用指令。这条通道由 SDK 内部管理 TLS 加密与心跳保活，你只需
+实现回调处理业务逻辑。断线重连两种实现有差异：rtc-client 内部有恢复重连
+（Recovering）机制；rtc-tcp-client 则需要应用在收到 `on_disconnect` 回调后自行
+重新调用 `tai_connect()`（注意不要在回调内直接调用，详见 [FAQ](./faq)）。
 
 **了解更多**：[RTC TCP Client 参考](./reference/rtc-tcp-client) | [RTC Client 参考](./reference/rtc-client)
 
@@ -122,7 +124,7 @@ SDK 管理数据点的**本地缓存**和**上下行通信**：
 在上面运行。
 
 Agentic-kit 不直接调用操作系统的 API，而是通过 PAL 间接调用。这使得 SDK 可以
-运行在任何平台上——你只需为你的芯片/操作系统实现约 10 个 PAL 接口：
+运行在任何平台上——你只需为你的芯片/操作系统实现 14 个 PAL 接口：
 
 | 接口类别 | 函数 | 说明 |
 |----------|------|------|
