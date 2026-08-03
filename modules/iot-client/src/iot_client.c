@@ -537,9 +537,9 @@ IOT_API int iot_client_publish(iot_client_t *client, const uint8_t *data, size_t
     return iot_client_message_publish(client, data, data_len);
 }
 
-IOT_API int iot_get_ca_certificate(iot_client_t *client, const char *host, uint16_t port, char **ca_certificate)
+IOT_API int iot_get_ca_certificate(iot_client_t *client, const char *host, uint16_t port, char *ca_certificate, size_t ca_certificate_len)
 {
-    if (client == NULL || host == NULL) {
+    if (client == NULL || host == NULL || ca_certificate == NULL || ca_certificate_len == 0) {
         return OPRT_INVALID_PARAMETER;
     }
 
@@ -560,18 +560,24 @@ IOT_API int iot_get_ca_certificate(iot_client_t *client, const char *host, uint1
         log_error("iot_dns_get_ca_cert failed: %d", ret);
         return ret;
     }
-    *ca_certificate = NULL;
-    if (resp.ca_certificate) {
-        *ca_certificate = pal_strdup(pal, resp.ca_certificate);
-    }
-    iot_dns_ca_cert_response_free(pal, &resp);
-    if (*ca_certificate == NULL) {
+    size_t cert_len = resp.ca_certificate ? strlen(resp.ca_certificate) : 0;
+    if (cert_len == 0) {
+        log_error("iot_get_ca_certificate: no CA cert for %s:%u", host, port);
+        iot_dns_ca_cert_response_free(pal, &resp);
         return OPRT_INVALID_RESULT;
     }
+    if (cert_len >= ca_certificate_len) {
+        log_error("ca_certificate buffer too small: need %zu, have %zu", cert_len + 1, ca_certificate_len);
+        iot_dns_ca_cert_response_free(pal, &resp);
+        return OPRT_INVALID_RESULT;
+    }
+    memcpy(ca_certificate, resp.ca_certificate, cert_len);
+    ca_certificate[cert_len] = '\0';
+    iot_dns_ca_cert_response_free(pal, &resp);
     return OPRT_OK;
 }
 
-IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, iot_qrcode_response_t *response)
+IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, char *url, size_t url_len)
 {
     const pal_t *pal = get_pal();
     if (!pal) {
@@ -579,7 +585,7 @@ IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, iot_qrcode_
         return OPRT_UNINITIALIZED;
     }
 
-    if (request == NULL || response == NULL) {
+    if (request == NULL || url == NULL || url_len == 0) {
         return OPRT_INVALID_PARAMETER;
     }
 
@@ -641,6 +647,14 @@ IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, iot_qrcode_
         return ret;
     }
 
-    response->url = resp.short_url;
+    size_t resp_url_len = strlen(resp.short_url);
+    if (resp_url_len >= url_len) {
+        log_error("url buffer too small: need %zu, have %zu", resp_url_len + 1, url_len);
+        pal->free(resp.short_url);
+        return OPRT_INVALID_RESULT;
+    }
+    memcpy(url, resp.short_url, resp_url_len);
+    url[resp_url_len] = '\0';
+    pal->free(resp.short_url);
     return OPRT_OK;
 }

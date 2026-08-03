@@ -248,13 +248,18 @@ IOT_API int iot_client_get_session_token(iot_client_t *client, const char *agent
 /**
  * @brief Get CA certificate for a target host via IoT DNS service.
  *
- * @param client         Pointer to iot_client_t instance (must not be NULL)
- * @param host           Target host to get certificate for
- * @param port           Target port
- * @param ca_certificate Output CA certificate PEM string (caller must free via pal->free)
- * @return OPRT_OK on success, OPRT_INVALID_PARAMETER if client or host is NULL
+ * @param client             Pointer to iot_client_t instance (must not be NULL)
+ * @param host               Target host to get certificate for
+ * @param port               Target port
+ * @param ca_certificate     Caller-provided buffer receiving the NUL-terminated
+ *                           CA certificate PEM string (a single CA PEM is
+ *                           typically 1-2 KB; 4096 bytes is a safe size)
+ * @param ca_certificate_len Size of the ca_certificate buffer in bytes
+ * @return OPRT_OK on success, OPRT_INVALID_PARAMETER if client/host/ca_certificate
+ *         is NULL or ca_certificate_len is 0, OPRT_INVALID_RESULT if no CA cert
+ *         is available or the buffer is too small
  */
-IOT_API int iot_get_ca_certificate(iot_client_t *client, const char *host, uint16_t port, char **ca_certificate);
+IOT_API int iot_get_ca_certificate(iot_client_t *client, const char *host, uint16_t port, char *ca_certificate, size_t ca_certificate_len);
 
 /**
  * @brief QR code info request parameters
@@ -271,22 +276,17 @@ typedef struct {
 } iot_qrcode_request_t;
 
 /**
- * @brief QR code info response
- */
-typedef struct {
-    char *url;                // QR code URL (caller must free)
-} iot_qrcode_response_t;
-
-/**
- * @brief Get QR code info from Tuya cloud.
+ * @brief Get the QR code activation URL from Tuya cloud.
  *
  * Resolves the ATOP endpoint and CA certificate via IoT DNS automatically —
- * does not require an initialized client.  The caller must free response->url.
+ * does not require an initialized client.
  *
  * @param[in]  request  Request parameters (uuid, authkey, app_id, type, region, env)
- * @param[out] response Response containing QR code URL (caller must free url)
- * @return OPRT_OK on success, OPRT_INVALID_PARAMETER if request or response is NULL
+ * @param[out] url      Caller-provided buffer receiving the NUL-terminated URL
+ * @param[in]  url_len  Size of the url buffer in bytes
+ * @return OPRT_OK on success, OPRT_INVALID_PARAMETER if request or url is NULL
+ *         or url_len is 0, OPRT_INVALID_RESULT if the buffer is too small
  */
-IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, iot_qrcode_response_t *response);
+IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, char *url, size_t url_len);
 
 #endif /* _IOT_CLIENT_H_ */

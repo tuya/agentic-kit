@@ -167,27 +167,27 @@ static void on_schema_update(const char *schema_id, const char *new_schema, void
 
 /* Resolve and attach the MQTT broker's CA (when using TLS and none was supplied),
  * so the demo connects against the real cloud without bundling a cert file.
- * Returns the allocated cert (assign to client->cacert; free at shutdown) or NULL. */
-static char *ensure_mqtt_ca(iot_client_t *client)
+ * The cert lives in a static buffer that outlives the client. */
+static void ensure_mqtt_ca(iot_client_t *client)
 {
+    static char mqtt_ca[4096];
+
     if (client->mqtt_disable_tls || client->cacert || client->mqtt_url[0] == '\0')
-        return NULL;
+        return;
 
     char scheme[8] = {0};
     char host[128] = {0};
     unsigned port = 0;
     if (sscanf(client->mqtt_url, "%7[^:]://%127[^:]:%u", scheme, host, &port) != 3) {
         fprintf(stderr, "[%s] cannot parse mqtt_url: %s\n", TAG, client->mqtt_url);
-        return NULL;
+        return;
     }
 
-    char *ca = NULL;
-    if (iot_get_ca_certificate(client, host, (uint16_t)port, &ca) != OPRT_OK || !ca) {
+    if (iot_get_ca_certificate(client, host, (uint16_t)port, mqtt_ca, sizeof(mqtt_ca)) != OPRT_OK) {
         fprintf(stderr, "[%s] failed to fetch MQTT CA for %s:%u\n", TAG, host, port);
-        return NULL;
+        return;
     }
-    client->cacert = ca;   /* must outlive the client */
-    return ca;
+    client->cacert = mqtt_ca;
 }
 
 /* Connect and immediately re-publish full state — the cloud only learns DP state
@@ -334,9 +334,8 @@ int demo_dp_management_run(const char *devid,
     iot_dp_set_schema_update_callback(client, on_schema_update, NULL);
 
     /* 4. CA + connect + report-on-connect. */
-    char *mqtt_ca = ensure_mqtt_ca(client);
+    ensure_mqtt_ca(client);
     if (connect_and_report(client) != OPRT_OK) {
-        if (mqtt_ca) client->pal->free(mqtt_ca);
         iot_client_deinit(client);
         return -1;
     }
@@ -387,7 +386,6 @@ int demo_dp_management_run(const char *devid,
 
     /* 7. Tear down. */
     iot_client_message_disconnect(client);
-    if (mqtt_ca) client->pal->free(mqtt_ca);
     iot_client_deinit(client);
     return 0;
 }

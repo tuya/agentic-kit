@@ -6,7 +6,11 @@ sidebar_position: 3
 
 # IoT Client API 参考文档
 
-`libiot_sdk` 提供设备激活、MQTT 连接和会话令牌获取功能。头文件：`modules/iot-client/include/iot_client.h`。
+IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.a`）提供设备激活、MQTT 连接和会话令牌获取功能。头文件：`modules/iot-client/include/iot_client.h`。
+
+:::caution 前置调用
+使用任何 SDK 函数前，必须先调用 [`iot_init()` 或 `iot_init_default()`](#iot_init--iot_init_default) 初始化 PAL。未初始化时 `iot_client_init()` 直接返回 `NULL`，`iot_get_qrcode_info()` 返回 `OPRT_UNINITIALIZED`。
+:::
 
 ## 激活请求补充说明
 
@@ -66,6 +70,8 @@ sidebar_position: 3
 ### Log Level（`log_level_t`）
 
 日志通过 `common/log.h` 的全局日志门面控制，使用 `log_set_level()` 设置运行时级别，使用 `log_set_handler()` 自定义输出。
+
+注：`log_level_t` 并非枚举，而是 `typedef int`（以便 `LOG_*` 可用于预处理器 `#if` 判断），下表中的名称均为宏定义。
 
 | 值 | 名称 |
 |----|------|
@@ -133,6 +139,19 @@ sidebar_position: 3
 | `env` | `iot_env_t` | 环境 |
 
 ## API 函数
+
+### `iot_init` / `iot_init_default`
+
+```c
+int iot_init(const pal_t *pal);
+int iot_init_default(void);
+```
+
+初始化 IoT SDK 的平台抽象层（PAL），**必须先于任何其他 SDK 函数调用**。`iot_init_default()` 使用内置的默认 PAL 适配器（POSIX / FreeRTOS）；`iot_init()` 使用自定义 PAL（详见[适配新平台](../guides/porting-to-new-platform.md)）。
+
+**返回值：** `OPRT_OK` 成功；`iot_init()` 在 `pal` 为 NULL 或必需函数指针缺失时返回 `OPRT_INVALID_PARAMETER`。
+
+---
 
 ### `iot_client_init`
 
@@ -240,8 +259,7 @@ int iot_client_publish(iot_client_t *client, const uint8_t *data, size_t data_le
 ### `iot_get_qrcode_info`
 
 ```c
-int iot_get_qrcode_info(const iot_qrcode_request_t *request,
-                        iot_qrcode_response_t *response);
+int iot_get_qrcode_info(const iot_qrcode_request_t *request, char *url, size_t url_len);
 ```
 
 从涂鸦云获取配网激活 URL，设备可将此 URL 编码为二维码展示给用户。
@@ -259,21 +277,19 @@ int iot_get_qrcode_info(const iot_qrcode_request_t *request,
 | `cacert` | `const char *` | CA 证书 PEM（用于 HTTPS/IoT-DNS TLS，调用方持有） |
 | `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | 平台证书包回调（如 ESP-IDF 的 `esp_crt_bundle_attach`），NULL 表示不使用。详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
 
-**响应 `iot_qrcode_response_t`：**
+**出参：**
+- `url` — 调用方分配的缓冲区，接收以 NUL 结尾的激活 URL
+- `url_len` — 缓冲区大小（字节）
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `url` | `char *` | 激活 URL（调用方需 `free`） |
-
-**返回值：** `OPRT_OK` 成功。
+**返回值：** `OPRT_OK` 成功；`request`/`url` 为 NULL 或 `url_len` 为 0 时返回 `OPRT_INVALID_PARAMETER`；缓冲区不够大时返回 `OPRT_INVALID_RESULT`。
 
 ---
 
 ### `iot_get_ca_certificate`
 
 ```c
-int iot_get_ca_certificate(iot_client_t *client, const char *host,
-                           uint16_t port, char **ca_certificate);
+int iot_get_ca_certificate(iot_client_t *client, const char *host, uint16_t port,
+                           char *ca_certificate, size_t ca_certificate_len);
 ```
 
 获取目标主机的 CA 证书。
@@ -282,9 +298,10 @@ int iot_get_ca_certificate(iot_client_t *client, const char *host,
 - `client` — IoT 客户端实例（不可为 NULL）
 - `host` — 目标主机名
 - `port` — 目标端口
-- `ca_certificate` — 输出 CA 证书字符串（调用方需 `free`）
+- `ca_certificate` — 调用方分配的缓冲区，接收以 NUL 结尾的 CA 证书 PEM 字符串（单个 CA PEM 通常 1-2KB，建议 4096 字节）
+- `ca_certificate_len` — 缓冲区大小（字节）
 
-**返回值：** `OPRT_OK` 成功；`client` 或 `host` 为 NULL 时返回 `OPRT_INVALID_PARAMETER`。
+**返回值：** `OPRT_OK` 成功；`client`/`host`/`ca_certificate` 为 NULL 或 `ca_certificate_len` 为 0 时返回 `OPRT_INVALID_PARAMETER`；无可用证书或缓冲区不够大时返回 `OPRT_INVALID_RESULT`。
 
 ---
 

@@ -7,15 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
-- iot-client — SG region no longer falls back to the China ATOP host(#9).
-  - `iot_region_to_host()` was missing a `case SG:`, so token-based
-    activation and every ATOP fallback path (session token, DP schema
-    update, OTA, version report when IoT-DNS is unavailable) for Singapore
-    devices went to `a1.tuyacn.com` instead of `a1-sg.iotbing.com`. The
-    `IOT_SG_HOST` macro existed but was never referenced. MQTT is
-    unaffected — its URL comes exclusively from IoT-DNS.
+- iot-client — `iot_get_qrcode_info` and `iot_get_ca_certificate` now write
+  into caller-provided buffers (API break)(#10).
+  - The single-field `iot_qrcode_response_t` struct is removed and both APIs
+    take `char *buf, size_t buf_len` instead of returning pal-allocated
+    strings — no heap ownership passes to the caller, matching the
+    `iot_client_get_session_token` convention. Both return
+    `OPRT_INVALID_RESULT` if the buffer is too small.
+  - `iot_get_ca_certificate` now also returns `OPRT_INVALID_RESULT` when the
+    server has no CA certificate for the endpoint (previously an empty string
+    was silently returned as success).
+
+### Fixed
 
 - iot-client — US region renamed to AZ(#7).
   - The IoT DNS region string and token prefix for the US West (Oregon) data

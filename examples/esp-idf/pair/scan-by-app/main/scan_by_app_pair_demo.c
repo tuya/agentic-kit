@@ -81,22 +81,22 @@ int demo_scan_by_app_pair_run(const char *uuid, const char *authkey,
         .type    = 1,
         .env     = ob_config.env,
     };
-    iot_qrcode_response_t qr_resp = {0};
+    char qr_url[256] = {0};
 
-    int qr_ret = iot_get_qrcode_info(&qr_req, &qr_resp);
-    if (qr_ret != OPRT_OK || !qr_resp.url) {
+    int qr_ret = iot_get_qrcode_info(&qr_req, qr_url, sizeof(qr_url));
+    if (qr_ret != OPRT_OK) {
         fprintf(stderr, "[%s] iot_get_qrcode_info failed (%d)\n", TAG, qr_ret);
         return -1;
     }
 
-    printf("=== QR Code URL ===\n  %s\n\n", qr_resp.url);
+    printf("=== QR Code URL ===\n  %s\n\n", qr_url);
 
     /* -- Step 2: Render QR code in terminal -------------------------------- */
     uint8_t qr_buf[qrcodegen_BUFFER_LEN_MAX];
     uint8_t tmp_buf[qrcodegen_BUFFER_LEN_MAX];
 
     bool ok = qrcodegen_encodeText(
-        qr_resp.url, tmp_buf, qr_buf,
+        qr_url, tmp_buf, qr_buf,
         qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
         qrcodegen_Mask_AUTO, true);
 
@@ -107,8 +107,6 @@ int demo_scan_by_app_pair_run(const char *uuid, const char *authkey,
     } else {
         printf("(QR code too long to render in terminal; use the URL above)\n\n");
     }
-
-    free(qr_resp.url);
 
     /* -- Step 3: On-boarding ----------------------------------------------- */
     iot_client_t *client = NULL;

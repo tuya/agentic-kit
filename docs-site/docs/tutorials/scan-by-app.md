@@ -49,8 +49,7 @@ iot_client_deinit()                  // 5. 清理资源
 ### `iot_get_qrcode_info()`
 
 ```c
-int iot_get_qrcode_info(const iot_qrcode_request_t *request,
-                        iot_qrcode_response_t *response);
+int iot_get_qrcode_info(const iot_qrcode_request_t *request, char *url, size_t url_len);
 ```
 
 向涂鸦云请求一个用于配网激活的 URL。设备将此 URL 编码为二维码展示给用户。
@@ -63,9 +62,11 @@ int iot_get_qrcode_info(const iot_qrcode_request_t *request,
 | `authkey` | 设备 Auth Key |
 | `app_id` | App ID（可为空字符串） |
 | `type` | 二维码类型（通常为 1） |
+| `region` | 数据中心区域（默认 `AY` 中国） |
 | `env` | 环境：`PROD` / `PRE` |
+| `cacert` / `cert_bundle_attach` | HTTPS/IoT-DNS 的 TLS 证书配置，详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
 
-**返回值：** `OPRT_OK` 表示成功，`response->url` 中包含激活 URL（调用方需 `free`）。
+**返回值：** `OPRT_OK` 表示成功，激活 URL 写入调用方提供的 `url` 缓冲区（NUL 结尾；缓冲区不够大时返回 `OPRT_INVALID_RESULT`）。
 
 ### `iot_client_init_on_boarding()`
 
