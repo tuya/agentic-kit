@@ -72,23 +72,22 @@ iot_client_t *client = iot_client_init(&cfg);
 
 ```c
 int iot_get_ca_certificate(iot_client_t *client, const char *host,
-                           uint16_t port, char **ca_certificate);
+                           uint16_t port, char *ca_certificate, size_t ca_certificate_len);
 ```
 
 ```c
-/* 查询目标端点（例如 ATOP/HTTPS 主机用 443，MQTT 用 8883）的 CA 证书。 */
-char *ca_cert = NULL;
-int rc = iot_get_ca_certificate(client, "a1.tuyacn.com", 443, &ca_cert);
-if (rc == OPRT_OK && ca_cert != NULL) {
-    /* ... 使用 / 持久化 ca_cert ... */
-
-    /* ca_cert 由 PAL 分配（pal_strdup），必须用同一个 PAL 的 free 释放，
-       不能用 libc free()；且需在 iot_client_deinit() 之前（client->pal 仍有效时）释放。 */
-    client->pal->free(ca_cert);
+/* 查询目标端点（例如 ATOP/HTTPS 主机用 443，MQTT 用 8883）的 CA 证书。
+   证书写入调用方提供的缓冲区——单个 CA PEM 通常 1-2KB，4096 字节足够；
+   缓冲区不够大时返回 OPRT_INVALID_RESULT。 */
+static char ca_cert[4096];
+int rc = iot_get_ca_certificate(client, "a1.tuyacn.com", 443, ca_cert, sizeof(ca_cert));
+if (rc == OPRT_OK) {
+    /* ... 使用 / 持久化 ca_cert ...
+       若赋给 client->cacert 长期使用，缓冲区生命周期须覆盖 client（如 static）。 */
 }
 ```
 
-> **引导阶段的“先有鸡还是先有蛋”问题：** `iot_get_ca_certificate()` 本身要先建立一次到 IoT-DNS 的 TLS 连接；若此时 `client->cacert` 仍为空，这次查询以不校验方式进行——存在引导阶段 MITM 风险。同理，`iot_client_init()` 在返回前就已完成 DNS/ATOP/MQTT 的**首批连接**，因此**在 init 之后再设 `client->cacert` 只对后续请求生效，无法追溯保护 init 期间的连接**。
+> **引导阶段的“先有鸡还是先有蛋”问题：** `iot_get_ca_certificate()` 本身要先建立一次到 IoT-DNS 的 TLS 连接；若此时 `client->cacert` 仍为空，这次查询以不校验方式进行——存在引导阶段 MITM 风险。同理，`iot_client_init()` 在返回前就已完成 DNS/ATOP 的**首批连接**（若 `mqtt_auto_connect = true`——默认为 false——还包括 MQTT 首连），因此**在 init 之后再设 `client->cacert` 只对后续请求生效，无法追溯保护 init 期间的连接**。
 >
 > 所以运行时获取 CA 更适合用来**取回一份 CA 加以持久化**，下次启动前通过 `cfg.cacert` 在 `iot_client_init()` **之前**传入，从第一条连接起即校验；对安全要求严格的场景，建议直接硬编码根 CA 或改用 `.cert_bundle_attach`。
 

@@ -486,7 +486,7 @@ static int test_qrcode_info(void)
 
 static int test_qrcode_info_null_params(void)
 {
-    int rt = iot_get_qrcode_info(NULL, NULL);
+    int rt = iot_get_qrcode_info(NULL, NULL, 0);
     if (rt != OPRT_INVALID_PARAMETER) {
         printf("  expected OPRT_INVALID_PARAMETER, got %d\n", rt);
         return -1;
