@@ -22,6 +22,7 @@ sidebar_position: 1
 | 工具/库 | 版本 | macOS 安装 | Linux (Debian/Ubuntu) 安装 |
 |---------|------|-----------|---------------------------|
 | CMake | ≥ 3.20 | `brew install cmake` | `apt install cmake` |
+| Python3 | ≥ 3.x | `brew install python3` | `apt install python3` |
 
 > 构建系统会自动编译 bundled 的 mbedTLS、cJSON、coreHTTP、coreMQTT 依赖，无需单独安装。
 
@@ -39,15 +40,15 @@ mkdir -p build && cd build
 cmake .. && make
 ```
 
-CMakeLists.txt 会自动选择平台对应的预编译库目录：
+CMakeLists.txt 会自动选择平台对应的预编译库目录（位于 `modules/rtc-client/libs/`）：
 
 | 平台 | 库目录 |
 |------|--------|
-| macOS arm64 | `libs/macos_arm64/` |
-| Linux x86_64 | `libs/linux-gnu-amd64/` |
-| Linux aarch64 | `libs/linux-gnu-aarch64/` |
+| macOS arm64 | `modules/rtc-client/libs/macos_arm64/` |
+| Linux x86_64 | `modules/rtc-client/libs/linux-gnu-amd64/` |
+| Linux aarch64 | `modules/rtc-client/libs/linux-gnu-aarch64/` |
 
-其他可用预编译库（需手动指定）：`libs/rockchip830-arm/`、`libs/ingenic-mips/`。
+其他可用预编译库：`modules/rtc-client/libs/rockchip830-arm/`、`modules/rtc-client/libs/ingenic-mips/`。交叉编译这两个平台时，库目录的选择逻辑硬编码在根 `CMakeLists.txt` 的平台判断中（`STEAM_CLIENT_LIB_DIR`），需自行修改该处指向对应目录。
 
 
 ### 示例代码编译

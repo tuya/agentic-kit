@@ -68,7 +68,7 @@ void app_main(void)
     nvs_flash_init();
 
     tuya_ble_prov_cfg_t prov_cfg = {
-        .device_name = "TuyaDevice",    // BLE 广播名称
+        .device_name = "TYBLE",         // BLE 广播名称（最长 5 字符，超出会被截断）
         .product_key = PRODUCT_KEY,     // 产品 PID
         .uuid        = DEVICE_UUID,     // 设备 UUID
         .auth_key    = AUTH_KEY,        // 设备 Auth Key
@@ -91,7 +91,7 @@ void app_main(void)
 ### 配置文件 `app_config.h`
 
 ```c
-#define TUYA_BLE_DEVICE_NAME  "TuyaDevice"
+#define TUYA_BLE_DEVICE_NAME  "TYBLE"   // 最长 5 字符（TUYA_BLE_NAME_MAX_LEN），超出会被截断
 #define PRODUCT_KEY           "your_product_key"
 #define DEVICE_UUID           "your_uuid"
 #define AUTH_KEY              "your_auth_key"
@@ -115,7 +115,7 @@ int tuya_ble_nimble_start(const tuya_ble_prov_cfg_t *cfg);
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `device_name` | `const char *` | BLE 广播设备名 |
+| `device_name` | `const char *` | BLE 广播设备名（最长 5 字符 `TUYA_BLE_NAME_MAX_LEN`，超出部分被静默截断） |
 | `product_key` | `const char *` | 产品 PID |
 | `uuid` | `const char *` | 设备 UUID |
 | `auth_key` | `const char *` | 设备 Auth Key |

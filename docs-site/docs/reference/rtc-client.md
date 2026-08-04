@@ -176,6 +176,8 @@ stm_ret stm_open_session_send(stm_open_session_t *session, stm_open_data_t *data
 | union | params | 首包按类型填写 `audio_params` / `image_params` 等 |
 | `payload` | `uint8_t *` | 数据内容 |
 | `payload_length` | `uint32_t` | 数据长度 |
+| `app_data` | `char *` | 应用自定义数据（可为 NULL） |
+| `timestamp` | `uint64_t` | 时间戳，仅 video/audio/image 类型有效 |
 
 ---
 
@@ -206,6 +208,8 @@ void stm_open_session_close(stm_open_session_t *session);
 | `sample_rate` | `uint32_t` | 采样率 Hz |
 | `channels` | `uint16_t` | 声道数 |
 | `bit_depth` | `uint16_t` | 位深度 |
+| `container` | `uint16_t` | 音频容器类型 |
+| `bitrate` | `uint32_t` | 比特率 |
 | `frame_duration` | `uint16_t` | 帧时长 ms |
 | `frame_size` | `uint16_t` | 帧大小 bytes |
 
@@ -309,6 +313,6 @@ stm_open_session_send(sess, &last, 1);  // fin=1
 | 协议 | tRTC(tuya自研RTC协议)，UDP 实现 | tRTC(tuya自研RTC协议)，TCP 实现 |
 | 会话管理 | 需 session_token（从 IoT Client 获取） | 使用 device_id + local_key 直接连接 |
 | API 风格 | 通用 send/recv + data 结构体 | 类型化 API（`send_text`、`send_audio_*`） |
-| MCP 支持 | 通过 CMD 类型 | 原生 `TAI_EVT_MCP_CMD` + `tai_send_mcp_response` |
+| MCP 支持 | 无专用类型（`stm_cmd_type_e` 仅定义打断指令） | 原生 `TAI_EVT_MCP_CMD` + `tai_send_mcp_response` |
 | 平台支持 | macOS/Linux/MIPS/ARM（预编译） | 任何实现了 PAL 的平台 |
 | 适合场景 | 已有平台的快速集成 | 新项目、需要源码控制、ESP-IDF |

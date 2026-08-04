@@ -29,6 +29,7 @@ sidebar_position: 1
 | 宏 | 值 | 说明 |
 |----|---|------|
 | `TAI_PKT_CLIENT_HELLO` | 1 | 客户端握手 |
+| `TAI_PKT_AUTHENTICATE_RESPONSE` | 3 | 服务端对 ClientHello 的鉴权结果 |
 | `TAI_PKT_PING` | 4 | 心跳请求 |
 | `TAI_PKT_PONG` | 5 | 心跳响应 |
 | `TAI_PKT_CONNECTION_CLOSE` | 6 | 连接关闭 |
@@ -148,8 +149,8 @@ sidebar_position: 1
 |------|------|------|
 | `device_id` | `const char *` | 设备 ID（配网后获得的 devid） |
 | `local_key` | `const char *` | 本地密钥（配网后获得的 local_key） |
-| `client_type` | `uint8_t` | 客户端类型：`TAI_CLIENT_DEVICE` 或 `TAI_CLIENT_APP` |
-| `protocol_version` | `uint8_t` | 协议版本：使用 `TAI_VER_21` |
+| `client_type` | `uint8_t` | 客户端类型：`TAI_CLIENT_DEVICE` 或 `TAI_CLIENT_APP`（0 = 默认 `TAI_CLIENT_DEVICE`） |
+| `protocol_version` | `uint8_t` | 协议版本：使用 `TAI_VER_21`（0 = 默认 `TAI_VER_21`） |
 
 ### 3.3 会话选项
 
@@ -163,14 +164,14 @@ sidebar_position: 1
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `biz_code` | `uint32_t` | 业务码 |
-| `biz_tag` | `uint64_t` | 业务标签 |
+| `biz_code` | `uint32_t` | 业务码（0 = 默认 `65537`） |
+| `biz_tag` | `uint64_t` | 业务标签（0 = 默认 `119`） |
 
 ### 3.5 安全配置
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `sign_level` | `uint8_t` | 签名级别：`TAI_SIGN_NONE` / `TAI_SIGN_HMAC_SHA256`（推荐） |
+| `sign_level` | `uint8_t` | 签名级别：`TAI_SIGN_HMAC_SHA256`（推荐）或 `TAI_SIGN_HMAC_SHA1`。注意 `TAI_SIGN_NONE`（0）会被视为"未设置"而强制回退到 `TAI_SIGN_HMAC_SHA256`，无法通过该字段关闭签名 |
 
 ### 3.6 保活配置
 
@@ -178,7 +179,7 @@ sidebar_position: 1
 |------|------|------|
 | `ping_interval_ms` | `uint32_t` | Ping 间隔（0 = 默认 60000ms） |
 | `ping_timeout_ms` | `uint32_t` | Ping 超时（0 = 默认 90000ms） |
-| `connect_timeout_ms` | `uint32_t` | 连接超时（0 = 默认 5000ms）。分别约束 `tai_connect` 的两个串行等待阶段：先是 TLS 握手，再是服务端 SessionNew 应答。任一阶段超时即判定连接失败，因此 `tai_connect` 最坏耗时约为该值的 2 倍（握手 + 应答）。 |
+| `connect_timeout_ms` | `uint32_t` | 连接超时（0 = 默认 5000ms）。分别约束 `tai_connect` 的两个串行等待阶段：先是连接建立（TCP 建连 + TLS 握手，共用一份预算），再是服务端 SessionNew 应答。任一阶段超时即判定连接失败，因此 `tai_connect` 最坏耗时约为该值的 2 倍。 |
 
 ### 3.7 测试配置
 
@@ -191,6 +192,7 @@ sidebar_position: 1
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `pal` | `const pal_t *` | 平台适配层实现指针 |
+| `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | 平台证书包回调（ESP-IDF 上设为 `esp_crt_bundle_attach`，否则 TLS 不做证书校验）；NULL 表示不使用。详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
 
 ### 3.9 回调函数
 
@@ -410,7 +412,7 @@ void tai_request_disconnect(tai_ctx_t *ctx);
 int tai_send_text(tai_ctx_t *ctx, const char *text, size_t len);
 ```
 
-发送文本消息。单包完成（内部设置 `ONE_SHOT` 标志）。
+发送文本消息。一次调用内部依次发出 4 个应用包：`EventStart` → 文本（`ONE_SHOT` 标志）→ `EventPayloadsEnd` → `EventEnd`，调用方无需再手动收尾。
 
 **参数：**
 - `text` — UTF-8 文本
@@ -531,10 +533,10 @@ static inline int  tai_get_log_level(void);
 | 0 | 禁用所有日志 |
 | 1 | `TAI_LOG_ERROR` |
 | 2 | `TAI_LOG_WARN` |
-| 3 | `TAI_LOG_INFO` |
-| 4 | `TAI_LOG_DEBUG`（默认） |
+| 3 | `TAI_LOG_INFO`（运行时默认） |
+| 4 | `TAI_LOG_DEBUG` |
 
-编译时可通过定义 `TAI_LOG_LEVEL` 宏设置最大编译级别（超过的日志在编译期消除）。
+运行时默认级别为 `TAI_LOG_INFO`（3），需要 DEBUG 输出时显式调用 `tai_set_log_level(4)`。编译时可通过定义 `TAI_LOG_LEVEL` 宏设置最大编译级别（默认 4，超过的日志在编译期消除）。
 
 ---
 

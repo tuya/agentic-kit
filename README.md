@@ -19,7 +19,7 @@
 | RTC TCP Client | `tuya_ai.h` | tRTC(tuya自研RTC协议) TCP 实现，开源实现，PAL 可移植 |
 | RTC Client | `stm_open.h` | tRTC(tuya自研RTC协议) UDP 实现，预编译静态库形式 |
 | IoT Client | `iot_client.h`、`iot_dp.h`、`iot_ota.h` | 设备激活、MQTT 连接、会话令牌获取；数据点（DP）管理（schema 校验 / 缓存 / 上下行 / 持久化）；OTA 固件升级（云端协议） |
-| Tuya BLE | `tuya_ble_nimble.h` | BLE 蓝牙配网（ESP-IDF） |
+| Tuya BLE | `tuya_ble_prov.h` | BLE 蓝牙配网（ESP-IDF） |
 
 ## 环境要求
 
@@ -44,30 +44,30 @@ cmake .. && make
 
 ## 运行示例
 
-编译 POSIX 平台示例：
+编译 POSIX 平台示例（示例是独立工程，请使用单独的构建目录，避免与上面 SDK 构建的 `build/` 缓存冲突）：
 
 ```sh
-cmake -S examples/posix -B build
-cmake --build build
+cmake -S examples/posix -B build-examples
+cmake --build build-examples
 ```
 
 运行：
 
 ```sh
 # 语音/文本聊天（RTC TCP Client）
-./build/tai_text_chat_demo
+./build-examples/tai_text_chat_demo
 
 # 设备扫码配网
-./build/scan_by_device_pair_demo
+./build-examples/scan_by_device_pair_demo
 
 # App 扫码配网
-./build/scan_by_app_pair_demo
+./build-examples/scan_by_app_pair_demo
 
 # 设备数据点（DP）管理
-./build/dp_management_demo
+./build-examples/dp_management_demo
 
 # OTA 固件升级（云端协议）
-./build/ota_demo
+./build-examples/ota_demo
 ```
 
 ## 项目结构
@@ -91,6 +91,6 @@ docs-site/            # 文档站点
 
 本项目整体基于 [Apache License 2.0](LICENSE) 开源。
 
-**例外**：`modules/rtc-client/` 模块**不开源**，其中的预编译静态库（`libstm.a`）及配套头文件为 Tuya Inc. 专有资产。客户可自由使用、复制、分发该模块，包括嵌入到硬件产品中（无论是否结合 agentic-kit 使用），唯一限制是**不得对预编译库进行逆向工程、反编译或反汇编**。详见 [modules/rtc-client/LICENSE](modules/rtc-client/LICENSE)。
+**例外**：`modules/rtc-client/` 模块**不开源**，其中的预编译静态库（`libstm.a`）及配套头文件为 Tuya Inc. 专有资产。客户可自由使用、复制、修改、合并、发布、分发该模块，包括嵌入到硬件产品中（无论是否结合 agentic-kit 使用），唯一限制是**不得对预编译库进行逆向工程、反编译或反汇编**。详见 [modules/rtc-client/LICENSE](modules/rtc-client/LICENSE)。
 
 

@@ -123,22 +123,22 @@ iot_client_t *iot_client_init_on_boarding_with_token(
 成功输出示例：
 
 ```
-=== pair example ===
+=== scan-by-device pair demo ===
 QR image     : res/qr.jpg
 UUID         : tuyaXXXXXXXXXXXX
 Product key  : p891xbkosae0dgda
 
-[pair] Image loaded: qr.jpg (400x400)
-[pair] QR payload: {"s":"MyWiFi","p":"password123","t":"AY..."}
-[pair] SSID    : MyWiFi
-[pair] Password: password123
-[pair] Token   : AY...
-[pair] Starting on-boarding with token...
-[pair] Activation successful!
-[pair] devid      : <device_id>
-[pair] secret_key : <secret_key>
-[pair] local_key  : <local_key>
-[pair] Session token acquired (len=1234)
+[scan_by_device] Image loaded: res/qr.jpg (400x400)
+[scan_by_device] QR payload: {"s":"MyWiFi","p":"password123","t":"AY..."}
+[scan_by_device] SSID    : MyWiFi
+[scan_by_device] Password: password123
+[scan_by_device] Token   : AY...
+[scan_by_device] Starting on-boarding with token...
+[scan_by_device] Activation successful!
+[scan_by_device] devid      : <device_id>
+[scan_by_device] secret_key : <secret_key>
+[scan_by_device] local_key  : <local_key>
+[scan_by_device] Session token acquired (len=1234)
 ```
 
 激活成功后，请将输出的 `devid`、`secret_key`、`local_key` 保存到设备持久化
