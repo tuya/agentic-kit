@@ -50,13 +50,17 @@ static int iot_client_message_try_connect(iot_client_t *client)
     char subscribe_topic[64];
     int sn_ret = snprintf(subscribe_topic, sizeof(subscribe_topic),
              "smart/device/in/%s", client->devid);
-    if (sn_ret < 0 || (size_t)sn_ret >= (int)sizeof(subscribe_topic))
+    if (sn_ret < 0 || (size_t)sn_ret >= (int)sizeof(subscribe_topic)) {
+        log_error("Failed to build subscribe topic: %d", sn_ret);
         return OPRT_COMMUNICATION_ERROR;
+    }
 
     char password[17] = {0};
     int md5_ret = iot_md5_password(client->secret_key, password);
-    if (md5_ret != 0)
+    if (md5_ret != 0) {
+        log_error("iot_md5_password failed: %d", md5_ret);
         return OPRT_COMMUNICATION_ERROR;
+    }
 
     mqtt_tls_config_t tls_cfg = { .cacert = client->cacert,
                                   .cert_bundle_attach = client->cert_bundle_attach };
@@ -160,6 +164,7 @@ int iot_client_message_publish(iot_client_t *client,
     int sn = snprintf(pub_topic, sizeof(pub_topic),
                       "smart/device/out/%s", client->devid);
     if (sn < 0 || (size_t)sn >= sizeof(pub_topic)) {
+        log_error("Failed to build publish topic: %d", sn);
         client->pal->free(encrypted);
         return OPRT_COMMUNICATION_ERROR;
     }

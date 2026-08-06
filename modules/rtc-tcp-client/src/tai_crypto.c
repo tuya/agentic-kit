@@ -72,12 +72,18 @@ int tai_crypto_derive_keys(uint8_t proto_ver,
     int rc = tai_hkdf_sha256(ikm, ikm_len,
                               encrypt_random, rand_len,
                               out_encrypt_key, 32);
-    if (rc != 0) return TAI_ERR_CRYPTO;
+    if (rc != 0) {
+        TAI_LOGE(pal, TAG, "HKDF encrypt_key derivation failed: %d", rc);
+        return TAI_ERR_CRYPTO;
+    }
 
     rc = tai_hkdf_sha256(ikm, ikm_len,
                           encrypt_random, rand_len,
                           out_sign_key, 32);
-    if (rc != 0) return TAI_ERR_CRYPTO;
+    if (rc != 0) {
+        TAI_LOGE(pal, TAG, "HKDF sign_key derivation failed: %d", rc);
+        return TAI_ERR_CRYPTO;
+    }
 
     return TAI_OK;
 }

@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     server has no CA certificate for the endpoint (previously an empty string
     was silently returned as success).
 
+- Observability — diagnostic logging on previously-silent error paths (core modules + PAL)(#11).
+  PAL now logs `errno` on socket failures, and `tls_read`/`tls_write` log the raw
+  mbedTLS `-0xXXXX` cause instead of collapsing to `TLS_ERR_NET`, so a
+  `worker: recv error -3` is traceable across pal → tls → client. Also covers
+  swallowed `malloc`/cJSON/crypto/frame-decode paths in iot-client, rtc-tcp-client,
+  tuya-ble and common. Log-only — no behaviour change.
+
 ### Fixed
 
 - iot-client — US region renamed to AZ(#7).

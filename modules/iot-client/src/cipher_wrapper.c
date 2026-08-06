@@ -44,6 +44,7 @@ int mbedtls_cipher_auth_encrypt_wrapper(const cipher_params_t *params,
 
     int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, (const unsigned char *)params->key, key_bits);
     if (ret != 0) {
+        log_error("Failed to set GCM key: -0x%04x", -ret);
         mbedtls_gcm_free(&gcm);
         return ret;
     }
@@ -83,6 +84,7 @@ int mbedtls_cipher_auth_decrypt_wrapper(const cipher_params_t *params,
 
     int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, (const unsigned char *)params->key, key_bits);
     if (ret != 0) {
+        log_error("Failed to set GCM key for decryption: -0x%04x", -ret);
         mbedtls_gcm_free(&gcm);
         return ret;
     }

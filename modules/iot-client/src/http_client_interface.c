@@ -40,6 +40,7 @@ static int32_t transport_send(NetworkContext_t *pNetworkContext,
         return (int32_t)bytesToSend;
     } else {
         if (!ctx->tcp_handle) {
+            log_error("TCP send: connection handle is NULL");
             return OPRT_COMMUNICATION_ERROR;
         }
         int bytes_sent = ctx->pal->tcp_send(ctx->tcp_handle,
@@ -82,6 +83,7 @@ static int32_t transport_recv(NetworkContext_t *pNetworkContext,
         return n;   // >0 bytes
     } else {
         if (!ctx->tcp_handle) {
+            log_error("TCP recv: connection handle is NULL");
             return OPRT_COMMUNICATION_ERROR;
         }
         int bytes_received = ctx->pal->tcp_recv(ctx->tcp_handle,
