@@ -43,7 +43,7 @@ if (iot_dp_dump_json(client, &json) == OPRT_OK && json) {
 }
 ```
 
-`iot_dp_dump_json` 与 `iot_dp_restore_json` 产出 / 消费同一种 `{"dps":{...}}` 格式,可无损往返。
+`iot_dp_dump_json` 与 `iot_dp_restore_json` 产出 / 消费同一种 `{"dps":{...}}` 格式,可往返恢复。**注意:`iot_dp_dump_json` 的快照不含 RAW 类型 DP**(见 `iot_dp.h` 中 RAW omission 说明),因此 dump→restore 周期会丢失运行中的 RAW 值;如需保留 RAW,请通过保存回调(回调快照同样不含 RAW,需应用自行另行保存)或避免依赖其往返。
 
 ## 保存回调在嵌入式上的注意事项
 
@@ -95,5 +95,5 @@ iot_client_t *client = iot_client_init(&cfg);
 
 应用周期调用 `iot_dp_schema_check_update()` 轮询最新 schema。若有更新,SDK 会**保留仍存在的 DP 的当前值、给新增 DP 填默认值**,然后触发 `iot_schema_update_callback_t`。在该回调里:
 
-1. 把新的 `schema_id` / `schema` 覆盖持久化;
+1. 把新的 `schema` 覆盖持久化(`schema_id` 不变,无需重写);
 2. 建议随后调一次 `iot_dp_report_all()` 做一次全量同步。

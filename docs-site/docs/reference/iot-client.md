@@ -235,7 +235,7 @@ int iot_client_process(iot_client_t *client, uint32_t timeout_ms);
 - `client` — IoT 客户端实例
 - `timeout_ms` — 处理超时时间（毫秒）
 
-**返回值：** `OPRT_OK` 成功。
+**返回值：** `OPRT_OK` 成功；`client` 为 NULL 时返回 `OPRT_INVALID_PARAMETER`；无 MQTT 连接时返回 `OPRT_UNINITIALIZED`。
 
 ---
 
@@ -252,7 +252,7 @@ int iot_client_publish(iot_client_t *client, const uint8_t *data, size_t data_le
 - `data` — 明文数据（内部自动加密）
 - `data_len` — 数据长度
 
-**返回值：** `OPRT_OK` 成功。
+**返回值：** `OPRT_OK` 成功；`client` 为 NULL 或 `data` 为 NULL / `data_len` 为 0 时返回 `OPRT_INVALID_PARAMETER`；无 MQTT 连接时返回 `OPRT_UNINITIALIZED`；加密缓冲区分配失败返回 `OPRT_MALLOC_FAILED`；加密或发布失败返回 `OPRT_COMMUNICATION_ERROR`。
 
 ---
 

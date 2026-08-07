@@ -146,7 +146,7 @@ CONFIG_FREERTOS_HZ=1000
 
 ## 通用注意事项
 
-- PAL `thread_create` 需要设置足够的栈大小；`pal_freertos.c` 默认使用 `PAL_FR_TASK_STACK_WORDS`（约 6KB，可按平台内存情况调小或调大）
+- PAL `thread_create` 需要设置足够的栈大小；`pal_freertos.c` 默认使用 `PAL_FR_TASK_STACK_WORDS`（6144 words，32 位平台上约 24KB，可按平台内存情况调小或调大）
 - SDK 内部通过 mbedTLS 处理 TLS，需要正确的系统时间用于证书验证；若未提供 CA 证书，TLS 连接可能退化为不校验证书的模式
 - `tcp_recv` 应支持阻塞/超时语义（后台线程会循环调用）
 - `tcp_poll` 用于检查套接字的可读/可写状态，需正确实现 events 位掩码

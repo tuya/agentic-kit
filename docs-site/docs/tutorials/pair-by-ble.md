@@ -129,7 +129,7 @@ int tuya_ble_nimble_stop(void);
 
 停止 BLE 广播和服务，释放 NimBLE 资源。
 
-**返回值：** `0` 成功，非零表示错误。
+**返回值：** 当前实现始终返回 `0`（内部 `nimble_port_stop()` 的结果被忽略，不返回错误码）。
 
 ### `tuya_ble_wifi_creds_t`
 
