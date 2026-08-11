@@ -124,7 +124,7 @@ python3 ./build/tuya_openapi.py pairing-token --uid "ay..." --paring-type BLE \
 
 ## 注意事项
 
-- 配网 Token 有有效期（通常 100 秒），需在有效期内完成设备激活。
+- 配网 Token 有有效期，需在有效期内完成设备激活；可用 `tuya_openapi.py pairing-result --poll` 轮询确认结果（`--timeout` 默认 100 秒）。
 - `tuya_openapi.py` 使用 Python 标准库实现，无需安装额外依赖。
 - 实际产品中，OpenAPI 调用应在厂商自己的后台服务中完成，**不应将 Access
   Secret 暴露在客户端或设备端**。

@@ -65,7 +65,7 @@ typedef struct {
 typedef enum {
     OTA_STATUS_IDLE        = 0,  // 空闲
     OTA_STATUS_UPGRADING   = 1,  // 升级中（下载/烧写前）
-    OTA_STATUS_UPGRAD_FINI = 2,  // 升级成功（通常重启后回报）
+    OTA_STATUS_UPGRAD_FINI = 2,  // 升级成功（重启前回报）
     OTA_STATUS_UPGRD_EXEC  = 3,  // 升级失败
     OTA_STATUS_UPGRD_ABORT = 4,  // 升级中止
 } iot_ota_status_t;
@@ -109,6 +109,7 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 #include "iot_client.h"
 #include "iot_ota.h"
 #include "esp_app_desc.h"
+#include "esp_crt_bundle.h"
 
 const esp_app_desc_t *desc = esp_app_get_description();
 
@@ -122,7 +123,13 @@ iot_client_config_t iot_cfg = {
     .mqtt_auto_connect = false,
     /* 应用固件版本：init 时自动上报，供云端 OTA 比较（NULL 用 SDK 默认） */
     .sw_ver     = desc->version,
+    /* 公共 CA 证书包：ATOP HTTPS（版本上报/升级查询/状态回报）需要 */
+    .cert_bundle_attach = (tls_cert_bundle_attach_fn)esp_crt_bundle_attach,
 };
+
+/* iot_init(pal) 必须在 iot_client_init 前调用，否则 iot_client_init 返回 NULL */
+iot_init(tai_pal_freertos());
+
 iot_client_t *iot = iot_client_init(&iot_cfg);
 
 /* 查询升级（云端与 init 时上报的 sw_ver 比较，无需再传版本号） */

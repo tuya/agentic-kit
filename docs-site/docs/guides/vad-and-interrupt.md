@@ -41,19 +41,22 @@ void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *ud)
 
 ### 启用/配置云端 VAD
 
-通过 `session_attrs_json` 传入自定义会话属性 JSON。当前 SDK 只负责原样透传该字符串，具体字段含义和支持情况以平台侧配置为准：
+通过 `event_user_data_json` 传入 `chatAttributes`，该字符串会随每个 EventStart 包发送给云端。SDK 默认已启用云端 VAD（留空时使用内置默认值），如需自定义可覆盖：
 
 ```c
 tai_config_t cfg = {
     // ...
-    .session_attrs_json = "{\"vad_enable\":true,\"vad_silence_ms\":800}",
+    .event_user_data_json =
+        "{\"sys.workflow\":\"asr-llm-tts\","
+        "\"asr.enableVad\":true,"
+        "\"processing.interrupt\":true}",
 };
 ```
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `vad_enable` | bool | 是否启用云端 VAD |
-| `vad_silence_ms` | int | 静默判定时长（毫秒），默认约 800ms |
+| `asr.enableVad` | bool | 是否启用云端 VAD（默认 true） |
+| `processing.interrupt` | bool | 是否启用打断处理（默认 true） |
 
 ### 设备端 VAD 是否需要？
 
