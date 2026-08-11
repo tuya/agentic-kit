@@ -126,6 +126,9 @@ target_link_libraries(tai_text_chat_demo PRIVATE tuya_ai_tcp tuya_iot_client age
 add_executable(tai_edu_camera_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/edu_camera_demo.c")
 target_link_libraries(tai_edu_camera_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
 
+add_executable(tai_music_play_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/music_play_demo.c")
+target_link_libraries(tai_music_play_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
+
 add_executable(tai_mcp_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/mcp_demo.c")
 target_link_libraries(tai_mcp_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
 
