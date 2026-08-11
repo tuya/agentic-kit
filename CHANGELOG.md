@@ -32,6 +32,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Examples — the rtc-tcp-client POSIX demos share their parsing helpers.
+  - `demo_json.h` (JSON readers, base64, session-token parsing, bounded copy
+    into fixed-size config fields), `demo_text.h` (`tai_text_msg_t` handling
+    and stream reassembly) and `demo_mcp.h` (device-side MCP answering)
+    replace the copy of that code each of the five demos carried, alongside
+    the existing `demo_reconnect.h`.
+  - The shared JSON readers are string- and escape-aware: a `{`, `}`, `[`, `]`
+    or `"` inside a JSON string no longer terminates a span, and `\"`, `\/`
+    and `\uXXXX` (including surrogate pairs) decode instead of truncating the
+    value. A value that does not fit its buffer now reports failure rather than
+    being silently truncated, and `parse_token` names the field when that
+    happens — an empty `derived_client_id` / `agentToken` otherwise surfaced
+    only as an unexplained auth failure. An out-of-range port is rejected
+    instead of being truncated modulo 65536.
+  - The music demo leaves `session_attrs_json` / `event_user_data_json` NULL
+    instead of spelling out a subset of the built-in defaults. Setting either
+    replaces the default wholesale rather than merging, so the subset was
+    silently dropping `tts.order.supports`, `asr.enableVad`, `tts.alternate`
+    and `processing.interrupt`.
+
 - iot-client — `iot_get_qrcode_info` and `iot_get_ca_certificate` now write
   into caller-provided buffers (API break)(#10).
   - The single-field `iot_qrcode_response_t` struct is removed and both APIs
@@ -51,6 +71,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tuya-ble and common. Log-only — no behaviour change.
 
 ### Fixed
+
+- Examples — the tool-less rtc-tcp-client demos answer MCP requests correctly.
+  text_chat, audio_chat, edu_camera and music_play each answered every
+  `TAI_EVT_MCP_CMD` with one canned reply that hardcoded `"id":1` — JSON-RPC
+  correlates a response to its request by echoing the id — and always used the
+  `tools/call` result shape, so the `initialize` handshake and `tools/list`
+  were answered with the wrong body. Opting out is not an option: the SDK's
+  built-in default session attributes declare `deviceMcp.supportCustomMCP`, so
+  a device that passes no `session_attrs_json` is asked anyway.
+  - New `demo_mcp.h` answers as a device with an empty tool catalog: it echoes
+    the request id, returns the right result shape per method
+    (`initialize` / `tools/list` / `tools/call`), reports unknown methods as
+    JSON-RPC `-32601`, and stays silent for a request with no id, which is a
+    notification. Its `demo_mcp_copy_id()` also replaces `mcp_demo`'s local
+    copy, where an id too long for the buffer used to be spliced in truncated
+    — dropping its closing quote and producing unparseable JSON.
+  - `id` and `method` are read from the request's top-level members only: a
+    `tools/call` may carry an `"id"` of its own inside `params.arguments`,
+    which a document-order search finds first. An object or array id is
+    refused rather than spliced back unbalanced.
+  - `mcp_demo` implements real tools, and now stays silent for notifications
+    instead of answering `"id":null`.
+
+- Examples — text streams that cannot be reassembled are reported, not dropped
+  in silence. Each loss is counted in `demo_textbuf_t.dropped`, and
+  `music_play_demo` exits non-zero on it rather than reporting "no music skill
+  response" and exiting 0 for a run that lost its payload. A stream displaced by
+  a new `START` used to vanish without a word. A `seq` gap now warns and keeps
+  accumulating — the empty frames the SDK swallows consume a seq while carrying
+  no bytes, so continuing reassembles the right document where dropping loses a
+  healthy one; `-DDEMO_TEXT_SEQ_CHECK=2` drops instead, `=0` skips the check.
+
+- Examples — NLG prose is unescaped before printing. `nlg_print_content()`
+  decodes `\n` and `\uXXXX` (Chinese arrived on the terminal as escapes) and
+  claims the empty terminator line `{"content":""}`, which used to fall through
+  and dump a whole JSON envelope into the middle of the prose.
+
+- Examples — a value too long for a field that is only printed truncates
+  instead of being emptied: `music_play_demo` showed `Song: (unknown)` for a
+  title past 255 bytes and dropped long cover URLs entirely. Credentials still
+  reject. `parse_token` tells capacity apart from a wrong type and a bad escape,
+  and an audio URL that does not fit is a parse failure, not a success with no
+  URL.
+
+- Examples — out-of-bounds read on received text in the rtc-tcp-client demos.
+  `tai_text_msg_t.text` is a borrowed slice of the SDK receive buffer and is not
+  NUL-terminated, but the demos ran `strstr`/`strchr` over it — reading past
+  `msg->len` into the previous packet's bytes and, eventually, past the end of
+  the `tai_ctx_t` allocation. All text handling is now length-bounded or copies
+  the bytes out first. Reassembly also lets the music demo recognise a SKILL
+  response split across `TAI_STREAM_START`/`MIDDLE`/`END` — parsed per chunk
+  it never matched at all.
+
+- Examples — stack overflow from `argv` credentials in the rtc-tcp-client demos.
+  `devid` / `secret_key` / `local_key` were `memcpy`'d into
+  `iot_client_config_t`'s 32-byte fields with no length check, so an over-long
+  value overwrote the adjacent fields and ran past the end of the stack-local
+  config. All five demos now go through `demo_copy_field()`, which rejects a
+  value that does not fit.
 
 - iot-client — US region renamed to AZ(#7).
   - The IoT DNS region string and token prefix for the US West (Oregon) data

@@ -3,7 +3,7 @@
  *
  * Sends a text query that triggers the server's music skill, parses the
  * returned audio metadata (artist / album / song / url), prints it, and
- * downloads the mp3 trial clip via curl.
+ * downloads the mp3 trial clip with curl.
  *
  * Build:
  *   cmake -S examples/posix -B build -DAGENTIC_KIT_BUILD_EXAMPLES=ON
@@ -20,17 +20,19 @@
  */
 
 #include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
 
-#include "mbedtls/base64.h"
-
 #include "tuya_ai.h"
 #include "iot_client.h"
+#include "demo_json.h"
+#include "demo_mcp.h"
 #include "demo_reconnect.h"
+#include "demo_text.h"
 
 extern const pal_t *tai_pal_posix(void);
 
@@ -51,6 +53,8 @@ typedef struct {
     volatile int     music_state;    /* try_parse_music result: 0 none seen,
                                         1 parsed and printed, -1 unreadable  */
     char             music_url[1024];/* trial-clip URL, if any               */
+    demo_textbuf_t   text;           /* reassembles a chunked text stream    */
+    int              stream_printed; /* this stream already printed NLG prose */
     demo_reconnect_t reconn;
 } demo_ctx_t;
 
@@ -153,203 +157,6 @@ static void box_field(const char *label, const char *value)
 }
 
 /* -------------------------------------------------------------------------
- * Minimal JSON helpers
- * ------------------------------------------------------------------------- */
-
-static const char *json_find_value(const char *json, const char *key)
-{
-    if (!json || !key) return NULL;
-    char search[128];
-    snprintf(search, sizeof(search), "\"%s\"", key);
-    const char *p = strstr(json, search);
-    if (!p) return NULL;
-    p += strlen(search);
-    while (*p == ' ' || *p == ':' || *p == '\t') p++;
-    return p;
-}
-
-static int json_get_string(const char *json, const char *key,
-                           char *out, size_t cap)
-{
-    const char *p = json_find_value(json, key);
-    if (!p || *p != '\"') return -1;
-    p++;
-    const char *end = strchr(p, '\"');
-    if (!end) return -1;
-    size_t len = (size_t)(end - p);
-    if (len >= cap) len = cap - 1;
-    memcpy(out, p, len);
-    out[len] = '\0';
-    return 0;
-}
-
-static char *json_get_object_raw(const char *json, const char *key)
-{
-    const char *p = json_find_value(json, key);
-    if (!p || *p != '{') return NULL;
-    int depth = 0;
-    const char *start = p, *q = p;
-    while (*q) {
-        if (*q == '{') depth++;
-        else if (*q == '}' && --depth == 0) {
-            size_t len = (size_t)(q - start + 1);
-            char *obj = (char *)malloc(len + 1);
-            if (obj) { memcpy(obj, start, len); obj[len] = '\0'; }
-            return obj;
-        }
-        q++;
-    }
-    return NULL;
-}
-
-static char *json_get_array_raw(const char *json, const char *key)
-{
-    const char *p = json_find_value(json, key);
-    if (!p || *p != '[') return NULL;
-    int depth = 0;
-    const char *start = p, *q = p;
-    while (*q) {
-        if (*q == '[') depth++;
-        else if (*q == ']' && --depth == 0) {
-            size_t len = (size_t)(q - start + 1);
-            char *obj = (char *)malloc(len + 1);
-            if (obj) { memcpy(obj, start, len); obj[len] = '\0'; }
-            return obj;
-        }
-        q++;
-    }
-    return NULL;
-}
-
-static int json_array_first_string(const char *json, const char *key,
-                                   char *out, size_t cap)
-{
-    const char *p = json_find_value(json, key);
-    if (!p || *p != '[') return -1;
-    p++;
-    while (*p == ' ') p++;
-    if (*p != '\"') return -1;
-    p++;
-    const char *end = strchr(p, '\"');
-    if (!end) return -1;
-    size_t len = (size_t)(end - p);
-    if (len >= cap) len = cap - 1;
-    memcpy(out, p, len);
-    out[len] = '\0';
-    return 0;
-}
-
-/* -------------------------------------------------------------------------
- * Base64 + token parsing
- * ------------------------------------------------------------------------- */
-
-static char *b64_decode(const char *encoded, size_t *out_len)
-{
-    size_t elen = strlen(encoded);
-    size_t dlen = 0;
-    if (mbedtls_base64_decode(NULL, 0, &dlen,
-                               (const unsigned char *)encoded, elen)
-            != MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL)
-        return NULL;
-    char *out = (char *)malloc(dlen + 1);
-    if (!out) return NULL;
-    if (mbedtls_base64_decode((unsigned char *)out, dlen, &dlen,
-                               (const unsigned char *)encoded, elen) != 0) {
-        free(out);
-        return NULL;
-    }
-    out[dlen] = '\0';
-    if (out_len) *out_len = dlen;
-    return out;
-}
-
-typedef struct {
-    char     host[256];
-    char     tls_sni[256];
-    char     derived_client_id[256];
-    char     agent_token[256];
-    uint16_t port;
-    long     biz_code;
-    long     biz_tag;
-} tai_conn_params_t;
-
-static int parse_token(const char *raw_token, tai_conn_params_t *p)
-{
-    memset(p, 0, sizeof(*p));
-    char *json = NULL;
-    {
-        size_t dl = 0;
-        char *decoded = b64_decode(raw_token, &dl);
-        if (decoded && dl > 0 && decoded[0] == '{') {
-            json = decoded;
-        } else {
-            free(decoded);
-            json = strdup(raw_token);
-        }
-    }
-    if (!json) return -1;
-
-    char *conn = json_get_object_raw(json, "connect_conf");
-    if (!conn) { free(json); return -1; }
-    json_array_first_string(conn, "hosts",  p->host, sizeof(p->host));
-    if (json_array_first_string(conn, "domains", p->tls_sni, sizeof(p->tls_sni)) != 0)
-        strncpy(p->tls_sni, p->host, sizeof(p->tls_sni) - 1);
-
-    const char *pp = json_find_value(conn, "ecc_tls_port");
-    long port = 0;
-    if (pp) port = strtol(pp, NULL, 10);
-    p->port = (port > 0) ? (uint16_t)port : 443;
-
-    json_get_string(conn, "derived_client_id",
-                    p->derived_client_id, sizeof(p->derived_client_id));
-    free(conn);
-
-    char *sess = json_get_object_raw(json, "session_conf");
-    if (sess) {
-        json_get_string(sess, "agentToken",
-                        p->agent_token, sizeof(p->agent_token));
-        char *biz = json_get_object_raw(sess, "bizConfig");
-        if (biz) {
-            const char *bc = json_find_value(biz, "bizCode");
-            const char *bt = json_find_value(biz, "bizTag");
-            if (bc) p->biz_code = strtol(bc, NULL, 10);
-            if (bt) p->biz_tag  = strtol(bt, NULL, 10);
-            free(biz);
-        }
-        free(sess);
-    }
-    free(json);
-
-    if (p->host[0] == '\0') return -1;
-    return 0;
-}
-
-/* -------------------------------------------------------------------------
- * NLG content extraction (for clean streaming output)
- * ------------------------------------------------------------------------- */
-
-static const char *nlg_extract_content(const char *text, size_t len,
-                                       size_t *out_len)
-{
-    (void)len;
-    if (!strstr(text, "\"NLG\"") || !strstr(text, "\"content\""))
-        return NULL;
-
-    const char *p = strstr(text, "\"content\"");
-    if (!p) return NULL;
-    p = strchr(p, ':');
-    if (!p) return NULL;
-    p++;
-    while (*p == ' ' || *p == '\"') p++;
-
-    const char *end = strchr(p, '\"');
-    if (!end) return NULL;
-
-    *out_len = (size_t)(end - p);
-    return p;
-}
-
-/* -------------------------------------------------------------------------
  * Music response parsing
  *
  * A music SKILL response looks like:
@@ -369,7 +176,7 @@ static int is_music_response(const char *text)
     if (strstr(text, "\"code\":\"music\"")) return 1;
     if (!strstr(text, "music")) return 0;   /* cheap reject for NLG chatter */
 
-    char *data = json_get_object_raw(text, "data");
+    char *data = json_get_object(text, "data");
     char  code[32];
     int   music = data &&
                   json_get_string(data, "code", code, sizeof(code)) == 0 &&
@@ -385,27 +192,15 @@ static int is_music_response(const char *text)
 static int try_parse_music(const char *text, char *url_out, size_t url_cap)
 {
     int   rc      = -1;
-    char *general = json_get_object_raw(text, "general");
-    char *gdata   = general ? json_get_object_raw(general, "data") : NULL;
-    char *audios  = gdata   ? json_get_array_raw(gdata, "audios")  : NULL;
-    char *first   = NULL;
+    char *general = json_get_object(text, "general");
+    char *gdata   = general ? json_get_object(general, "data") : NULL;
+    char *audios  = gdata   ? json_get_array(gdata, "audios")  : NULL;
+    char *first   = audios  ? json_array_first_object(audios)  : NULL;
+    char  url[1024] = {0};
 
-    url_out[0] = '\0';
-    if (audios) {
-        const char *open = strchr(audios, '{');
-        if (open) {
-            int depth = 0;
-            for (const char *q = open; *q; q++) {
-                if (*q == '{') depth++;
-                else if (*q == '}' && --depth == 0) {
-                    size_t olen = (size_t)(q - open + 1);
-                    first = (char *)malloc(olen + 1);
-                    if (first) { memcpy(first, open, olen); first[olen] = '\0'; }
-                    break;
-                }
-            }
-        }
-    }
+    /* url_out is written only on success: a turn can carry several music
+     * frames, and a later play-state frame with no audios must not erase the
+     * URL an earlier one supplied. */
     if (!first) goto out;
 
     {
@@ -416,21 +211,30 @@ static int try_parse_music(const char *text, char *url_out, size_t url_cap)
         char audio_id[128]  = {0};
         char image_url[512] = {0};
 
-        json_get_string(first, "name",     name,      sizeof(name));
-        json_get_string(first, "artist",   artist,    sizeof(artist));
-        json_get_string(first, "album",    album,     sizeof(album));
-        json_get_string(first, "format",   format,    sizeof(format));
-        json_get_string(first, "audioId",  audio_id,  sizeof(audio_id));
-        json_get_string(first, "imageUrl", image_url, sizeof(image_url));
-        json_get_string(first, "url",      url_out,   url_cap);
+        /* These are printed and nothing else, so a value too long for its
+         * buffer is truncated. json_get_string() would empty it instead — the
+         * right call for a credential, but it turns a long compilation title
+         * into "(unknown)" and makes a long cover URL vanish outright. */
+        json_get_display_string(first, "name",     name,      sizeof(name));
+        json_get_display_string(first, "artist",   artist,    sizeof(artist));
+        json_get_display_string(first, "album",    album,     sizeof(album));
+        json_get_display_string(first, "format",   format,    sizeof(format));
+        json_get_display_string(first, "audioId",  audio_id,  sizeof(audio_id));
+        json_get_display_string(first, "imageUrl", image_url, sizeof(image_url));
 
-        /* A URL that cannot be downloaded is a parse failure, not "no URL". */
-        if (url_out[0] &&
-            strncmp(url_out, "http://", 7) != 0 &&
-            strncmp(url_out, "https://", 8) != 0) {
-            fprintf(stderr, "[text] rejecting non-http(s) audio URL\n");
-            url_out[0] = '\0';
-            goto out;
+        /* An unusable URL is a parse failure, not a silent "no URL". */
+        if (json_find_value(first, "url")) {
+            if (json_get_string(first, "url", url, sizeof(url)) != 0) {
+                fprintf(stderr, "[text] audio URL does not fit (%zu-byte buffer)\n",
+                        sizeof(url));
+                goto out;
+            }
+            if (url[0] &&
+                strncmp(url, "http://", 7) != 0 &&
+                strncmp(url, "https://", 8) != 0) {
+                fprintf(stderr, "[text] rejecting non-http(s) audio URL\n");
+                goto out;
+            }
         }
 
         printf("\n");
@@ -443,10 +247,21 @@ static int try_parse_music(const char *text, char *url_out, size_t url_cap)
         box_field("Format",  format[0]   ? format   : "?");
         box_field("AudioID", audio_id[0] ? audio_id : "?");
         box_rule();
-        if (url_out[0])   printf("  Audio : %s\n", url_out);
+        if (url[0])       printf("  Audio : %s\n", url);
         if (image_url[0]) printf("  Cover : %s\n", image_url);
         printf("\n");
 
+        if (url[0]) {
+            size_t ulen = strlen(url);
+            /* Reporting success while leaving url_out at whatever it held would
+             * make main() download a stale URL, or none, and call it a parse. */
+            if (ulen >= url_cap) {
+                fprintf(stderr, "[text] audio URL does not fit the caller's "
+                                "%zu-byte field\n", url_cap);
+                goto out;
+            }
+            memcpy(url_out, url, ulen + 1);
+        }
         rc = 1;
     }
 
@@ -462,31 +277,51 @@ out:
  * TAI callbacks
  * ------------------------------------------------------------------------- */
 
+/* Runs once per reassembled text stream. All callbacks arrive on the one SDK
+ * worker thread, so dc needs no locking. */
+static void handle_complete_text(demo_ctx_t *dc)
+{
+    if (is_music_response(dc->text.buf)) {
+        int rc = try_parse_music(dc->text.buf, dc->music_url,
+                                 sizeof(dc->music_url));
+        /* A turn can carry several music frames — a later one that carries no
+         * audios must not undo an earlier success. */
+        if (dc->music_state != 1) dc->music_state = rc;
+        return;
+    }
+
+    /* NLG prose already printed chunk-by-chunk; anything else is dumped raw
+     * once, as a whole document rather than as fragments. */
+    if (dc->stream_printed) return;
+
+    fwrite(dc->text.buf, 1, dc->text.len, stdout);
+    fputc('\n', stdout);
+    fflush(stdout);
+}
+
 static void on_text(tai_ctx_t *ctx, const tai_text_msg_t *msg, void *ud)
 {
     (void)ctx;
     demo_ctx_t *dc = (demo_ctx_t *)ud;
 
-    /* Try to parse as a music skill response. */
-    if (is_music_response(msg->text)) {
-        dc->music_state = try_parse_music(msg->text, dc->music_url,
-                                          sizeof(dc->music_url));
+    if (msg->stream_flag == TAI_STREAM_START ||
+        msg->stream_flag == TAI_STREAM_ONE_SHOT)
+        dc->stream_printed = 0;
+
+    /* NLG prose is one self-contained JSON line per chunk: print as it
+     * arrives. Bounded by msg->len — the slice carries no terminator. */
+    if (nlg_print_content(msg->text, msg->len))
+        dc->stream_printed = 1;   /* even an empty terminator line counts */
+
+    /* In parallel, reassemble: a SKILL response is one JSON document that can
+     * straddle chunk boundaries, so it is parsed only once the stream ends. */
+    int complete = demo_textbuf_accum(&dc->text, msg);
+    if (complete < 0) {
+        /* demo_textbuf_accum has already named the reason on stderr, and has
+         * counted the loss in dc->text.dropped, which main() reports on. */
         return;
     }
-
-    /* For NLG lines, print only the content field. */
-    size_t clen = 0;
-    const char *content = nlg_extract_content(msg->text, msg->len, &clen);
-    if (content && clen > 0) {
-        fwrite(content, 1, clen, stdout);
-        fflush(stdout);
-        return;
-    }
-
-    /* Non-NLG, non-music text: print raw. */
-    fwrite(msg->text, 1, msg->len, stdout);
-    fputc('\n', stdout);
-    fflush(stdout);
+    if (complete == 1) handle_complete_text(dc);
 }
 
 static void on_audio(tai_ctx_t *ctx, const tai_audio_msg_t *msg, void *ud)
@@ -498,12 +333,15 @@ static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *ud)
 {
     demo_ctx_t *dc = (demo_ctx_t *)ud;
     if (msg->event_type == TAI_EVT_END) {
+        /* The SDK drops empty text frames, so a stream ended by a bare
+         * zero-length END never completes in on_text. Backstop. */
+        if (demo_textbuf_flush(&dc->text))
+            handle_complete_text(dc);
         dc->got_done = 1;
     } else if (msg->event_type == TAI_EVT_MCP_CMD) {
-        const char *empty_result =
-            "{\"jsonrpc\":\"2.0\",\"id\":1,"
-            "\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"\"}]}}";
-        tai_send_mcp_response(ctx, empty_result);
+        /* No tools here, but MCP support is declared, so the server is still
+         * owed a well-formed answer. See demo_mcp.h. */
+        demo_mcp_reply_no_tools(ctx, msg);
     }
 }
 
@@ -570,20 +408,6 @@ static int download_mp3(const char *url, const char *outfile)
  * main
  * ------------------------------------------------------------------------- */
 
-/* iot_client_config_t's credential fields are fixed-size char arrays; a value
- * that does not fit is rejected rather than overflowing them. */
-static int cfg_set(char *dst, size_t cap, const char *src, const char *what)
-{
-    size_t n = strlen(src);
-    if (n >= cap) {
-        fprintf(stderr, "%s is too long (%zu bytes; max %zu)\n", what, n, cap - 1);
-        return -1;
-    }
-    memcpy(dst, src, n);
-    dst[n] = '\0';
-    return 0;
-}
-
 int main(int argc, char *argv[])
 {
     const char *query      = (argc >= 2) ? argv[1] : DEFAULT_QUERY;
@@ -596,7 +420,6 @@ int main(int argc, char *argv[])
     printf("Query     : %s\n", query);
 
     /* ---- 1. iot-sdk init ------------------------------------------------ */
-    iot_init_default();
     iot_client_config_t iot_cfg = {
         .devid            = {0},
         .secret_key       = {0},
@@ -609,10 +432,12 @@ int main(int argc, char *argv[])
         .schema_id        = NULL,
         .dp_state         = NULL,
     };
-    if (cfg_set((char *)iot_cfg.devid,      sizeof(iot_cfg.devid),      devid,      "devid")      != 0 ||
-        cfg_set((char *)iot_cfg.secret_key, sizeof(iot_cfg.secret_key), secret_key, "secret_key") != 0 ||
-        cfg_set((char *)iot_cfg.local_key,  sizeof(iot_cfg.local_key),  local_key,  "local_key")  != 0)
+    if (demo_copy_field(iot_cfg.devid,      sizeof(iot_cfg.devid),      devid,      "devid")      != 0 ||
+        demo_copy_field(iot_cfg.secret_key, sizeof(iot_cfg.secret_key), secret_key, "secret_key") != 0 ||
+        demo_copy_field(iot_cfg.local_key,  sizeof(iot_cfg.local_key),  local_key,  "local_key")  != 0)
         return 1;
+
+    iot_init_default();
 
     iot_client_t *iot = iot_client_init(&iot_cfg);
     if (!iot) { fprintf(stderr, "iot_client_init failed\n"); return 1; }
@@ -648,11 +473,12 @@ int main(int argc, char *argv[])
     demo_ctx_t dc;
     memset(&dc, 0, sizeof(dc));
 
-    static const char SESSION_ATTRS[] =
-        "{\"deviceMcp\":{\"supportCustomMCP\":true}}";
-    static const char EVENT_USER_DATA[] =
-        "{\"sys.workflow\":\"asr-llm-tts\"}";
-
+    /* session_attrs_json / event_user_data_json are left NULL: the SDK's
+     * built-in defaults already declare deviceMcp and the asr-llm-tts
+     * workflow. Setting either one REPLACES the default wholesale rather than
+     * merging into it, so spelling out only the keys this demo cares about
+     * would silently drop tts.order.supports, asr.enableVad, tts.alternate and
+     * processing.interrupt. */
     tai_config_t tai_cfg = {
         .host              = cp.host,
         .port              = cp.port,
@@ -665,8 +491,6 @@ int main(int argc, char *argv[])
         .biz_code          = (uint32_t)cp.biz_code,
         .biz_tag           = (uint64_t)cp.biz_tag,
         .agent_token       = cp.agent_token,
-        .session_attrs_json   = SESSION_ATTRS,
-        .event_user_data_json = EVENT_USER_DATA,
         .pal               = pal,
         .on_text           = on_text,
         .on_audio          = on_audio,
@@ -730,7 +554,10 @@ int main(int argc, char *argv[])
         } else {
             fprintf(stderr, "\n[main] disconnected (reason=%u code=%u)\n",
                     dc.reconn.reason, dc.reconn.close_code);
-            tai_disconnect(ctx);
+            tai_disconnect(ctx);   /* joins the worker: dc is ours again */
+            /* A half-received stream from the dead connection must not
+             * prefix the first stream of the new one. */
+            demo_textbuf_reset(&dc.text);
             if (demo_reconnect_tripped(&dc.reconn)) {
                 fprintf(stderr, "[main] circuit breaker: giving up after %d attempts\n",
                         dc.reconn.attempt);
@@ -756,6 +583,16 @@ cleanup:
 
     /* ---- 9. Download the trial clip ------------------------------------ */
     int failed = !dc.got_done;
+
+    /* A text stream the accumulator had to give up on may well have been the
+     * music response; reporting "no music skill response" and exiting 0 would
+     * hand a caller a success for a run that lost its payload. */
+    if (dc.text.dropped) {
+        fprintf(stderr, "[main] %u text stream(s) were dropped; the music "
+                        "response may have been among them\n", dc.text.dropped);
+        failed = 1;
+    }
+
     if (dc.music_url[0]) {
         if (download_mp3(dc.music_url, OUTPUT_FILE) != 0) failed = 1;
     } else if (dc.music_state < 0) {
@@ -766,6 +603,8 @@ cleanup:
     } else {
         printf("[main] music response carried no audio URL\n");
     }
+
+    demo_textbuf_free(&dc.text);
 
     printf("\nDone.\n");
     return failed ? 1 : 0;

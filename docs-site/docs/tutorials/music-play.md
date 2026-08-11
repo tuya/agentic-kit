@@ -1,7 +1,7 @@
 ---
 title: 音乐播放
 sidebar_label: 音乐播放
-sidebar_position: 4
+sidebar_position: 3
 ---
 
 # 音乐播放
@@ -187,24 +187,74 @@ AI 触发音乐技能后，会通过 `on_text` 回调返回结构化的 SKILL �
 }
 ```
 
-示例在 `on_text` 回调中检测 `"code":"music"`，然后逐层提取 `general.data.audios[0]` 中的歌曲字段：
+示例的 `on_text` 回调做两件事：NLG 文本逐片即时打印（保持流式体验），同时把所有分片累积起来，流结束后再解析 SKILL 结构：
 
 ```c
 static void on_text(tai_ctx_t *ctx, const tai_text_msg_t *msg, void *ud)
 {
-    if (strstr(msg->text, "\"code\":\"music\"")) {
-        try_parse_music(msg->text, msg->len);
-        dc->got_music = 1;
-        return;
-    }
-    /* NLG 文本：仅打印 content 字段 */
-    ...
+    demo_ctx_t *dc = (demo_ctx_t *)ud;
+
+    /* NLG 文本：每个分片自成一行 JSON，到达即打印（按 msg->len 截断，
+       并解码 \n / \" / \uXXXX 转义）。返回 1 表示这片是 NLG 且已处理，
+       包括 {"content":""} 这样的空结束片——它仍然是 NLG，不能再按原样打印 */
+    if (nlg_print_content(msg->text, msg->len))
+        dc->stream_printed = 1;
+
+    /* 同时累积整个流：SKILL 响应是一份 JSON，可能跨分片，拼完整才解析 */
+    if (demo_textbuf_accum(&dc->text, msg) == 1)
+        handle_complete_text(dc);   /* is_music_response → try_parse_music */
 }
 ```
 
+服务端可能不发独立的文本 END 分片（SDK 会丢弃空文本帧），因此 `on_event` 在收到 `TAI_EVT_END`（回合结束）时调用 `demo_textbuf_flush()` 兜底交付缓冲中的流。
+
+:::caution 两个必须注意的约束
+- **`msg->text` 没有 `\0` 结尾**。`tuya_ai.h` 中明确标注该指针借用自 SDK 接收缓冲区且非 NUL 结尾，对它直接调用 `strstr` / `strchr` / `strcmp` 会越过 `msg->len` 读到上一个数据包的残留字节。所有解析都必须先按 `msg->len` 把数据拷出来。
+- **文本按 `stream_flag` 分片下发**（`TAI_STREAM_START` / `MIDDLE` / `END`，或单个 `ONE_SHOT`）。只做打印的场景可以逐片处理，但解析 JSON 结构必须先重组整个流，否则 `"code":"music"` 与 `audios` 可能落在不同分片里。
+
+这两件事由 `demo_text.h` 的 `demo_textbuf_accum()` / `demo_textbuf_flush()` 统一处理；断线重连前用 `demo_textbuf_reset()` 丢弃旧连接的半截流。
+:::
+
+:::info 缓冲区只装一条流
+`demo_textbuf_t` 一次只重组一条文本流，也**无法**分离回合内交错的两条流——`tai_text_msg_t` 里没有可用于分路的字段：同一回合内所有文本包共享同一个 `event_id`（SDK 只 latch 一个回合 id，`TAI_EVT_END` 后清空）和同一个 `data_id`（`TAI_DATA_ID_TEXT_DOWN`）。
+
+能做的是**察觉**，分两种情况：
+
+**一条流被新流顶掉**——上一条流还没收到 END，就来了 `START` / `ONE_SHOT`。缓冲区只装一条流，旧的那条必然丢失，示例把它计入 `tb->dropped` 并打印告警，而不是无声丢弃：
+
+```
+[demo_text] a new stream started while 214 bytes of the previous one were still buffered: dropping those — ...
+```
+
+**`seq` 出现缺口**——`seq` 是回合内的文本包计数器，缺口说明有应用没看到的分片消耗了序号。但这个信号是**有歧义**的：SDK 自己会丢弃零长度文本帧（`tai_protocol.c` 的 `media_text()` 仅在 `payload_len > off` 时上抛），这类帧不携带任何字节，跨过它们拼出来的正是那份正确的文档；只有当缺失的分片属于另一条交错的流时，继续拼接才会把两份文档混在一起——而那种混合物随后会在 JSON 解析处被拒。因此默认策略是**打印告警后继续累积**：
+
+```
+[demo_text] text seq gap (11 -> 13): continuing — ...
+```
+
+若某个部署里交错才是更可能的原因，用 `-DDEMO_TEXT_SEQ_CHECK=2` 改为遇缺口即丢流；`-DDEMO_TEXT_SEQ_CHECK=0` 完全关掉该检查。
+
+无论哪种丢失，`demo_textbuf_t.dropped` 都会累加（`demo_textbuf_reset()` 不会清零它），示例在退出前据此判定成败——丢了流却报告"本次查询没有音乐响应"并返回 0，会让脚本把丢数据的运行当成成功。
+:::
+
+另外，`code` 字段要在 SKILL 信封的 `data` 对象里取，而不是在整份文档里取第一个匹配——外层常见的 `{"code":0,"msg":"ok","data":{"code":"music",...}}` 结构会让"取第一个 code"拿到状态码 `0`，从而静默丢弃这条音乐响应。
+
+## 公共辅助头文件
+
+`examples/posix/ai/rtc-tcp-client/` 下的五个示例共用三个头文件，避免各自复制一份解析代码：
+
+| 头文件 | 内容 |
+|--------|------|
+| `demo_json.h` | 极简 JSON 读取（字符串感知的括号配对、`\"` / `\/` / `\uXXXX` 转义解码）、Base64 解码、session token 解析、定长配置字段的有界拷贝 |
+| `demo_text.h` | `tai_text_msg_t` 的安全处理：按长度截断的查找、NLG 正文解码打印、文本流重组与丢流记账 |
+| `demo_mcp.h` | 设备端 MCP 应答：回显请求 `id`、按 method 返回正确形状；无工具设备用 `demo_mcp_reply_no_tools()` |
+| `demo_reconnect.h` | 应用侧重连策略（指数退避 + 熔断器） |
+
+`demo_json.h` 中的所有函数都要求传入 **以 `\0` 结尾** 的缓冲区；回调里的 `msg->text` / `msg->data` 需要先拷贝。
+
 ## NLG 文本输出
 
-非音乐响应的 NLG 文本（AI 的语音回复文字）会流式打印。示例从 JSON 中提取 `content` 字段，仅输出文本内容：
+非音乐响应的 NLG 文本（AI 的语音回复文字）会按文本流逐段打印。示例用 `nlg_print_content()` 从 JSON 中提取 `content` 字段，**解码其中的 JSON 转义**后仅输出文本内容——服务端常把中文写成 `\uXXXX`，不解码的话终端上看到的是 `你好` 而不是「你好」：
 
 ```
 Response: 正在为您播放周杰伦的歌
@@ -245,3 +295,4 @@ AI 音乐功能默认返回的是**试听版**歌曲，存在时长限制（通�
 - 当前示例仅解析并展示第一首歌曲信息；如需播放完整音频，请在设备端实现音频播放器。
 - 元数据展示框按**显示宽度**（中文字符占 2 列）对齐，而非字节数；过长的字段会在字符边界截断。
 - `on_audio` 回调在本示例中为空实现，不处理 TTS 音频数据。
+- 本示例声明了 MCP 支持但未实现任何工具，`on_event` 收到 `TAI_EVT_MCP_CMD` 时调用 `demo_mcp.h` 的 `demo_mcp_reply_no_tools()` 作答。注意 **SDK 的内置默认属性本来就打开 MCP**，所以不传 `session_attrs_json` 的设备同样会收到 MCP 请求，必须能正确应答。要实现真正的设备工具请参考 `mcp_demo.c`。
