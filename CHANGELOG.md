@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Examples — music play demo (`tai_music_play_demo`).
+  - New POSIX example `examples/posix/ai/rtc-tcp-client/music_play_demo.c` that
+    sends a text query triggering the server's music skill, parses the returned
+    audio metadata (artist / album / song / url), prints it, and downloads the
+    mp3 trial clip. Registered as the `tai_music_play_demo` target in
+    `examples/posix/CMakeLists.txt`.
+  - The trial clip is fetched with `fork` + `execvp`, never through a shell, so
+    the server-supplied URL is one argv element that cannot be read as a
+    command; only `http(s)` URLs are accepted. Credentials from `argv` are
+    length-checked before they reach `iot_client_config_t`'s 32-byte fields.
+  - `"code"` is read inside the SKILL envelope's `data` object — resolved
+    against the whole document, the common `{"code":0,…,"data":{"code":"music"}}`
+    shape would match the outer status code instead. The exit status reflects
+    the outcome: a music response that cannot be read, or a download that
+    fails, exits non-zero.
+  - The metadata box is padded by display column rather than by byte, so the
+    Chinese song titles this demo exists to show line up.
+  - User guide added at `docs-site/docs/tutorials/music-play.md`, including
+    copyright notes on trial-clip duration limits and NetEase Cloud Music
+    integration via the Tuya content server.
+
 ### Changed
 
 - iot-client — `iot_get_qrcode_info` and `iot_get_ca_certificate` now write

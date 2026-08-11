@@ -85,6 +85,7 @@ idf.py flash monitor
 ./build/tai_text_chat_demo                 # 文本对话
 ./build/tai_audio_chat_demo input.wav      # 语音对话（需 libopus；省略文件则发文字问候，WAV 须为单声道 16-bit）
 ./build/tai_edu_camera_demo res/test.jpg   # 拍照识物 + TTS
+./build/tai_music_play_demo                # 音乐播放（文本触发音乐技能，下载试听片段）
 ./build/tai_mcp_demo                       # 设备 MCP（initialize 握手 + 工具调用）
 
 # --- AI 实时交互：rtc-client（预编译库，stm_open API）---

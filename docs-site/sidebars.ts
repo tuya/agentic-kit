@@ -26,6 +26,7 @@ const sidebars: SidebarsConfig = {
           label: 'AI功能',
           items: [
             'tutorials/chat',
+            'tutorials/music-play',
             'tutorials/edu-camera',
           ],
         },
