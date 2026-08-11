@@ -31,11 +31,12 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "mbedtls/base64.h"
-
 #include "tuya_ai.h"
 #include "iot_client.h"
+#include "demo_json.h"
+#include "demo_mcp.h"
 #include "demo_reconnect.h"
+#include "demo_text.h"
 
 extern const pal_t *tai_pal_posix(void);
 
@@ -91,32 +92,8 @@ static int tool_control_device(const char *args_json, char *out, size_t out_cap)
     char action[32] = {0};
     char target[32] = {0};
 
-    const char *p = strstr(args_json ? args_json : "", "\"action\"");
-    if (p) {
-        p = strchr(p, ':');
-        if (p) {
-            p++;
-            while (*p == ' ' || *p == '\"') p++;
-            const char *end = strchr(p, '\"');
-            if (end && (size_t)(end - p) < sizeof(action)) {
-                memcpy(action, p, (size_t)(end - p));
-                action[end - p] = '\0';
-            }
-        }
-    }
-    p = strstr(args_json ? args_json : "", "\"target\"");
-    if (p) {
-        p = strchr(p, ':');
-        if (p) {
-            p++;
-            while (*p == ' ' || *p == '\"') p++;
-            const char *end = strchr(p, '\"');
-            if (end && (size_t)(end - p) < sizeof(target)) {
-                memcpy(target, p, (size_t)(end - p));
-                target[end - p] = '\0';
-            }
-        }
-    }
+    json_object_get_string(args_json ? args_json : "", "action", action, sizeof(action));
+    json_object_get_string(args_json ? args_json : "", "target", target, sizeof(target));
 
     if (action[0] == '\0' || target[0] == '\0') {
         return snprintf(out, out_cap,
@@ -155,192 +132,6 @@ static const mcp_tool_t *find_tool(const char *name)
         if (strcmp(k_tools[i].name, name) == 0) return &k_tools[i];
     }
     return NULL;
-}
-
-/* -------------------------------------------------------------------------
- * Minimal JSON helpers
- *
- * The TAI payload is JSON-RPC 2.0; we only need to pull out a few scalar
- * fields and pass tool arguments through to handlers.  No full parser
- * needed -- the existing examples in this folder use the same approach.
- * ------------------------------------------------------------------------- */
-
-static const char *json_find_value(const char *json, const char *key)
-{
-    if (!json || !key) return NULL;
-    char search[128];
-    snprintf(search, sizeof(search), "\"%s\"", key);
-    const char *p = strstr(json, search);
-    if (!p) return NULL;
-    p += strlen(search);
-    while (*p == ' ' || *p == ':' || *p == '\t') p++;
-    return p;
-}
-
-static int json_get_string(const char *json, const char *key,
-                           char *out, size_t cap)
-{
-    const char *p = json_find_value(json, key);
-    if (!p || *p != '\"') return -1;
-    p++;
-    const char *end = strchr(p, '\"');
-    if (!end) return -1;
-    size_t len = (size_t)(end - p);
-    if (len >= cap) len = cap - 1;
-    memcpy(out, p, len);
-    out[len] = '\0';
-    return 0;
-}
-
-/* Find a sub-object's raw text so we can hand it to a handler.  Returns
- * a freshly allocated string the caller must free. */
-static char *json_get_object_raw(const char *json, const char *key)
-{
-    const char *p = json_find_value(json, key);
-    if (!p || *p != '{') return NULL;
-    int depth = 0;
-    const char *start = p, *q = p;
-    while (*q) {
-        if (*q == '{') depth++;
-        else if (*q == '}' && --depth == 0) {
-            size_t len = (size_t)(q - start + 1);
-            char *obj = (char *)malloc(len + 1);
-            if (obj) { memcpy(obj, start, len); obj[len] = '\0'; }
-            return obj;
-        }
-        q++;
-    }
-    return NULL;
-}
-
-/* Copy the request's "id" token verbatim (number or quoted string). */
-static int copy_id(const char *request, char *out, size_t cap)
-{
-    const char *p = json_find_value(request, "id");
-    if (!p) {
-        if (cap > 0) out[0] = '\0';
-        return -1;
-    }
-    /* Skip the value: number (digits/-/./e/E) or quoted string. */
-    size_t n = 0;
-    if (*p == '\"') {
-        const char *end = strchr(p + 1, '\"');
-        if (!end) return -1;
-        n = (size_t)(end - p + 1);
-    } else {
-        const char *end = p;
-        while (*end && *end != ',' && *end != '}' &&
-               *end != ' '  && *end != '\n' && *end != '\r') end++;
-        n = (size_t)(end - p);
-    }
-    if (n + 1 > cap) n = cap - 1;
-    memcpy(out, p, n);
-    out[n] = '\0';
-    return 0;
-}
-
-/* -------------------------------------------------------------------------
- * Base64 + token parsing (mirrors the other rtc-tcp-client examples)
- * ------------------------------------------------------------------------- */
-
-static char *b64_decode(const char *encoded, size_t *out_len)
-{
-    size_t elen = strlen(encoded);
-    size_t dlen = 0;
-    if (mbedtls_base64_decode(NULL, 0, &dlen,
-                               (const unsigned char *)encoded, elen)
-            != MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL)
-        return NULL;
-    char *out = (char *)malloc(dlen + 1);
-    if (!out) return NULL;
-    if (mbedtls_base64_decode((unsigned char *)out, dlen, &dlen,
-                               (const unsigned char *)encoded, elen) != 0) {
-        free(out);
-        return NULL;
-    }
-    out[dlen] = '\0';
-    if (out_len) *out_len = dlen;
-    return out;
-}
-
-typedef struct {
-    char     host[256];
-    char     tls_sni[256];
-    char     derived_client_id[256];
-    char     agent_token[256];
-    uint16_t port;
-    long     biz_code;
-    long     biz_tag;
-} tai_conn_params_t;
-
-static int json_array_first_string(const char *json, const char *key,
-                                   char *out, size_t cap)
-{
-    const char *p = json_find_value(json, key);
-    if (!p || *p != '[') return -1;
-    p++;
-    while (*p == ' ') p++;
-    if (*p != '\"') return -1;
-    p++;
-    const char *end = strchr(p, '\"');
-    if (!end) return -1;
-    size_t len = (size_t)(end - p);
-    if (len >= cap) len = cap - 1;
-    memcpy(out, p, len);
-    out[len] = '\0';
-    return 0;
-}
-
-static int parse_token(const char *raw_token, tai_conn_params_t *p)
-{
-    memset(p, 0, sizeof(*p));
-    char *json = NULL;
-    {
-        size_t dl = 0;
-        char *decoded = b64_decode(raw_token, &dl);
-        if (decoded && dl > 0 && decoded[0] == '{') {
-            json = decoded;
-        } else {
-            free(decoded);
-            json = strdup(raw_token);
-        }
-    }
-    if (!json) return -1;
-
-    char *conn = json_get_object_raw(json, "connect_conf");
-    if (!conn) { free(json); return -1; }
-    json_array_first_string(conn, "hosts",  p->host, sizeof(p->host));
-    if (json_array_first_string(conn, "domains", p->tls_sni, sizeof(p->tls_sni)) != 0)
-        strncpy(p->tls_sni, p->host, sizeof(p->tls_sni) - 1);
-
-    /* crude numeric scan: look for "ecc_tls_port" : <digits> */
-    const char *pp = json_find_value(conn, "ecc_tls_port");
-    long port = 0;
-    if (pp) port = strtol(pp, NULL, 10);
-    p->port = (port > 0) ? (uint16_t)port : 443;
-
-    json_get_string(conn, "derived_client_id",
-                    p->derived_client_id, sizeof(p->derived_client_id));
-    free(conn);
-
-    char *sess = json_get_object_raw(json, "session_conf");
-    if (sess) {
-        json_get_string(sess, "agentToken",
-                        p->agent_token, sizeof(p->agent_token));
-        char *biz = json_get_object_raw(sess, "bizConfig");
-        if (biz) {
-            const char *bc = json_find_value(biz, "bizCode");
-            const char *bt = json_find_value(biz, "bizTag");
-            if (bc) p->biz_code = strtol(bc, NULL, 10);
-            if (bt) p->biz_tag  = strtol(bt, NULL, 10);
-            free(biz);
-        }
-        free(sess);
-    }
-    free(json);
-
-    if (p->host[0] == '\0') return -1;
-    return 0;
 }
 
 /* -------------------------------------------------------------------------
@@ -448,10 +239,23 @@ static void handle_mcp_request(tai_ctx_t *ctx, const char *payload, size_t len)
     memcpy(req, payload, len);
     req[len] = '\0';
 
-    char id[64] = "null";
+    /* Top-level id and method only: a tools/call's params.arguments may carry
+     * keys of the same name, and answering those is answering the wrong
+     * question. See demo_mcp.h. */
+    char id[64];
     char method[64] = {0};
-    copy_id(req, id, sizeof(id));
-    json_get_string(req, "method", method, sizeof(method));
+    int  have_id = (demo_mcp_copy_id(req, id, sizeof(id)) == 0);
+    json_object_get_string(req, "method", method, sizeof(method));
+
+    /* JSON-RPC 2.0 forbids a response to a notification, and an id that cannot
+     * be echoed verbatim leaves nothing to correlate on either way. */
+    if (!have_id) {
+        fprintf(stderr, "[MCP] <- method=\"%s\" with no usable id: "
+                        "notification, no response\n",
+                method[0] ? method : "(none)");
+        free(req);
+        return;
+    }
 
     fprintf(stderr, "[MCP] <- method=\"%s\" id=%s\n",
             method[0] ? method : "(none)", id);
@@ -464,10 +268,10 @@ static void handle_mcp_request(tai_ctx_t *ctx, const char *payload, size_t len)
     } else if (strcmp(method, "tools/list") == 0) {
         resp_len = build_tools_list_response(id, resp, sizeof(resp));
     } else if (strcmp(method, "tools/call") == 0) {
-        char *params = json_get_object_raw(req, "params");
+        char *params = json_object_get_object(req, "params");
         char name[64] = {0};
-        json_get_string(params ? params : "", "name", name, sizeof(name));
-        char *args = json_get_object_raw(params ? params : "", "arguments");
+        json_object_get_string(params ? params : "", "name", name, sizeof(name));
+        char *args = json_object_get_object(params ? params : "", "arguments");
         fprintf(stderr, "[MCP] tools/call: name=\"%s\" args=%s\n",
                 name, args ? args : "{}");
         resp_len = build_tools_call_response(id, name, args, resp, sizeof(resp));
@@ -494,42 +298,13 @@ static void handle_mcp_request(tai_ctx_t *ctx, const char *payload, size_t len)
  * TAI callbacks
  * ------------------------------------------------------------------------- */
 
-/* Extract data.content from an NLG JSON line.  Returns a pointer into
- * `text` (not a copy).  Returns NULL if the line is not NLG or
- * content is missing. */
-static const char *nlg_extract_content(const char *text, size_t len,
-                                       size_t *out_len)
-{
-    /* Quick guard: must contain "NLG" and "content" */
-    if (!strstr(text, "\"NLG\"") || !strstr(text, "\"content\""))
-        return NULL;
-
-    const char *p = strstr(text, "\"content\"");
-    if (!p) return NULL;
-    p = strchr(p, ':');
-    if (!p) return NULL;
-    p++;
-    while (*p == ' ' || *p == '\"') p++;
-
-    const char *end = strchr(p, '\"');
-    if (!end) return NULL;
-
-    *out_len = (size_t)(end - p);
-    return p;
-}
-
 static void on_text(tai_ctx_t *ctx, const tai_text_msg_t *msg, void *ud)
 {
     (void)ctx; (void)ud;
 
-    /* For NLG lines, print only the content field. */
-    size_t clen = 0;
-    const char *content = nlg_extract_content(msg->text, msg->len, &clen);
-    if (content && clen > 0) {
-        fwrite(content, 1, clen, stdout);
-        fflush(stdout);
-        return;
-    }
+    /* For NLG lines, print only the content field, escapes decoded. Handles the
+     * empty terminator line too — which is NLG, so it must not fall through. */
+    if (nlg_print_content(msg->text, msg->len)) return;
 
     /* Non-NLG text: print raw. */
     fwrite(msg->text, 1, msg->len, stdout);
@@ -590,9 +365,10 @@ int main(int argc, char *argv[])
         .mqtt_disable_tls = false,
         .message_callback = NULL,
     };
-    memcpy((char *)iot_cfg.devid,      devid,      strlen(devid));
-    memcpy((char *)iot_cfg.secret_key, secret_key, strlen(secret_key));
-    memcpy((char *)iot_cfg.local_key,  local_key,  strlen(local_key));
+    if (demo_copy_field((char *)iot_cfg.devid,      sizeof(iot_cfg.devid),      devid,      "devid")      != 0 ||
+        demo_copy_field((char *)iot_cfg.secret_key, sizeof(iot_cfg.secret_key), secret_key, "secret_key") != 0 ||
+        demo_copy_field((char *)iot_cfg.local_key,  sizeof(iot_cfg.local_key),  local_key,  "local_key")  != 0)
+        return 1;
 
     iot_client_t *iot = iot_client_init(&iot_cfg);
     if (!iot) { fprintf(stderr, "iot_client_init failed\n"); return 1; }

@@ -140,11 +140,23 @@ static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *ud)
 static void handle_mcp_request(tai_ctx_t *ctx,
                                const char *payload, size_t len)
 {
-    // 解析 method 和 id
-    char id[64] = "null";
+    // msg->data 借用自 SDK 接收缓冲区且没有 '\0' 结尾，而 demo_json.h
+    // 的所有函数都要求 NUL 结尾的缓冲区：先按 len 拷出一份
+    char *req = (char *)malloc(len + 1);
+    if (!req) return;
+    memcpy(req, payload, len);
+    req[len] = '\0';
+
+    // 解析 method 和 id —— 只取顶层成员：tools/call 的
+    // params.arguments 里可能自带 "id" / "method"，按文档顺序
+    // 搜索会先命中那一个，回显错的 id 会让服务端无法关联响应
+    char id[64];
     char method[64] = {0};
-    copy_id(payload, id, sizeof(id));
-    json_get_string(payload, "method", method, sizeof(method));
+    int  have_id = (demo_mcp_copy_id(req, id, sizeof(id)) == 0);
+    json_object_get_string(req, "method", method, sizeof(method));
+
+    // 没有 id 就是通知（notification），JSON-RPC 2.0 规定不得应答
+    if (!have_id) { free(req); return; }
 
     char resp[2048];
     int  resp_len = 0;
@@ -167,6 +179,7 @@ static void handle_mcp_request(tai_ctx_t *ctx,
     if (resp_len > 0) {
         tai_send_mcp_response(ctx, resp);
     }
+    free(req);
 }
 ```
 
@@ -283,7 +296,8 @@ static int tool_read_sensor(const char *args_json,
 ## 注意事项
 
 - 所有回调（包括 `TAI_EVT_MCP_CMD`）在后台接收线程中执行，工具函数应避免长时间阻塞
-- 响应的 `id` 必须与请求的 `id` 完全一致，否则云端无法匹配
+- 响应的 `id` 必须与请求的 `id` 完全一致，否则云端无法匹配。这里有两个容易踩的坑：一是 `id` 只能取**顶层**的那一个，`params.arguments` 里业务自带的 `id`（灯的 id、歌曲 id）会被"取第一个匹配"的写法先命中；二是 `id` 只能原样回填，截断一个带引号的 id 会丢掉右引号，把对象或数组形式的值截一半更会产生括号不配对的 JSON。`demo_mcp.h` 的 `demo_mcp_copy_id()` 两者都已处理
+- 请求里**没有** `id` 就是通知（notification），JSON-RPC 2.0 规定不得对其应答——包括不要回 `"id":null` 的错误响应
 - `tai_send_mcp_response()` 的参数是完整的 JSON-RPC 2.0 响应字符串（非 `result` 部分）
 - 工具输出中的双引号和反斜杠需要转义
 - 响应缓冲区大小需根据工具输出长度合理设置，避免截断

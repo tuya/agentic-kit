@@ -1,7 +1,7 @@
 ---
 title: 拍学机（图片理解）
 sidebar_label: 图片理解
-sidebar_position: 3
+sidebar_position: 4
 ---
 
 # 拍学机（图片理解）

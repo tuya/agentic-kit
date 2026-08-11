@@ -31,10 +31,10 @@
 #include <unistd.h>
 #include <sys/time.h>
 
-#include "mbedtls/base64.h"
-
 #include "tuya_ai.h"
 #include "iot_client.h"
+#include "demo_json.h"
+#include "demo_mcp.h"
 #include "demo_reconnect.h"
 
 extern const pal_t *tai_pal_posix(void);
@@ -120,10 +120,10 @@ static void on_event(tai_ctx_t *ctx,
             dc->audio_end_us = now_us();
         dc->got_done = 1;
     } else if (msg->event_type == TAI_EVT_MCP_CMD) {
-        const char *empty =
-            "{\"jsonrpc\":\"2.0\",\"id\":1,"
-            "\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"\"}]}}";
-        tai_send_mcp_response(ctx, empty);
+        /* This demo exposes no tools, but the SDK's default session attributes
+         * declare MCP support, so it still owes the server a well-formed
+         * answer. See demo_mcp.h. */
+        demo_mcp_reply_no_tools(ctx, msg);
     }
 }
 
@@ -147,174 +147,6 @@ static uint8_t detect_image_format(const uint8_t *data, size_t len)
         data[2] == 0x4E && data[3] == 0x47)
         return TAI_IMG_PNG;
     return TAI_IMG_JPEG;
-}
-
-/* -- Minimal JSON helpers (same pattern as iot_chat) --------------------- */
-
-static const char *json_find_value(const char *json, const char *key)
-{
-    if (!json || !key) return NULL;
-    char search[128];
-    snprintf(search, sizeof(search), "\"%s\"", key);
-    const char *p = strstr(json, search);
-    if (!p) return NULL;
-    p += strlen(search);
-    while (*p == ' ' || *p == ':' || *p == '\t') p++;
-    return p;
-}
-
-static int json_get_string(const char *json, const char *key,
-                           char *out, size_t cap)
-{
-    const char *p = json_find_value(json, key);
-    if (!p || *p != '"') return -1;
-    p++;
-    const char *end = strchr(p, '"');
-    if (!end) return -1;
-    size_t len = (size_t)(end - p);
-    if (len >= cap) len = cap - 1;
-    memcpy(out, p, len);
-    out[len] = '\0';
-    return 0;
-}
-
-static int json_get_long(const char *json, const char *key, long *out)
-{
-    const char *p = json_find_value(json, key);
-    if (!p) return -1;
-    if (*p != '-' && (*p < '0' || *p > '9')) return -1;
-    *out = strtol(p, NULL, 10);
-    return 0;
-}
-
-static int json_array_first_string(const char *json, const char *key,
-                                   char *out, size_t cap)
-{
-    const char *p = json_find_value(json, key);
-    if (!p || *p != '[') return -1;
-    p++;
-    while (*p == ' ') p++;
-    if (*p != '"') return -1;
-    p++;
-    const char *end = strchr(p, '"');
-    if (!end) return -1;
-    size_t len = (size_t)(end - p);
-    if (len >= cap) len = cap - 1;
-    memcpy(out, p, len);
-    out[len] = '\0';
-    return 0;
-}
-
-static char *json_get_object(const char *json, const char *key)
-{
-    const char *p = json_find_value(json, key);
-    if (!p || *p != '{') return NULL;
-    int depth = 0;
-    const char *start = p, *q = p;
-    while (*q) {
-        if (*q == '{') depth++;
-        else if (*q == '}' && --depth == 0) {
-            size_t len = (size_t)(q - start + 1);
-            char *obj = (char *)malloc(len + 1);
-            if (obj) { memcpy(obj, start, len); obj[len] = '\0'; }
-            return obj;
-        }
-        q++;
-    }
-    return NULL;
-}
-
-/* -- Base64 decode (OpenSSL EVP) ---------------------------------------- */
-
-static char *b64_decode(const char *encoded, size_t *out_len)
-{
-    size_t elen = strlen(encoded);
-    size_t dlen = 0;
-    if (mbedtls_base64_decode(NULL, 0, &dlen,
-                               (const unsigned char *)encoded, elen) != MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL)
-        return NULL;
-    char *out = (char *)malloc(dlen + 1);
-    if (!out) return NULL;
-    if (mbedtls_base64_decode((unsigned char *)out, dlen, &dlen,
-                               (const unsigned char *)encoded, elen) != 0) {
-        free(out);
-        return NULL;
-    }
-    out[dlen] = '\0';
-    if (out_len) *out_len = dlen;
-    return out;
-}
-
-/* -- Parse token -> TAI connection params ------------------------------- */
-
-typedef struct {
-    char     host[256];
-    char     tls_sni[256];
-    char     derived_client_id[256];
-    char     agent_token[256];
-    uint16_t port;
-    long     biz_code;
-    long     biz_tag;
-} tai_conn_params_t;
-
-static int parse_token(const char *raw_token, tai_conn_params_t *p)
-{
-    memset(p, 0, sizeof(*p));
-
-    char *json = NULL;
-    {
-        size_t  dl = 0;
-        char   *decoded = b64_decode(raw_token, &dl);
-        if (decoded && dl > 0 && decoded[0] == '{') {
-            json = decoded;
-        } else {
-            free(decoded);
-            json = strdup(raw_token);
-        }
-    }
-    if (!json) return -1;
-
-    char *conn = json_get_object(json, "connect_conf");
-    if (!conn) {
-        fprintf(stderr, "[parse_token] 'connect_conf' not found\n");
-        free(json);
-        return -1;
-    }
-
-    json_array_first_string(conn, "hosts", p->host, sizeof(p->host));
-
-    if (json_array_first_string(conn, "domains", p->tls_sni, sizeof(p->tls_sni)) != 0)
-        strncpy(p->tls_sni, p->host, sizeof(p->tls_sni) - 1);
-
-    long port = 0;
-    if (json_get_long(conn, "ecc_tls_port", &port) != 0)
-        json_get_long(conn, "tcpport", &port);
-    p->port = (port > 0) ? (uint16_t)port : 443;
-
-    json_get_string(conn, "derived_client_id",
-                    p->derived_client_id, sizeof(p->derived_client_id));
-    free(conn);
-
-    char *sess = json_get_object(json, "session_conf");
-    if (sess) {
-        json_get_string(sess, "agentToken",
-                        p->agent_token, sizeof(p->agent_token));
-        char *biz = json_get_object(sess, "bizConfig");
-        if (biz) {
-            json_get_long(biz, "bizCode", &p->biz_code);
-            json_get_long(biz, "bizTag",  &p->biz_tag);
-            free(biz);
-        }
-        free(sess);
-    }
-
-    free(json);
-
-    if (p->host[0] == '\0') {
-        fprintf(stderr, "[parse_token] Could not extract host\n");
-        return -1;
-    }
-    return 0;
 }
 
 /* -- main --------------------------------------------------------------- */
@@ -377,9 +209,10 @@ int main(int argc, char *argv[])
         .mqtt_disable_tls = false,
         .message_callback = NULL,
     };
-    memcpy((char *)iot_cfg.devid,      devid,      strlen(devid));
-    memcpy((char *)iot_cfg.secret_key, secret_key, strlen(secret_key));
-    memcpy((char *)iot_cfg.local_key,  local_key,  strlen(local_key));
+    if (demo_copy_field((char *)iot_cfg.devid,      sizeof(iot_cfg.devid),      devid,      "devid")      != 0 ||
+        demo_copy_field((char *)iot_cfg.secret_key, sizeof(iot_cfg.secret_key), secret_key, "secret_key") != 0 ||
+        demo_copy_field((char *)iot_cfg.local_key,  sizeof(iot_cfg.local_key),  local_key,  "local_key")  != 0)
+        return 1;
 
     iot_client_t *iot = iot_client_init(&iot_cfg);
     if (!iot) {
