@@ -109,6 +109,29 @@ static volatile int ota_confirm_cb_called = 0;
 static int ota_confirm_cb_channel = -1;
 static void *ota_confirm_cb_user_data = NULL;
 
+static volatile int ai_ctrl_cb_called = 0;
+static char ai_ctrl_cb_type[64] = {0};
+static char ai_ctrl_cb_data[256] = {0};
+
+static void test_ai_ctrl_callback(const char *type, const char *json_data,
+                                  size_t data_len, void *user_data)
+{
+    (void)user_data;
+    ai_ctrl_cb_called++;
+    snprintf(ai_ctrl_cb_type, sizeof(ai_ctrl_cb_type), "%s", type ? type : "");
+    size_t n = data_len < sizeof(ai_ctrl_cb_data) - 1
+                 ? data_len : sizeof(ai_ctrl_cb_data) - 1;
+    if (json_data && n > 0) memcpy(ai_ctrl_cb_data, json_data, n);
+    ai_ctrl_cb_data[n] = '\0';
+}
+
+static void reset_ai_ctrl_callback_state(void)
+{
+    ai_ctrl_cb_called = 0;
+    ai_ctrl_cb_type[0] = '\0';
+    ai_ctrl_cb_data[0] = '\0';
+}
+
 static void test_ota_confirm_callback(int channel, void *user_data)
 {
     ota_confirm_cb_called++;
@@ -1067,6 +1090,61 @@ out:
     return rc;
 }
 
+/* ---------- AI control dispatch on the decrypted MQTT receive path ---------- */
+
+static int test_encrypted_ai_control_message(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *client = (iot_client_t *)pal->malloc(sizeof(*client));
+    const char *envelope =
+        "{\"protocol\":9000,\"data\":{\"data\":{"
+        "\"type\":\"asrInterrupt\",\"data\":{\"eventId\":\"evt-mqtt\"}}}}";
+    int result = -1;
+
+    if (!client) return -1;
+    memset(client, 0, sizeof(*client));
+    client->pal = pal;
+    strncpy(client->devid, TEST_DEVID, sizeof(client->devid) - 1);
+    strncpy(client->secret_key, TEST_SECRET_KEY, sizeof(client->secret_key) - 1);
+    strncpy(client->local_key, TEST_LOCAL_KEY, sizeof(client->local_key) - 1);
+    snprintf(client->mqtt_url, sizeof(client->mqtt_url), "%s", TEST_MQTT_URL);
+    client->cacert = g_cacert;
+    client->message_callback = test_message_callback;
+    iot_ai_ctrl_set_callback(client, test_ai_ctrl_callback, NULL);
+    reset_callback_state();
+    reset_ai_ctrl_callback_state();
+
+    if (iot_client_message_connect(client) != OPRT_OK) goto out;
+    (void)wait_for_callback(client, 20);
+    reset_callback_state();
+
+    if (iot_client_message_publish(client, (const uint8_t *)envelope,
+                                   strlen(envelope)) != OPRT_OK) {
+        goto out;
+    }
+    for (int i = 0; i < 30 && ai_ctrl_cb_called == 0; i++) {
+        if (iot_client_message_process(client, 50) != OPRT_OK) goto out;
+    }
+
+    if (ai_ctrl_cb_called != 1) {
+        printf("  AI control callback count=%d\n", ai_ctrl_cb_called);
+    } else if (strcmp(ai_ctrl_cb_type, "asrInterrupt") != 0) {
+        printf("  AI control type=%s\n", ai_ctrl_cb_type);
+    } else if (!strstr(ai_ctrl_cb_data, "\"eventId\":\"evt-mqtt\"")) {
+        printf("  AI control data=%s\n", ai_ctrl_cb_data);
+    } else if (cb_called != 0) {
+        printf("  raw callback received consumed control message\n");
+    } else {
+        result = 0;
+    }
+
+out:
+    iot_client_message_disconnect(client);
+    client->cacert = NULL;
+    pal->free(client);
+    return result;
+}
+
 /* ---------- main ---------- */
 
 int main(void)
@@ -1103,6 +1181,7 @@ int main(void)
     /* Success tests */
     RUN_TEST(test_raw_message);
     RUN_TEST(test_encrypted_message);
+    RUN_TEST(test_encrypted_ai_control_message);
 
     /* Failure tests */
     RUN_TEST(test_invalid_format_message);
