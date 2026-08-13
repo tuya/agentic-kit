@@ -160,6 +160,7 @@ set(IOT_CLIENT_SOURCES
     "${IOT_CLIENT_DIR}/src/atop_base.c"
     "${IOT_CLIENT_DIR}/src/cipher_wrapper.c"
     "${IOT_CLIENT_DIR}/src/http_client_interface.c"
+    "${IOT_CLIENT_DIR}/src/iot_ai_ctrl.c"
     "${IOT_CLIENT_DIR}/src/iot_client.c"
     "${IOT_CLIENT_DIR}/src/iot_client_message.c"
     "${IOT_CLIENT_DIR}/src/iot_dns.c"
@@ -290,6 +291,7 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     agentic_kit_add_iot_test(iot_message_test "${IOT_CLIENT_TESTS_DIR}/iot_client_message_test.c")
     agentic_kit_add_iot_test(iot_on_boarding_test "${IOT_CLIENT_TESTS_DIR}/on_boarding_test.c")
     agentic_kit_add_iot_test(iot_dp_test "${IOT_CLIENT_TESTS_DIR}/iot_dp_test.c")
+    agentic_kit_add_iot_test(iot_ai_ctrl_test "${IOT_CLIENT_TESTS_DIR}/iot_ai_ctrl_test.c")
     agentic_kit_add_iot_test(iot_ota_test "${IOT_CLIENT_TESTS_DIR}/iot_ota_test.c")
 
     add_executable(tuya_ble_test

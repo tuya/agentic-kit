@@ -83,6 +83,21 @@ typedef void (*iot_message_callback_t)(const char *topic, size_t topic_len,
                                        const uint8_t *data, size_t data_len);
 
 /**
+ * @brief Callback for AI control messages delivered via MQTT protocol 9000.
+ *
+ * Fires on the MQTT pump thread (the thread calling iot_client_process()).
+ *
+ * @param type      Event type string (e.g. "asrInterrupt"). Borrowed; valid only
+ *                  for the call's duration.
+ * @param json_data The inner data object serialized as JSON. Borrowed; copy to
+ *                  retain. May be NULL / zero-length if absent.
+ * @param data_len  Length of json_data in bytes.
+ * @param user_data Caller-provided opaque pointer.
+ */
+typedef void (*ai_ctrl_callback_t)(const char *type, const char *json_data,
+                                    size_t data_len, void *user_data);
+
+/**
  * @brief IoT client configuration structure
  */
 typedef struct {
@@ -158,6 +173,9 @@ struct iot_dp_context;
     struct mqtt_client *mqtt;     // Internal MQTT client handle
     iot_message_callback_t message_callback;  // User callback for incoming messages
 
+    ai_ctrl_callback_t ai_ctrl_callback;  // AI control callback (MQTT protocol 9000)
+    void              *ai_ctrl_user_data; // User data for ai_ctrl_callback
+
     struct iot_dp_context *dp;    // DP layer state; points into dp_storage, NULL when inactive
     void *dp_storage[IOT_DP_CONTEXT_STORAGE / sizeof(void *)]; // inline storage for *dp (no heap)
  } iot_client_t;
@@ -230,6 +248,21 @@ IOT_API int iot_client_process(iot_client_t *client, uint32_t timeout_ms);
  * @return OPRT_OK on success, OPRT_INVALID_PARAMETER if client is NULL
  */
 IOT_API int iot_client_publish(iot_client_t *client, const uint8_t *data, size_t data_len);
+
+/**
+ * @brief Register a callback for AI control messages (MQTT protocol 9000).
+ *
+ * When an MQTT message with protocol=9000 arrives, the inner data.data.type
+ * and data.data.data JSON are extracted and delivered to @p cb on the thread
+ * calling iot_client_process(). Passing NULL deregisters.
+ *
+ * @param client    IoT client instance
+ * @param cb        Callback (NULL to deregister)
+ * @param user_data Opaque pointer passed to the callback
+ * @return OPRT_OK on success, OPRT_INVALID_PARAMETER if client is NULL
+ */
+IOT_API int iot_ai_ctrl_set_callback(iot_client_t *client,
+                                      ai_ctrl_callback_t cb, void *user_data);
 
 /**
  * @brief Get AI agent session token from Tuya cloud.

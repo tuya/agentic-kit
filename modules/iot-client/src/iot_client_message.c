@@ -3,6 +3,7 @@
 #include "cipher_wrapper.h"
 #include "iot_config_defaults.h"
 #include "iot_dp_internal.h"
+#include "iot_ai_ctrl.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -25,9 +26,12 @@ static void mqtt_message_handler(const char *topic, size_t topic_len,
                            (const uint8_t *)client->local_key,
                            decrypted, &decrypted_len);
     if (ret == 0 && decrypted_len > 0) {
-        /* Offer the plaintext to the DP layer first; if it does not consume it,
+        /* Offer the plaintext to the AI control dispatcher (protocol 9000)
+         * first, then the DP layer (protocol 5); if neither consumes it,
          * forward to the user's raw message callback (backward compatible). */
-        if (!iot_dp_dispatch_downlink(client, topic, topic_len, decrypted, decrypted_len)
+        if (iot_ai_ctrl_dispatch(client, decrypted, decrypted_len)) {
+            /* consumed by AI control channel */
+        } else if (!iot_dp_dispatch_downlink(client, topic, topic_len, decrypted, decrypted_len)
             && client->message_callback) {
             client->message_callback(topic, topic_len, decrypted, decrypted_len);
         }

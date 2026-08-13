@@ -83,6 +83,15 @@ A client-sent Event (`TAI_EVT_CHAT_BREAK`) that interrupts the server's in-progr
 response. Sent standalone, not part of an Event's normal lifecycle.
 _Avoid_: cancel, stop, abort.
 
+**Server-initiated interrupt (asrInterrupt)**:
+A server-sent notification that the user has started speaking during an AI response,
+so the device should stop audio playback. Delivered via two independent paths:
+(1) `TAI_EVT_CHAT_BREAK` on the TCP data channel (this module), and (2) MQTT
+protocol 9000 on the IoT Client's MQTT connection (`ai_ctrl_callback`). The MQTT
+path arrives immediately regardless of TCP congestion; the TCP path is a fallback.
+See `spec/mqtt-control-channel-plan.md`.
+_Avoid_: cancel, abort (those are the client-side chat-break terms).
+
 **Server VAD**:
 A server-sent Event (`TAI_EVT_SERVER_VAD`) signalling that voice-activity detection found
 the end of the user's speech in audio mode.

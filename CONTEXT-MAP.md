@@ -18,6 +18,10 @@ and decisions.
 
 - **IoT Client → RTC TCP Client**: the IoT Client obtains an AI session token
   (`iot_client_get_session_token`) that the RTC client uses to open a Session.
+  The IoT Client also delivers server-initiated AI interrupts (e.g. `asrInterrupt`)
+  via MQTT protocol 9000 to a registered `ai_ctrl_callback` — a standalone control
+  channel independent of the TCP data stream's congestion state (see
+  `spec/mqtt-control-channel-plan.md`).
 - **Tuya BLE → IoT Client**: BLE provisioning runs first and hands the device its WiFi
   credentials (incl. the pairing token); once on WiFi, the IoT Client uses them to activate
   against the cloud.
