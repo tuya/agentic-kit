@@ -43,6 +43,13 @@ _Avoid_: publish (that is the transport verb), sync, send.
 A cloud→device message that sets DP values.
 _Avoid_: command, control, write.
 
+**AI control notice**:
+An authenticated MQTT protocol-9000 business message delivered through
+`ai_ctrl_callback_t`, independently of the RTC TCP Connection. The IoT Client
+validates and exposes the notice; the application owns playback interruption,
+Event correlation, and any TAI action.
+_Avoid_: DP set, TAI Event, injected callback.
+
 **Activation** (on-boarding):
 First-time provisioning that authenticates the device and returns its credentials
 (devid / secret_key / local_key) together with its schema and schema id.

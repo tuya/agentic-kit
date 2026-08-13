@@ -89,6 +89,14 @@ uplink open. The current cloud no longer sends `TAI_EVT_SERVER_VAD`; a device mu
 an inbound ChatBreak as the turn boundary.
 _Avoid_: cancel, stop, abort.
 
+**Server-initiated interrupt**:
+An application concern delivered independently from the media Connection: either an inbound
+ChatBreak Event on this context or an authenticated MQTT protocol-9000 AI control notice from
+the IoT Client. Applications route both paths into one playback policy; this module does not
+receive or inject the MQTT notice. The independent path remains available while receive
+backpressure intentionally stops this Connection.
+_Avoid_: MQTT Event, TAI injection, acknowledgement.
+
 **Server VAD**:
 A server-sent Event (`TAI_EVT_SERVER_VAD`) signalling that voice-activity detection found
 the end of the user's speech in audio mode. **Legacy**: the current cloud signals the

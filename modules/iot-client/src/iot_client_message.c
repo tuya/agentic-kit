@@ -3,6 +3,7 @@
 #include "cipher_wrapper.h"
 #include "iot_internal.h"
 #include "iot_dp_internal.h"
+#include "iot_ai_ctrl.h"
 #include "cJSON.h"
 
 #include <string.h>
@@ -33,6 +34,8 @@ static void mqtt_message_handler(const char *topic, size_t topic_len,
             /* consumed: reset notices never reach the DP layer or raw callback */
         } else if (iot_client_message_handle_ota_confirm(client, decrypted, decrypted_len)) {
             /* consumed: APP-confirmed OTA notices never reach the DP/raw path */
+        } else if (iot_ai_ctrl_dispatch(client, decrypted, decrypted_len)) {
+            /* consumed: AI control notices never reach the DP/raw path */
         } else if (!iot_dp_dispatch_downlink(client, topic, topic_len, decrypted, decrypted_len)
             && client->message_callback) {
             client->message_callback(topic, topic_len, decrypted, decrypted_len);
