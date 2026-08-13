@@ -221,7 +221,7 @@ int atop_activate_request(const pal_t *pal, const activite_request_t *request, a
                                         .path = "/d.json",
                                         .timestamp = timestamp,
                                         .api = "thing.device.opensdk.active",
-                                        .version = "1.0",
+                                        .version = "2.0",
                                         .data = (void *)buffer,
                                         .datalen = offset,
                                         .user_data = request->user_data,

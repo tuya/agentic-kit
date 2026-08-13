@@ -167,6 +167,7 @@ static esp_err_t activate_device_with_ble_token(void)
         .timeout_ms = 120000,
         .env = PROD,
         .mqtt_disable_tls = false,
+        .mqtt_auto_connect = true,
         .cert_bundle_attach = (tls_cert_bundle_attach_fn)esp_crt_bundle_attach,
     };
 
