@@ -368,6 +368,27 @@ void iot_dns_ca_cert_response_free(const pal_t *pal, iot_dns_ca_cert_response_t 
     }
 }
 
+/* The wire spelling of a region for POST /v2/url_config. It is NOT the enum's
+ * own name: the service answers an unrecognised region with HTTP 200 and a body
+ * that simply omits the endpoint objects, so "UEAZ"/"WEAZ" (the enum spelling)
+ * resolved nothing at all and left mqtt_url empty with no error anywhere.
+ *
+ * The accepted set is the two-letter activation-token prefixes, so this must
+ * stay the exact inverse of __token_to_region() in iot_on_boarding.c. */
+const char *iot_region_to_string(iot_region_t region)
+{
+    switch (region) {
+        case AY:   return "AY";
+        case AZ:   return "AZ";
+        case UEAZ: return "UE";
+        case EU:   return "EU";
+        case WEAZ: return "WE";
+        case IN:   return "IN";
+        case SG:   return "SG";
+        default:   return NULL;
+    }
+}
+
 char *iot_region_to_host(iot_region_t region, iot_env_t env)
 {
     switch (env) {

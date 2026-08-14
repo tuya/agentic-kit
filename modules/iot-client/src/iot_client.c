@@ -32,20 +32,6 @@ static const char *iot_env_to_string(iot_env_t env)
     return env == PRE ? "pre" : "prod";
 }
 
-static const char *iot_region_to_string(iot_region_t region)
-{
-    switch (region) {
-        case AY:   return "AY";
-        case AZ:   return "AZ";
-        case UEAZ: return "UEAZ";
-        case EU:   return "EU";
-        case WEAZ: return "WEAZ";
-        case IN:   return "IN";
-        case SG:   return "SG";
-        default:   return NULL;
-    }
-}
-
 static int parse_host_port(const char *url, char *host_out, size_t host_len, uint16_t *port_out)
 {
     const char *p = url;
@@ -103,10 +89,11 @@ void iot_client_resolve_atop_host(iot_client_t *client, char *host_out, size_t h
 
 static int iot_client_dns_resolve(iot_client_t *client)
 {
-    const char *mqtt_dns_key = client->mqtt_disable_tls ? "mqttUrl" : "mqttsUrl";
+    const char *mqtt_dns_key = client->mqtt_disable_tls ? IOT_DNS_KEY_MQTT
+                                                        : IOT_DNS_KEY_MQTTS;
     iot_dns_config_item_t dns_keys[] = {
         { .key = mqtt_dns_key },
-        { .key = "httpsUrl" },
+        { .key = IOT_DNS_KEY_HTTPS },
     };
     iot_dns_url_config_request_t dns_req = {
         .cacert = client->cacert,
@@ -138,18 +125,32 @@ static int iot_client_dns_resolve(iot_client_t *client)
             } else {
                 log_info("IoT DNS %s: %s", mqtt_dns_key, client->mqtt_url);
             }
-        } else if (strcmp(dns_resp.endpoints[i].key, "httpsUrl") == 0) {
+        } else if (strcmp(dns_resp.endpoints[i].key, IOT_DNS_KEY_HTTPS) == 0) {
             const char *addr = dns_resp.endpoints[i].addr;
             int sn = snprintf(client->https_url, sizeof(client->https_url), "%s", addr);
             if (sn < 0 || (size_t)sn >= sizeof(client->https_url)) {
                 client->https_url[0] = '\0';
-                log_warn("IoT DNS httpsUrl too long, ignored");
+                log_warn("IoT DNS %s too long, ignored", IOT_DNS_KEY_HTTPS);
             } else {
-                log_info("IoT DNS httpsUrl: %s", client->https_url);
+                log_info("IoT DNS %s: %s", IOT_DNS_KEY_HTTPS, client->https_url);
             }
         }
     }
     iot_dns_url_config_response_free(client->pal, &dns_resp);
+
+    /* A key we asked for but did not get back is not an HTTP error: the service
+     * answers 200 with ttl/caArr and simply omits the endpoint object (that is
+     * how an unknown `region` presents). Say so here, or the only symptom is a
+     * refused MQTT connect several layers away, with nothing pointing back. */
+    if (client->mqtt_url[0] == '\0') {
+        log_warn("IoT DNS returned no %s for region=%s env=%s — MQTT stays unresolved",
+                 mqtt_dns_key, dns_req.region ? dns_req.region : "(unset)", dns_req.env);
+    }
+    if (client->https_url[0] == '\0') {
+        log_warn("IoT DNS returned no %s for region=%s env=%s — falling back to %s",
+                 IOT_DNS_KEY_HTTPS, dns_req.region ? dns_req.region : "(unset)",
+                 dns_req.env, iot_region_to_host(client->region, client->env));
+    }
 
     return OPRT_OK;
 }
@@ -596,7 +597,7 @@ IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, char *url, 
     }
 
     iot_dns_config_item_t dns_keys[] = {
-        { .key = "httpsUrl" },
+        { .key = IOT_DNS_KEY_HTTPS },
     };
     iot_dns_url_config_request_t dns_req = {
         .cacert       = request->cacert,
@@ -619,7 +620,7 @@ IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, char *url, 
     char host[64] = {0};
     uint16_t port = IOT_DEFAULT_PORT;
     for (int i = 0; i < dns_resp.endpoint_count; i++) {
-        if (strcmp(dns_resp.endpoints[i].key, "httpsUrl") == 0) {
+        if (strcmp(dns_resp.endpoints[i].key, IOT_DNS_KEY_HTTPS) == 0) {
             parse_host_port(dns_resp.endpoints[i].addr, host, sizeof(host), &port);
             break;
         }
@@ -627,7 +628,7 @@ IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, char *url, 
     iot_dns_url_config_response_free(pal, &dns_resp);
 
     if (host[0] == '\0') {
-        log_error("iot_get_qrcode_info: httpsUrl not found in DNS response");
+        log_error("iot_get_qrcode_info: %s not found in DNS response", IOT_DNS_KEY_HTTPS);
         return OPRT_COMMUNICATION_ERROR;
     }
 

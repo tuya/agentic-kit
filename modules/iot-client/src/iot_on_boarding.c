@@ -542,7 +542,8 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
 
 
     // Query MQTT endpoint from IoT DNS service
-    const char *mqtt_dns_key = on_boarding->mqtt_disable_tls ? "mqttUrl" : "mqttsUrl";
+    const char *mqtt_dns_key = on_boarding->mqtt_disable_tls ? IOT_DNS_KEY_MQTT
+                                                            : IOT_DNS_KEY_MQTTS;
     iot_dns_config_item_t dns_keys[] = {
         { .key = mqtt_dns_key, .need_ca = !on_boarding->mqtt_disable_tls },
     };
