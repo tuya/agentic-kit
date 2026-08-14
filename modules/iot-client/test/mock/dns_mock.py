@@ -74,6 +74,17 @@ URL_CONFIG_ENDPOINTS = {
         "addr": f"127.0.0.1:{os.getenv('ONBOARDING_MQTT_MOCK_PORT', '11884')}",
         "ips": ["127.0.0.1"],
     },
+    # The Std generation the real service also publishes. Not what the SDK asks
+    # for (see IOT_DNS_KEY_* in iot_dns.h), but served here so a build that
+    # switches to it still resolves against this fixture.
+    "mqttsStdUrl": {
+        "addr": f"127.0.0.1:{os.getenv('ONBOARDING_MQTT_MOCK_PORT', '11884')}",
+        "ips": ["127.0.0.1"],
+    },
+    "httpsStdUrl": {
+        "addr": "https://a1-test.example.com/d.json",
+        "ips": ["10.0.0.1", "10.0.0.2"],
+    },
 }
 
 

@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Examples — music play demo (`tai_music_play_demo`).
+- Examples — music play demo (`tai_music_play_demo`)(#15).
   - New POSIX example `examples/posix/ai/rtc-tcp-client/music_play_demo.c` that
     sends a text query triggering the server's music skill, parses the returned
     audio metadata (artist / album / song / url), prints it, and downloads the
@@ -71,6 +71,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tuya-ble and common. Log-only — no behaviour change.
 
 ### Fixed
+
+- iot-client — US-East (`UEAZ`) and West-Europe (`WEAZ`) never resolved an MQTT
+  broker(#15). `iot_region_to_string()` sent the enum name as the `region` field
+  of `POST /v2/url_config`, but the service knows those two by their two-letter
+  activation-token prefix, `UE` and `WE`. The other five regions were correct.
+  - It failed silently: an unknown region is answered with HTTP 200 minus the
+    endpoint objects, so the query returned `OPRT_OK` and `mqtt_url` stayed empty
+    with no log line, surfacing only as a refused MQTT connect. A missing
+    endpoint now warns — which is also how the one remaining gap shows up:
+    West-Europe publishes no `httpsUrl`, so ATOP there still falls back to the
+    compile-time `IOT_WEAZ_HOST`.
+  - The queried keys are now `IOT_DNS_KEY_*` constants in `iot_dns.h` rather than
+    literals repeated across the three query sites, each of which also has to
+    compare the key back against the response.
+  - `iot_region_to_string()` moved to `iot_dns.c` beside `iot_region_to_host()`,
+    and `dns_test.c` pins the table as the inverse of `__token_to_region()` in
+    `iot_on_boarding.c` — those drifting apart is what caused this.
 
 - Examples — the tool-less rtc-tcp-client demos answer MCP requests correctly.
   text_chat, audio_chat, edu_camera and music_play each answered every

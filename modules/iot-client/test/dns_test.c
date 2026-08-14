@@ -132,6 +132,43 @@ static int test_region_to_host_prod_mapping(void)
     return OPRT_OK;
 }
 
+/* The `region` field of POST /v2/url_config must carry the code the service
+ * knows, which is the two-letter activation-token prefix — NOT the enum's own
+ * name. Sending the enum spelling ("UEAZ"/"WEAZ") is answered with HTTP 200 and
+ * a body carrying ttl/caArr but no endpoint objects, so the query "succeeds"
+ * while resolving nothing and mqtt_url stays empty (regression: US-East and
+ * West-Europe devices never reached the MQTT connect at all).
+ *
+ * Keep this table identical to __token_to_region() in iot_on_boarding.c: the two
+ * are inverses, and it was them drifting apart that produced the bug. */
+static int test_region_to_string_wire_codes(void)
+{
+    static const struct { iot_region_t region; const char *code; } cases[] = {
+        { AY,   "AY" },
+        { AZ,   "AZ" },
+        { UEAZ, "UE" },
+        { EU,   "EU" },
+        { WEAZ, "WE" },
+        { IN,   "IN" },
+        { SG,   "SG" },
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        const char *code = iot_region_to_string(cases[i].region);
+        if (!code || strcmp(code, cases[i].code) != 0) {
+            printf("  region %d: expected \"%s\", got \"%s\"\n",
+                   (int)cases[i].region, cases[i].code, code ? code : "(null)");
+            return -1;
+        }
+    }
+    if (iot_region_to_string((iot_region_t)999) != NULL) {
+        printf("  an unknown region must map to NULL, not a wrong code\n");
+        return -1;
+    }
+    printf("  all %zu regions map to their wire code\n",
+           sizeof(cases) / sizeof(cases[0]));
+    return OPRT_OK;
+}
+
 /* ========== Parameter validation tests ========== */
 
 static int test_dns_query_null_params(void)
@@ -515,6 +552,64 @@ static int test_dns_query_multiple(void)
 
 /* ========== v2/url_config tests ========== */
 
+/* The keys the SDK itself asks for must resolve. Requesting a key the service
+ * does not publish is not an error: the response comes back 200 with the
+ * endpoint object simply absent, so a typo'd or stale key resolves nothing and
+ * every caller downstream sees an empty URL with no failure to trace.
+ *
+ * This pins IOT_DNS_KEY_* against the mock's catalog. It cannot prove the real
+ * service publishes them — only a live query does that — but it does fail the
+ * moment a constant is edited without the fixture being taught the new name,
+ * which is the prompt to go re-check the service. */
+static int test_url_config_sdk_keys_resolve(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_dns_config_item_t config[] = {
+        { .key = IOT_DNS_KEY_MQTTS },
+        { .key = IOT_DNS_KEY_HTTPS },
+        { .key = IOT_DNS_KEY_MQTT  },
+    };
+    const int n_keys = (int)(sizeof(config) / sizeof(config[0]));
+    iot_dns_url_config_request_t req = {
+        .host         = MOCK_HOST,
+        .port         = MOCK_PORT,
+        .region       = "AY",
+        .env          = "prod",
+        .uuid         = "test_uuid_12345678",
+        .config       = config,
+        .config_count = n_keys,
+    };
+    iot_dns_url_config_response_t resp = {0};
+
+    int ret = iot_dns_url_config(pal, &req, &resp);
+    if (ret != OPRT_OK) {
+        printf("  iot_dns_url_config failed: %d\n", ret);
+        return -1;
+    }
+
+    int rc = OPRT_OK;
+    for (int k = 0; k < n_keys; k++) {
+        const char *addr = NULL;
+        for (int i = 0; i < resp.endpoint_count; i++) {
+            if (strcmp(resp.endpoints[i].key, config[k].key) == 0) {
+                addr = resp.endpoints[i].addr;
+                break;
+            }
+        }
+        if (!addr || addr[0] == '\0') {
+            printf("  %s: NOT RESOLVED — the SDK asks for this key, so an empty\n"
+                   "      result here is a silently unreachable service\n",
+                   config[k].key);
+            rc = -1;
+        } else {
+            printf("  %-12s -> %s\n", config[k].key, addr);
+        }
+    }
+
+    iot_dns_url_config_response_free(pal, &resp);
+    return rc;
+}
+
 static int test_url_config_basic(void)
 {
     const pal_t *pal = get_default_pal();
@@ -694,6 +789,7 @@ int main(void)
 
     /* Static region -> host mapping */
     RUN_TEST(test_region_to_host_prod_mapping);
+    RUN_TEST(test_region_to_string_wire_codes);
 
     /* Parameter validation */
     RUN_TEST(test_dns_query_null_params);
@@ -720,6 +816,7 @@ int main(void)
     RUN_TEST(test_dns_query_multiple);
 
     /* v2/url_config */
+    RUN_TEST(test_url_config_sdk_keys_resolve);
     RUN_TEST(test_url_config_basic);
     RUN_TEST(test_url_config_with_region);
 

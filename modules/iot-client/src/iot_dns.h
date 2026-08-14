@@ -14,6 +14,21 @@
 #define IOT_DNS_MAX_ENDPOINTS 20
 #define IOT_DNS_MAX_CAS      4
 
+/* Endpoint keys the SDK asks POST /v2/url_config for. Named here because three
+ * call sites request them (iot_client_dns_resolve, iot_get_qrcode_info and the
+ * activation path in iot_on_boarding.c) and each one has to compare the key back
+ * against the response — a literal drifting in one of them resolves nothing, and
+ * the service reports that as HTTP 200 with the endpoint simply absent.
+ *
+ * These are the m1/a generation. The service also publishes an mqttsStdUrl /
+ * httpsStdUrl pair (m6/a6 hosts, MQTT on 8886, EC service CA rather than RSA);
+ * switching to it is a deployment decision, not a drop-in — it changes the broker
+ * port and makes iot_get_ca_certificate() succeed, which turns peer verification
+ * on for the first time. */
+#define IOT_DNS_KEY_MQTTS  "mqttsUrl"
+#define IOT_DNS_KEY_MQTT   "mqttUrl"
+#define IOT_DNS_KEY_HTTPS  "httpsUrl"
+
 /* ============================================================================
  * v1/dns_query
  * ============================================================================ */
@@ -140,5 +155,18 @@ int iot_dns_get_ca_cert(const pal_t *pal, const iot_dns_ca_cert_request_t *reque
 void iot_dns_ca_cert_response_free(const pal_t *pal, iot_dns_ca_cert_response_t *response);
 
 char *iot_region_to_host(iot_region_t region, iot_env_t env);
+
+/**
+ * @brief Region code as the IoT DNS service spells it (the `region` field of
+ *        POST /v2/url_config).
+ *
+ * These are the SAME two-letter codes that prefix an activation token, so this
+ * is the exact inverse of __token_to_region() in iot_on_boarding.c — keep the
+ * two in step. Note they are NOT the enum's own spelling: UEAZ is "UE" and WEAZ
+ * is "WE" on the wire.
+ *
+ * @return the code, or NULL for an unknown region.
+ */
+const char *iot_region_to_string(iot_region_t region);
 
 #endif /* __IOT_DNS_H__ */
