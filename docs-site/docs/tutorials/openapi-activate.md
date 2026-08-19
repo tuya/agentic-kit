@@ -71,6 +71,31 @@ OpenAPI配网需要新建云项目并关联App，请先参考 [创建 App 和云
 
 查询设备是否已通过该 Token 完成激活。
 
+### 4. 设备解绑（移除设备） — `DELETE /v2.0/cloud/thing/{device_id}`
+
+根据设备 ID 从云端移除设备，即**解绑**。解绑后设备与原用户的绑定关系被
+清除，设备需要重新走配网激活流程才能再次使用。
+
+| 参数 | 类型 | 位置 | 必填 | 说明 |
+|------|------|------|------|------|
+| `device_id` | string | path | 是 | 设备 ID |
+
+返回示例：
+
+```json
+{
+    "tid": "b8a2b49abbbc11eda71e169efc83a172",
+    "result": true,
+    "t": 1678065474602,
+    "success": true
+}
+```
+
+设备端收到云端下发的解绑/重置通知后，应清除本地保存的激活信息（uuid、
+authkey 等），重新进入待配网状态。
+
+> 参考文档：[移除设备](https://developer.tuya.com/cn/docs/cloud/f20e091c7d?id=Kcp2l28fs16or)
+
 ## Token 格式
 
 设备端接收的 Token 需要由三部分拼接而成：
