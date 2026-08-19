@@ -92,6 +92,24 @@ iot_client_t *iot_client_init_on_boarding_with_token(
 跳过 MQTT 等待，直接使用已知 Token 发起激活请求。Region 由 Token 前两字符自动
 推导，无需手动指定。
 
+:::warning 必须连接 MQTT，App 才判定配网成功
+**App 只有在检测到设备连接上涂鸦云 MQTT 通道（设备上线）后，才会判定配网成功。**
+仅完成 Token 激活、拿到 `devid` 等凭据但不连接 MQTT，App 端会显示配网失败/超时。
+
+因此务必将 `iot_on_boarding_config_t` 中的 `.mqtt_auto_connect` 设为 `true`
+（默认为 `false`），让设备在激活完成后自动连接 MQTT：
+
+```c
+iot_on_boarding_config_t cfg = {
+    // ...
+    .mqtt_auto_connect = true,   // 激活成功后自动连接 MQTT，App 才能判定配网成功
+};
+```
+
+若选择保持 `false`，则必须在激活成功后立即手动调用
+`iot_client_message_connect()`。
+:::
+
 **`iot_on_boarding_config_t` 主要字段：**
 
 | 字段 | 说明 |

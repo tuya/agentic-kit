@@ -44,6 +44,16 @@ tuya_ble_nimble_stop()              // 4. 停止 BLE 广播
 iot_client_init_on_boarding_with_token(token)  // 6. 用 Token 激活设备
 ```
 
+:::warning 必须连接 MQTT，App 才判定配网成功
+**App 只有在检测到设备连接上涂鸦云 MQTT 通道（设备上线）后，才会判定配网成功。**
+仅完成 Token 激活、拿到 `devid` 等凭据但不连接 MQTT，App 端会显示配网失败/超时。
+
+因此务必将 `iot_on_boarding_config_t` 中的 `.mqtt_auto_connect` 设为 `true`
+（默认为 `false`），让设备在激活完成后自动连接 MQTT（示例 `main/main.c` 中
+已如此配置）；若保持 `false`，则必须在激活成功后立即手动调用
+`iot_client_message_connect()`。
+:::
+
 ## 关键代码
 
 ### 配置与启动
@@ -163,4 +173,5 @@ idf.py flash monitor
 - BLE 配网完成后应尽快停止 BLE 广播（`tuya_ble_nimble_stop`），避免与 WiFi 共存时的射频冲突。
 - Token 格式与其他配网方式一致：前两字符为 Region 编码。
 - 配网完成后的设备激活流程与[设备扫码配网](./scan-by-device)相同，使用 `iot_client_init_on_boarding_with_token()`。
+- 激活配置中需设置 `.mqtt_auto_connect = true`（默认为 `false`）：**App 以设备 MQTT 上线作为配网成功的判定条件**，不连接 MQTT 时 App 会显示配网失败/超时。
 - 需确保项目正确引用了 `modules/tuya-ble/` 和 `modules/iot-client/` 组件。
