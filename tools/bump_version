@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+#
+# bump_version.sh - transition the SDK version between release/development states.
+#
+# The version lives in the SDK_VERSION macro of the default header (see
+# DEFAULT_HEADER below). Two states exist, analogous to maven's
+# release/-SNAPSHOT cycle:
+#
+#   "agentic-kit_X.Y.Z"      released state (this exact value gets tagged vX.Y.Z)
+#   "agentic-kit_X.Y.Z-dev"  development state (cycle for the upcoming release)
+#
+# Usage:
+#   bump_version.sh show                              print current version + state
+#   bump_version.sh next [--major|--minor|--patch]    bump component, append -dev
+#                                                     (default: --patch)
+#   bump_version.sh release                           strip -dev (digits unchanged)
+#
+#   An optional second argument overrides the header file path (used by the
+#   self-test; defaults to this repo's iot_config_defaults.h).
+#
+# The script only edits the header. Committing, tagging, pushing and the
+# GitHub release remain manual - the script prints a checklist instead.
+#
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DEFAULT_HEADER="$REPO_ROOT/modules/iot-client/src/iot_config_defaults.h"
+
+usage() {
+    sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
+    exit 1
+}
+
+die() {
+    echo "error: $*" >&2
+    exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Parse the header: sets VERSION_PREFIX, V_MAJOR, V_MINOR, V_PATCH, V_IS_DEV
+# ---------------------------------------------------------------------------
+parse_header() {
+    local header="$1" line prefix major minor patch suffix
+    line="$(grep -n '^#define SDK_VERSION "' "$header" || true)"
+    [ -n "$line" ] || die "no '#define SDK_VERSION \"...\"' line found in $header"
+
+    # Strip the leading "NN:" grep prefix, keep the line itself.
+    line="${line#*:}"
+
+    if ! [[ "$line" =~ ^#define[[:space:]]+SDK_VERSION[[:space:]]+\"([A-Za-z0-9_-]+)_([0-9]+)\.([0-9]+)\.([0-9]+)(-dev)?\"$ ]]; then
+        die "malformed SDK_VERSION line (expected \"prefix_X.Y.Z[-dev]\"):
+  $line"
+    fi
+
+    VERSION_PREFIX="${BASH_REMATCH[1]}"
+    V_MAJOR="${BASH_REMATCH[2]}"
+    V_MINOR="${BASH_REMATCH[3]}"
+    V_PATCH="${BASH_REMATCH[4]}"
+    if [ -n "${BASH_REMATCH[5]}" ]; then
+        V_IS_DEV=1
+    else
+        V_IS_DEV=0
+    fi
+}
+
+version_string() {
+    local v="$VERSION_PREFIX""_$V_MAJOR.$V_MINOR.$V_PATCH"
+    [ "$V_IS_DEV" -eq 1 ] && v="$v-dev"
+    echo "$v"
+}
+
+# ---------------------------------------------------------------------------
+# Rewrite the header in place: temp file + verify + mv (never sed -i, which
+# differs between BSD and GNU).
+# ---------------------------------------------------------------------------
+write_header() {
+    local header="$1" old="$2" new="$3" tmp
+    tmp="$(mktemp "$header.XXXXXX")"
+    # Splice: everything except the old macro line, with the new line in place.
+    awk -v old_line="^#define SDK_VERSION \"$old\"$" \
+        -v new_line="#define SDK_VERSION \"$new\"" '
+        $0 ~ old_line { print new_line; next }
+        { print }
+    ' "$header" > "$tmp"
+    grep -q "^#define SDK_VERSION \"$new\"$" "$tmp" \
+        || die "internal error: rewrite did not produce the expected macro line"
+
+    # Preserve the original file mode (mktemp creates 0600).
+    chmod --reference="$header" "$tmp" 2>/dev/null || \
+        chmod "$(stat -f '%Lp' "$header" 2>/dev/null || stat -c '%a' "$header")" "$tmp"
+    mv "$tmp" "$header"
+}
+
+# ---------------------------------------------------------------------------
+# Actions
+# ---------------------------------------------------------------------------
+do_show() {
+    local state
+    if [ "$V_IS_DEV" -eq 1 ]; then state="development"; else state="released"; fi
+    echo "$(version_string) ($state)"
+}
+
+do_next() {
+    local level="${1:---patch}"
+
+    [ "$V_IS_DEV" -eq 0 ] \
+        || die "already in a development cycle ($(version_string)); run 'release' first, or edit the header manually to redo the cycle"
+
+    local major="$V_MAJOR" minor="$V_MINOR" patch="$V_PATCH"
+    case "$level" in
+        --major)
+            major=$((major + 1)); minor=0; patch=0 ;;
+        --minor)
+            minor=$((minor + 1)); patch=0 ;;
+        --patch)
+            patch=$((patch + 1)) ;;
+        *)
+            die "unknown bump level: $level (expected --major, --minor or --patch)" ;;
+    esac
+
+    local old new
+    old="$(version_string)"
+    V_MAJOR="$major"; V_MINOR="$minor"; V_PATCH="$patch"; V_IS_DEV=1
+    new="$(version_string)"
+
+    write_header "$HEADER" "$old" "$new"
+    echo "$old -> $new"
+    cat <<EOF
+
+Next steps (manual):
+  1. git add <header> && git commit -m "chore: start $V_MAJOR.$V_MINOR.$V_PATCH development cycle"
+EOF
+}
+
+do_release() {
+    [ "$V_IS_DEV" -eq 1 ] \
+        || die "already at a released version ($(version_string)); run 'next' to start a new cycle"
+
+    local old new
+    old="$(version_string)"
+    V_IS_DEV=0
+    new="$(version_string)"
+
+    write_header "$HEADER" "$old" "$new"
+    echo "$old -> $new"
+    cat <<EOF
+
+Next steps (manual):
+  1. git add <header> && git commit -m "chore: release $V_MAJOR.$V_MINOR.$V_PATCH"
+  2. git tag -a v$V_MAJOR.$V_MINOR.$V_PATCH
+  3. git push <remote> <branch> v$V_MAJOR.$V_MINOR.$V_PATCH
+  4. Create the GitHub release for v$V_MAJOR.$V_MINOR.$V_PATCH (changelog: manual)
+  5. tools/bump_version.sh next        # start the next development cycle
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+[ $# -ge 1 ] || usage
+ACTION="$1"
+shift
+
+LEVEL="--patch"
+HEADER=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --major|--minor|--patch) LEVEL="$1" ;;
+        -h|--help) usage ;;
+        -*)        die "unknown option: $1" ;;
+        *)         [ -z "$HEADER" ] || die "unexpected extra argument: $1"
+                   HEADER="$1" ;;
+    esac
+    shift
+done
+HEADER="${HEADER:-$DEFAULT_HEADER}"
+[ -f "$HEADER" ] || die "header not found: $HEADER"
+
+case "$ACTION" in
+    show)    parse_header "$HEADER"; do_show ;;
+    next)    parse_header "$HEADER"; do_next "$LEVEL" ;;
+    release) parse_header "$HEADER"; do_release ;;
+    -h|--help|help) usage ;;
+    *)       die "unknown action: $ACTION (expected show, next or release)" ;;
+esac

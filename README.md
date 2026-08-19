@@ -70,6 +70,31 @@ cmake --build build-examples
 ./build-examples/ota_demo
 ```
 
+## 版本与发布
+
+SDK 版本定义在 `modules/iot-client/src/iot_config_defaults.h` 的 `SDK_VERSION` 宏中，有两种状态（类似 maven 的 release / `-SNAPSHOT`）：
+
+- `agentic-kit_X.Y.Z` — 已发布状态（该值对应 `vX.Y.Z` 标签）
+- `agentic-kit_X.Y.Z-dev` — 开发周期状态
+
+使用 `tools/bump_version.sh` 在两种状态间切换：
+
+```sh
+tools/bump_version.sh show                              # 查看当前版本与状态
+tools/bump_version.sh next [--major|--minor|--patch]    # 开始下一开发周期（默认 --patch）
+tools/bump_version.sh release                           # 发布：去掉 -dev 后缀
+```
+
+发布流程（脚本只改版本号，其余步骤手动完成）：
+
+1. 运行 `tools/bump_version.sh release`（发布前版本应为 `X.Y.Z-dev`）
+2. 提交头文件改动
+3. `git tag -a vX.Y.Z` 并推送分支与标签
+4. 在 GitHub 上创建 Release（`CHANGELOG.md` 手动维护）
+5. 运行 `tools/bump_version.sh next` 开始下一开发周期
+
+脚本自测：`tools/bump_version_test.sh`。
+
 ## 项目结构
 
 ```
