@@ -50,4 +50,22 @@ int iot_client_message_process(iot_client_t *client, uint32_t timeout_ms);
 int iot_client_message_publish(iot_client_t *client,
                                const uint8_t *data, size_t data_len);
 
+/**
+ * @brief Check if a decrypted MQTT payload is a cloud device-remove notice
+ *        (protocol 11) and fire the reset callback if so.
+ *
+ * Parses the plaintext JSON, classifies the reset type (remote unbind vs.
+ * factory reset) by the root-level "type" field, and fires the client's
+ * reset_callback. Returns true (consumed) for protocol-11 envelopes so they
+ * never reach the DP layer or the raw message callback.
+ *
+ * @param client  IoT client (must have devid and reset_callback set)
+ * @param bytes   Decrypted payload bytes
+ * @param len     Length of payload
+ * @return true if the message was a protocol-11 reset notice (consumed),
+ *         false for any other payload (passthrough)
+ */
+bool iot_client_message_handle_reset(iot_client_t *client,
+                                     const uint8_t *bytes, size_t len);
+
 #endif /* __IOT_CLIENT_MESSAGE_H__ */

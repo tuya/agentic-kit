@@ -476,6 +476,136 @@ static int test_iot_client_init_no_autoconnect(void)
     return result;
 }
 
+/* ---------- Reset callback tests (network-free, plaintext input) ---------- */
+
+static volatile int reset_cb_called = 0;
+static iot_reset_type_t reset_cb_type = -1;
+
+static void test_reset_callback(iot_reset_type_t type, void *user_data)
+{
+    (void)user_data;
+    reset_cb_called++;
+    reset_cb_type = type;
+}
+
+static iot_client_t *make_bare_client(const pal_t *pal, const char *devid)
+{
+    iot_client_t *client = (iot_client_t *)pal->malloc(sizeof(iot_client_t));
+    if (!client) return NULL;
+    memset(client, 0, sizeof(iot_client_t));
+    client->pal = pal;
+    if (devid) strncpy(client->devid, devid, sizeof(client->devid) - 1);
+    return client;
+}
+
+/* [7] protocol 11 without "type" → UNBIND, consumed */
+static int test_reset_unbind(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *c = make_bare_client(pal, TEST_DEVID);
+    int rc = -1;
+    reset_cb_called = 0;
+    reset_cb_type = -1;
+    c->reset_callback = test_reset_callback;
+
+    const char *json = "{\"protocol\":11,\"t\":1700000000,\"data\":{\"gwId\":\"test_device_msg_001\"}}";
+    if (!iot_client_message_handle_reset(c, (const uint8_t *)json, strlen(json))) {
+        printf("  protocol 11 not consumed\n"); goto out;
+    }
+    if (reset_cb_called != 1) { printf("  callback not fired (%d)\n", reset_cb_called); goto out; }
+    if (reset_cb_type != IOT_RESET_REMOTE_UNBIND) { printf("  expected UNBIND, got %d\n", reset_cb_type); goto out; }
+    rc = 0;
+out:
+    pal->free(c);
+    return rc;
+}
+
+/* [8] protocol 11 with root "type":"reset_factory" → FACTORY */
+static int test_reset_factory(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *c = make_bare_client(pal, TEST_DEVID);
+    int rc = -1;
+    reset_cb_called = 0;
+    reset_cb_type = -1;
+    c->reset_callback = test_reset_callback;
+
+    const char *json = "{\"protocol\":11,\"t\":1700000000,\"type\":\"reset_factory\",\"data\":{\"gwId\":\"test_device_msg_001\"}}";
+    if (!iot_client_message_handle_reset(c, (const uint8_t *)json, strlen(json))) {
+        printf("  protocol 11 factory not consumed\n"); goto out;
+    }
+    if (reset_cb_called != 1) { printf("  callback not fired\n"); goto out; }
+    if (reset_cb_type != IOT_RESET_REMOTE_FACTORY) { printf("  expected FACTORY, got %d\n", reset_cb_type); goto out; }
+    rc = 0;
+out:
+    pal->free(c);
+    return rc;
+}
+
+/* [9] foreign gwId → consumed, callback NOT fired */
+static int test_reset_foreign_gwid(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *c = make_bare_client(pal, TEST_DEVID);
+    int rc = -1;
+    reset_cb_called = 0;
+    c->reset_callback = test_reset_callback;
+
+    const char *json = "{\"protocol\":11,\"data\":{\"gwId\":\"some_other_device\"}}";
+    if (!iot_client_message_handle_reset(c, (const uint8_t *)json, strlen(json))) {
+        printf("  foreign gwId not consumed\n"); goto out;
+    }
+    if (reset_cb_called != 0) { printf("  callback should not fire for foreign gwId\n"); goto out; }
+    rc = 0;
+out:
+    pal->free(c);
+    return rc;
+}
+
+/* [10] non-11 protocols / garbage → passthrough (returns false) */
+static int test_reset_passthrough(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *c = make_bare_client(pal, TEST_DEVID);
+    int rc = -1;
+    c->reset_callback = test_reset_callback;
+
+    /* protocol 5 (DP set) */
+    if (iot_client_message_handle_reset(c, (const uint8_t *)"{\"protocol\":5,\"data\":{\"dps\":{\"1\":true}}}", 44)) {
+        printf("  protocol 5 consumed\n"); goto out;
+    }
+    /* no protocol field */
+    if (iot_client_message_handle_reset(c, (const uint8_t *)"{\"type\":\"test\"}", 15)) {
+        printf("  no-protocol consumed\n"); goto out;
+    }
+    /* garbage */
+    if (iot_client_message_handle_reset(c, (const uint8_t *)"not json", 8)) {
+        printf("  garbage consumed\n"); goto out;
+    }
+    rc = 0;
+out:
+    pal->free(c);
+    return rc;
+}
+
+/* [11] protocol 11 with no callback registered → consumed, no crash */
+static int test_reset_no_callback(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *c = make_bare_client(pal, TEST_DEVID);
+    int rc = -1;
+    /* reset_callback is NULL (memset to 0) */
+
+    const char *json = "{\"protocol\":11,\"data\":{\"gwId\":\"test_device_msg_001\"}}";
+    if (!iot_client_message_handle_reset(c, (const uint8_t *)json, strlen(json))) {
+        printf("  protocol 11 not consumed (no callback)\n"); goto out;
+    }
+    rc = 0;
+out:
+    pal->free(c);
+    return rc;
+}
+
 /* ---------- main ---------- */
 
 int main(void)
@@ -520,6 +650,13 @@ int main(void)
     /* iot_client_init + mqtt_auto_connect (no mocks needed: empty devid skips DNS) */
     RUN_TEST(test_iot_client_init_autoconnect_no_url);
     RUN_TEST(test_iot_client_init_no_autoconnect);
+
+    /* Reset callback tests (network-free, no mocks needed) */
+    RUN_TEST(test_reset_unbind);
+    RUN_TEST(test_reset_factory);
+    RUN_TEST(test_reset_foreign_gwid);
+    RUN_TEST(test_reset_passthrough);
+    RUN_TEST(test_reset_no_callback);
 
     stop_mock_wrongkey();
     stop_mock_invalid();

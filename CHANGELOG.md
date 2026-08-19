@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- iot-client — cloud device-remove (protocol 11) callback.
+  - New `iot_reset_callback_t` and `iot_reset_type_t` in `iot_client.h`;
+    `iot_client_config_t` / `iot_on_boarding_config_t` / `iot_client_t` carry a
+    `reset_callback` field, forwarded through both on-boarding paths.
+  - When the cloud pushes a `{"protocol":11,…}` MQTT notice (user removed the
+    device or ordered a factory reset), the message layer classifies it by the
+    root-level `"type"` field (`"reset_factory"` → `IOT_RESET_REMOTE_FACTORY`,
+    else `IOT_RESET_REMOTE_UNBIND`), fires the callback, and consumes the
+    message so it never reaches the DP layer or the raw `message_callback`.
+    Works in loose mode (no schema). Mirrors TuyaOpen's
+    `mqtt_service_reset_cmd_on` (`tuya_iot.c:301-328`).
+  - The `dp_management_demo` registers the callback and, on fire, wipes
+    `dp_state.json` / `schema.json` and exits, pointing at `pair/scan-by-app`
+    for re-pairing. The SDK fires the event; the app owns storage wipe and
+    pairing restart — no `tal_kv` / state machine is added.
+
 - Examples — music play demo (`tai_music_play_demo`)(#15).
   - New POSIX example `examples/posix/ai/rtc-tcp-client/music_play_demo.c` that
     sends a text query triggering the server's music skill, parses the returned

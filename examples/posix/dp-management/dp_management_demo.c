@@ -70,6 +70,7 @@ static const char *DEFAULT_SCHEMA =
     "]";
 
 static volatile sig_atomic_t g_running = 1;
+static volatile sig_atomic_t g_reset = 0;
 
 static void on_signal(int sig)
 {
@@ -161,6 +162,18 @@ static void on_schema_update(const char *schema_id, const char *new_schema, void
     (void)user_data;
     printf("[%s] schema upgrade for id=%s -> %s\n", TAG, schema_id ? schema_id : "", SCHEMA_PATH);
     write_text_file(SCHEMA_PATH, new_schema);
+}
+
+/* Cloud device-remove notice (protocol 11). Fired on the MQTT process thread;
+ * must not block or call iot_client_deinit (use-after-free). Set a flag and
+ * let the main loop handle teardown. */
+static void on_reset(iot_reset_type_t type, void *user_data)
+{
+    (void)user_data;
+    printf("[%s] ** device removed from cloud (type=%s) **\n", TAG,
+           type == IOT_RESET_REMOTE_FACTORY ? "factory" : "unbind");
+    g_reset = 1;
+    g_running = 0;
 }
 
 /* ---- connection helpers -------------------------------------------------- */
@@ -298,6 +311,7 @@ int demo_dp_management_run(const char *devid,
         .schema           = saved_schema ? saved_schema : DEFAULT_SCHEMA,
         .schema_id        = schema_id,
         .dp_state         = NULL,    /* don't auto-restore — we validate first (step 2b) */
+        .reset_callback   = on_reset,
     };
     strncpy(cfg.devid,      devid,      sizeof(cfg.devid) - 1);
     strncpy(cfg.secret_key, secret_key, sizeof(cfg.secret_key) - 1);
@@ -375,7 +389,22 @@ int demo_dp_management_run(const char *devid,
         }
     }
 
-    /* 6. Pull the final state on demand (alternative to the save callback). */
+    /* 6. If the device was removed from the cloud, wipe all persisted state
+     *    so the next boot re-enters pairing. The credentials (devid/secret_key/
+     *    local_key) were passed on the command line — the app must also erase
+     *    wherever it stored them (not shown here). To re-pair, run the
+     *    scan-by-app demo under examples/posix/pair/scan-by-app/. */
+    if (g_reset) {
+        printf("[%s] wiping persisted state (device removed)\n", TAG);
+        remove(DP_STATE_PATH);
+        remove(SCHEMA_PATH);
+        iot_client_message_disconnect(client);
+        iot_client_deinit(client);
+        printf("[%s] device reset complete — re-run pairing to activate\n", TAG);
+        return 0;
+    }
+
+    /* 7. Pull the final state on demand (alternative to the save callback). */
     printf("\n[%s] shutting down\n", TAG);
     char *final_state = NULL;
     if (iot_dp_dump_json(client, &final_state) == OPRT_OK && final_state) {

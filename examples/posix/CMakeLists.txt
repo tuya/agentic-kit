@@ -84,6 +84,14 @@ add_executable(scan_by_device_pair_demo
 target_include_directories(scan_by_device_pair_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/pair/scan-by-device")
 target_link_libraries(scan_by_device_pair_demo PRIVATE tuya_iot_client stb_image quirc)
 
+# -- pair / unbind-demo ------------------------------------------------------
+add_executable(unbind_demo
+    "${CMAKE_CURRENT_SOURCE_DIR}/pair/unbind-demo/unbind_demo.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/pair/unbind-demo/unbind_demo_main.c"
+)
+target_include_directories(unbind_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/pair/unbind-demo")
+target_link_libraries(unbind_demo PRIVATE tuya_iot_client)
+
 # -- dp-management -----------------------------------------------------------
 add_executable(dp_management_demo
     "${CMAKE_CURRENT_SOURCE_DIR}/dp-management/dp_management_demo.c"

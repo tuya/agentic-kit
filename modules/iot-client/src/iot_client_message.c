@@ -3,6 +3,7 @@
 #include "cipher_wrapper.h"
 #include "iot_config_defaults.h"
 #include "iot_dp_internal.h"
+#include "cJSON.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -25,9 +26,12 @@ static void mqtt_message_handler(const char *topic, size_t topic_len,
                            (const uint8_t *)client->local_key,
                            decrypted, &decrypted_len);
     if (ret == 0 && decrypted_len > 0) {
-        /* Offer the plaintext to the DP layer first; if it does not consume it,
-         * forward to the user's raw message callback (backward compatible). */
-        if (!iot_dp_dispatch_downlink(client, topic, topic_len, decrypted, decrypted_len)
+        /* Check for cloud device-remove (protocol 11) before DP dispatch:
+         * reset notices must work in loose mode (no schema) and must not
+         * leak into the DP layer or raw message callback. */
+        if (iot_client_message_handle_reset(client, decrypted, decrypted_len)) {
+            /* consumed: reset notices never reach the DP layer or raw callback */
+        } else if (!iot_dp_dispatch_downlink(client, topic, topic_len, decrypted, decrypted_len)
             && client->message_callback) {
             client->message_callback(topic, topic_len, decrypted, decrypted_len);
         }
@@ -40,6 +44,56 @@ static void mqtt_message_handler(const char *topic, size_t topic_len,
     }
 
     client->pal->free(decrypted);
+}
+
+bool iot_client_message_handle_reset(iot_client_t *client,
+                                     const uint8_t *bytes, size_t len)
+{
+    if (!client || !bytes || len == 0) return false;
+
+    cJSON *root = cJSON_ParseWithLength((const char *)bytes, len);
+    if (!root) return false;
+
+    cJSON *jproto = cJSON_GetObjectItem(root, "protocol");
+    if (!cJSON_IsNumber(jproto) || jproto->valueint != IOT_PROTO_GW_RESET) {
+        cJSON_Delete(root);
+        return false;
+    }
+
+    /* data.gwId: the removed device id. TuyaOpen only logs it; we defensively
+     * consume-but-skip if it doesn't match our devid (broker anomaly). */
+    cJSON *data = cJSON_GetObjectItem(root, "data");
+    if (data) {
+        cJSON *jgw = cJSON_GetObjectItem(data, "gwId");
+        if (jgw && cJSON_IsString(jgw) && client->devid[0] != '\0') {
+            if (strcmp(jgw->valuestring, client->devid) != 0) {
+                log_warn("reset: gwId mismatch (got '%s', expected '%s') — consumed, not ours",
+                         jgw->valuestring, client->devid);
+                cJSON_Delete(root);
+                return true;
+            }
+        }
+    }
+
+    /* Classify: root-level "type":"reset_factory" → factory, else unbind.
+     * Mirrors TuyaOpen tuya_iot.c:316-322 (type is on the root object, not
+     * inside data). */
+    iot_reset_type_t type = IOT_RESET_REMOTE_UNBIND;
+    cJSON *jtype = cJSON_GetObjectItem(root, "type");
+    if (jtype && cJSON_IsString(jtype) &&
+        strcmp(jtype->valuestring, "reset_factory") == 0) {
+        type = IOT_RESET_REMOTE_FACTORY;
+    }
+
+    log_warn("reset: device-remove notice received (type=%s)",
+             type == IOT_RESET_REMOTE_FACTORY ? "factory" : "unbind");
+
+    if (client->reset_callback) {
+        client->reset_callback(type, NULL);
+    }
+
+    cJSON_Delete(root);
+    return true;
 }
 
 static int iot_client_message_try_connect(iot_client_t *client)
