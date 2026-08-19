@@ -41,7 +41,7 @@ RTC Client（`stm_open_*`）以预编译静态库形式提供，当前支持：
 
 ## 设备端是否需要 VAD？
 
-**不是必须的。** 云端提供 Server VAD 能力（`TAI_EVT_SERVER_VAD`），设备端持续发送音频即可，云端检测到用户停止说话后会通知设备。
+**不是必须的。** 云端提供 Server VAD 能力（`TAI_EVT_SERVER_VAD`），设备端持续发送音频即可，云端检测到用户停止说话后会通知设备。注意：云端 VAD 模式下收到 `TAI_EVT_SERVER_VAD` 后**不要**调用 `tai_send_audio_end()`，整个会话保持上行音频流打开。
 
 **但推荐以下场景使用设备端 VAD：**
 

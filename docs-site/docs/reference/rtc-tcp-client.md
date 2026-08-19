@@ -61,7 +61,7 @@ sidebar_position: 1
 | `TAI_EVT_PAYLOADS_END` | 1 | 负载结束 |
 | `TAI_EVT_END` | 2 | 会话结束 |
 | `TAI_EVT_ONE_SHOT` | 3 | 单次事件 |
-| `TAI_EVT_CHAT_BREAK` | 4 | 聊天打断（用户中途说话） |
+| `TAI_EVT_CHAT_BREAK` | 4 | 聊天打断（用户中途说话）；只需清除下行 TTS 缓存/播放队列，不要结束上行 Event |
 | `TAI_EVT_SERVER_VAD` | 5 | 云端 VAD 检测到用户停止说话 |
 | `TAI_EVT_MCP_CMD` | 1000 | MCP 命令（设备侧执行） |
 | `TAI_EVT_SERVER_TIMEOVER` | 1001 | 服务端超时 |
@@ -432,6 +432,10 @@ int tai_send_audio_start(tai_ctx_t *ctx,
 
 开始一段音频流。必须在 `tai_send_audio_chunk` 之前调用。
 
+:::note 云端 VAD 模式
+启用云端 VAD（Server VAD，连续对话）时，整个聊天会话只调用一次本函数，不要每个回合重复调用；上行音频流保持打开直到会话结束。详见 [VAD 与打断](../guides/vad-and-interrupt) 中的"云端 VAD vs 设备端 VAD"对比表。
+:::
+
 **参数：**
 - `codec` — 编码格式：`TAI_AUDIO_PCM`（101）或 `TAI_AUDIO_OPUS`（111）
 - `channels` — 声道数（通常为 1）
@@ -461,6 +465,10 @@ int tai_send_audio_end(tai_ctx_t *ctx);
 ```
 
 结束音频流。通知服务端本次音频输入完毕，开始处理。
+
+:::warning 云端 VAD 模式下不要调用
+启用云端 VAD（`asr.enableVad`）时**不应**调用本函数——收到 `TAI_EVT_SERVER_VAD` 也不要调用。它仅用于手动按键对讲或设备端本地 VAD 判停。错误调用会主动结束当前上行 Event，导致云端截断用户语音。详见 [VAD 与打断](../guides/vad-and-interrupt)。
+:::
 
 ---
 
@@ -577,7 +585,7 @@ tai_send_audio_start(ctx, TAI_AUDIO_PCM, 1, 16, 16000);
 while (has_audio) {
     tai_send_audio_chunk(ctx, pcm_frame, frame_len);
 }
-tai_send_audio_end(ctx);
+tai_send_audio_end(ctx);   // 手动模式收尾；云端 VAD 模式下不要调用 audio_end
 
 // 6. 响应通过回调异步接收...
 
@@ -586,6 +594,8 @@ tai_disconnect(ctx);
 tai_ctx_deinit(ctx);
 free(mem);
 ```
+
+> 音频流的调用模式取决于 VAD 模式（云端 VAD 连续对话 vs 设备端 VAD/手动按键），详见 [VAD 与打断](../guides/vad-and-interrupt) 中的对比表。
 
 ---
 
