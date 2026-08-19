@@ -45,19 +45,20 @@
 /**
  * @brief OTA upgrade status codes.
  *
- * These map to the Tuya cloud's upgrade status values:
- * - 0: idle / pending
- * - 1: upgrade in progress
- * - 2: upgrade finished successfully
- * - 3: upgrade failed / abnormal
- * - 4: upgrade aborted
+ * These map to the Tuya cloud's server-side `FirmwareUpgradeStatus`
+ * definition:
+ * - 0: default, no upgrade needed
+ * - 1: ready (upgrade task issued, device prepared)
+ * - 2: upgrade in progress
+ * - 3: upgrade complete
+ * - 4: upgrade error / abnormal
  */
 typedef enum {
-    OTA_STATUS_IDLE        = 0,
-    OTA_STATUS_UPGRADING   = 1,
-    OTA_STATUS_UPGRAD_FINI = 2,
-    OTA_STATUS_UPGRD_EXEC  = 3,
-    OTA_STATUS_UPGRD_ABORT = 4,
+    OTA_STATUS_IDLE      = 0,
+    OTA_STATUS_READY     = 1,
+    OTA_STATUS_UPGRADING = 2,
+    OTA_STATUS_COMPLETE  = 3,
+    OTA_STATUS_ERROR     = 4,
 } iot_ota_status_t;
 
 /**
@@ -110,8 +111,8 @@ OTA_API int iot_ota_check_upgrade(iot_client_t *client, int channel,
  * Sends the `tuya.device.upgrade.status.update` ATOP API. Call this to notify
  * the cloud of the upgrade lifecycle:
  * - OTA_STATUS_UPGRADING before starting the download/flash.
- * - OTA_STATUS_UPGRAD_FINI after a successful upgrade (typically after reboot).
- * - OTA_STATUS_UPGRD_EXEC on failure.
+ * - OTA_STATUS_COMPLETE after a successful upgrade (typically after reboot).
+ * - OTA_STATUS_ERROR on failure.
  *
  * @param client   IoT client instance (must be initialized)
  * @param channel  Firmware channel (0 = main MCU firmware)

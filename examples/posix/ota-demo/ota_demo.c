@@ -138,16 +138,16 @@ int demo_ota_run(const char *devid, const char *secret_key, const char *local_ke
     printf("[%s]   md5     : %s\n", TAG, info.md5 ? info.md5 : "(none)");
     printf("[%s]   hmac    : %s\n", TAG, info.hmac ? info.hmac : "(none)");
 
-    /* 4. Report UPGRADING status */
-    printf("[%s] reporting UPGRADING status...\n", TAG);
-    rc = iot_ota_report_status(client, info.channel, OTA_STATUS_UPGRADING);
-    if (rc != OPRT_OK) {
-        fprintf(stderr, "[%s] failed to report UPGRADING: %d\n", TAG, rc);
-    }
-
-    /* 5. Optionally download the firmware image */
+    /* 4. Optionally download the firmware image */
     int result = 0;
     if (auto_download && info.url) {
+        /* Report UPGRADING status before downloading */
+        printf("[%s] reporting UPGRADING status...\n", TAG);
+        rc = iot_ota_report_status(client, info.channel, OTA_STATUS_UPGRADING);
+        if (rc != OPRT_OK) {
+            fprintf(stderr, "[%s] failed to report UPGRADING: %d\n", TAG, rc);
+        }
+
         char out_path[256];
         snprintf(out_path, sizeof(out_path), "firmware_%s.bin",
                  info.version ? info.version : "unknown");
@@ -155,16 +155,14 @@ int demo_ota_run(const char *devid, const char *secret_key, const char *local_ke
         if (download_firmware(info.url, out_path, info.file_size) != 0) {
             fprintf(stderr, "[%s] firmware download failed\n", TAG);
             printf("[%s] reporting FAILURE status...\n", TAG);
-            iot_ota_report_status(client, info.channel, OTA_STATUS_UPGRD_EXEC);
+            iot_ota_report_status(client, info.channel, OTA_STATUS_ERROR);
             result = -1;
         } else {
             printf("[%s] reporting SUCCESS status...\n", TAG);
-            iot_ota_report_status(client, info.channel, OTA_STATUS_UPGRAD_FINI);
+            iot_ota_report_status(client, info.channel, OTA_STATUS_COMPLETE);
         }
     } else {
         printf("[%s] (use --download to fetch the image)\n", TAG);
-        printf("[%s] reporting ABORTED status (demo mode)...\n", TAG);
-        iot_ota_report_status(client, info.channel, OTA_STATUS_UPGRD_ABORT);
     }
 
     iot_ota_upgrade_info_free(client, &info);

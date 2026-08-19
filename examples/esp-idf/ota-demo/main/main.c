@@ -352,13 +352,13 @@ void app_main(void)
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Firmware upgrade FAILED: %s", esp_err_to_name(err));
-        iot_ota_report_status(iot, 0, OTA_STATUS_UPGRD_EXEC);
+        iot_ota_report_status(iot, 0, OTA_STATUS_ERROR);
         iot_client_deinit(iot);
         return;
     }
 
     /* 6. Report success */
-    rc = iot_ota_report_status(iot, 0, OTA_STATUS_UPGRAD_FINI);
+    rc = iot_ota_report_status(iot, 0, OTA_STATUS_COMPLETE);
     if (rc != OPRT_OK) {
         ESP_LOGW(TAG, "Failed to report SUCCESS status: %d", rc);
     }

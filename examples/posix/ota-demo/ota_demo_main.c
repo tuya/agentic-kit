@@ -35,8 +35,8 @@ static void usage(const char *prog)
         "  --download  If given, download the firmware image to a local file\n"
         "\n"
         "The cloud-side OTA API calls are always made. Without --download,\n"
-        "an ABORTED status is reported. With --download, the image is fetched\n"
-        "via curl(1) and UPGRAD_FINI or UPGRD_EXEC is reported.\n",
+        "no status is reported. With --download, the image is fetched\n"
+        "via curl(1) and COMPLETE or ERROR is reported.\n",
         prog);
 }
 

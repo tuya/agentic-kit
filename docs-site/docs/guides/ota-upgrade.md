@@ -63,11 +63,11 @@ typedef struct {
 
 ```c
 typedef enum {
-    OTA_STATUS_IDLE        = 0,  // 空闲
-    OTA_STATUS_UPGRADING   = 1,  // 升级中（下载/烧写前）
-    OTA_STATUS_UPGRAD_FINI = 2,  // 升级成功（重启前回报）
-    OTA_STATUS_UPGRD_EXEC  = 3,  // 升级失败
-    OTA_STATUS_UPGRD_ABORT = 4,  // 升级中止
+    OTA_STATUS_IDLE      = 0,  // 默认，不需要升级
+    OTA_STATUS_READY     = 1,  // 设备准备就绪（升级任务已下发）
+    OTA_STATUS_UPGRADING = 2,  // 升级中（下载/烧写前）
+    OTA_STATUS_COMPLETE  = 3,  // 升级成功（重启前回报）
+    OTA_STATUS_ERROR     = 4,  // 升级失败 / 异常
 } iot_ota_status_t;
 ```
 
@@ -152,12 +152,12 @@ esp_err_t err = download_and_flash(info.url);
 iot_ota_upgrade_info_free(iot, &info);
 
 if (err != ESP_OK) {
-    iot_ota_report_status(iot, 0, OTA_STATUS_UPGRD_EXEC);
+    iot_ota_report_status(iot, 0, OTA_STATUS_ERROR);
     return;
 }
 
 /* 成功后上报"完成"，然后重启 */
-iot_ota_report_status(iot, 0, OTA_STATUS_UPGRAD_FINI);
+iot_ota_report_status(iot, 0, OTA_STATUS_COMPLETE);
 esp_restart();
 ```
 
@@ -222,5 +222,5 @@ idf flash monitor
 
 - **SDK 不下载/不烧写**——`iot_ota` 只负责云端协议；下载校验、分区管理、防回滚全部由应用实现。
 - **栈要足够大**——TLS 握手 + HTTP 缓冲 + `esp_ota_write` 需要较大栈空间（demo 用 16KB）。
-- **回报时机**——`UPGRADING` 在下载前、`FINI` 在重启前、`EXEC` 在失败时；漏报会导致云端升级面板状态不准。
+- **回报时机**——`UPGRADING` 在下载前、`COMPLETE` 在重启前、`ERROR` 在失败时；漏报会导致云端升级面板状态不准。
 - **MD5/HMAC 可选校验**——`info.md5` / `info.hmac` 可能为 NULL；若存在，建议在 `esp_ota_end` 后做一次校验再切分区。
