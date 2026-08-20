@@ -327,6 +327,11 @@ static int activate_device(const pal_t *pal, on_boarding_config_t *on_boarding, 
             case OPRT_COMMUNICATION_ERROR:
                 log_error("  - Communication error");
                 break;
+            case OPRT_ATOP_BUSINESS_ERROR:
+                /* e.g. an expired/used pairing token -- the cloud's errorCode
+                 * and errorMsg are logged by the envelope layer just above. */
+                log_error("  - Rejected by the cloud (see errorCode above)");
+                break;
             case OPRT_TLS_HANDSHAKE_FAILED:
                 log_error("  - TLS handshake failed");
                 break;

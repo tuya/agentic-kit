@@ -44,6 +44,12 @@
      tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback
  } atop_base_request_t;
 
+ /* Envelope error strings are copied out of the response before the parsed JSON
+  * is released, so callers can act on the cloud's verdict without re-parsing.
+  * Fixed-size to keep the struct allocation-free. */
+ #define ATOP_ERROR_CODE_LEN  48
+ #define ATOP_ERROR_MSG_LEN   128
+
  typedef struct {
      bool success;
      cJSON *result;
@@ -51,6 +57,8 @@
      void *user_data;
      uint8_t *raw_data;
      size_t raw_data_len;
+     char error_code[ATOP_ERROR_CODE_LEN];  /* cloud errorCode; "" when success */
+     char error_msg[ATOP_ERROR_MSG_LEN];    /* cloud errorMsg;  "" when success */
  } atop_base_response_t;
 
  /**
@@ -59,6 +67,13 @@
   * This function sends a request to the atop base service using the provided
   * request data. The response data will be stored in the provided response
   * structure.
+  *
+  * A well-formed envelope carrying success=false is NOT OPRT_OK: it returns
+  * OPRT_ATOP_BUSINESS_ERROR with .error_code / .error_msg filled in, for every
+  * errorCode uniformly. Callers therefore never need to inspect .success
+  * themselves; a caller that must treat a specific code differently (e.g.
+  * GATEWAY_NOT_EXISTS meaning "device removed, re-pair") branches on
+  * .error_code.
   *
   * @param request Pointer to the `atop_base_request_t` structure containing the
   * request data.

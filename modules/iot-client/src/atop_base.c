@@ -399,27 +399,42 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
          return OPRT_OK;
      }
 
-     // Exception parse
-     char *errorCode = NULL;
+     /* Exception parse. The cloud reached a verdict, so the envelope itself is
+      * well-formed -- but the call failed. Copy errorCode/errorMsg out before
+      * releasing the JSON so the caller can act on them, and return a real
+      * error: returning OPRT_OK here would make a rejection indistinguishable
+      * from an empty-but-successful result (e.g. "no newer schema"). */
+     const cJSON *error_code_item = cJSON_GetObjectItem(root, "errorCode");
+     const cJSON *error_msg_item  = cJSON_GetObjectItem(root, "errorMsg");
+
      response->success = false;
      response->result = NULL;
 
-     // error msg dump
-     if (cJSON_GetObjectItem(root, "errorMsg")) {
-         log_error("errorMsg:%s", cJSON_GetObjectItem(root, "errorMsg")->valuestring);
+     if (cJSON_IsString(error_msg_item) && error_msg_item->valuestring != NULL) {
+         snprintf(response->error_msg, sizeof(response->error_msg), "%s",
+                  error_msg_item->valuestring);
      }
 
-     if (cJSON_GetObjectItem(root, "errorCode") == NULL) {
-         log_error("not found json errorCode key");
+     if (!cJSON_IsString(error_code_item) || error_code_item->valuestring == NULL) {
+         /* Keep the server's explanation in the log even on this malformed
+          * path -- it is often the only clue (e.g. a signature-time-skew
+          * message from a gateway that omits errorCode). */
+         log_error("atop rejected without errorCode (errorMsg=%s)",
+                   response->error_msg);
          cJSON_Delete(root);
          return OPRT_COMMUNICATION_ERROR;
      }
 
-     errorCode = cJSON_GetObjectItem(root, "errorCode")->valuestring;
+     snprintf(response->error_code, sizeof(response->error_code), "%s",
+              error_code_item->valuestring);
+     log_error("atop rejected: errorCode=%s errorMsg=%s",
+               response->error_code, response->error_msg);
 
-     if (strcasecmp(errorCode, "GATEWAY_NOT_EXISTS") == 0) {
-         rt = OPRT_COMMUNICATION_ERROR;
-     }
+     /* Every rejection is the same verdict: the cloud answered and said no.
+      * No special-casing of individual errorCodes here (GATEWAY_NOT_EXISTS
+      * included) -- error_code is carried on the response precisely so that
+      * per-code policy can live in the caller that knows the interface. */
+     rt = OPRT_ATOP_BUSINESS_ERROR;
 
      // free cJSON object
      cJSON_Delete(root);
@@ -629,7 +644,15 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
    */
   void atop_base_response_free(const pal_t *pal, atop_base_response_t *response)
   {
-      if (response->success == true && response->result) {
+      (void)pal;
+      if (response == NULL) {
+          return;
+      }
+      /* Not gated on .success: the parse path only ever attaches a result on
+       * success, so keying the free off the flag adds a way to leak without
+       * adding any safety. */
+      if (response->result != NULL) {
           cJSON_Delete(response->result);
+          response->result = NULL;
       }
   }

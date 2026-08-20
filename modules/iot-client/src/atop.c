@@ -788,7 +788,7 @@ int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota
     cJSON *result = atop_response.result;
     if (result == NULL) {
         /* success=true but result=null → cloud has no upgrade configured for this device */
-        log_debug("atop_upgrade_get: no upgrade available (success=%d)", atop_response.success);
+        log_debug("atop_upgrade_get: no upgrade available");
         atop_base_response_free(pal, &atop_response);
         return OPRT_OK;   /* no-upgrade is success; response->has_upgrade stays false */
     }
@@ -925,13 +925,9 @@ int atop_version_update(const pal_t *pal, const ota_version_update_request_t *re
         return rt;
     }
 
-    bool success = atop_response.success;
+    /* OPRT_OK from atop_base_request() implies success == true -- a rejected
+     * envelope now returns OPRT_ATOP_BUSINESS_ERROR and is caught above. */
     atop_base_response_free(pal, &atop_response);
-
-    if (!success) {
-        log_error("atop_version_update: cloud returned failure");
-        return OPRT_COMMUNICATION_ERROR;
-    }
 
     log_debug("atop_version_update: success");
     return OPRT_OK;
@@ -993,13 +989,9 @@ int atop_upgrade_status_update(const pal_t *pal, const ota_status_update_request
         return rt;
     }
 
-    bool success = atop_response.success;
+    /* OPRT_OK from atop_base_request() implies success == true -- a rejected
+     * envelope now returns OPRT_ATOP_BUSINESS_ERROR and is caught above. */
     atop_base_response_free(pal, &atop_response);
-
-    if (!success) {
-        log_error("atop_upgrade_status_update: cloud returned failure");
-        return OPRT_COMMUNICATION_ERROR;
-    }
 
     log_debug("atop_upgrade_status_update: success (channel=%d, status=%d)",
               request->channel, (int)request->status);

@@ -11,7 +11,10 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include <time.h>
+
 #include "atop.h"
+#include "atop_base.h"
 #include "iot_client.h"
 #include "iot_config_defaults.h"
 
@@ -580,6 +583,93 @@ static int test_device_meta_save_missing_meta(void)
 
 /* ---------- main ---------- */
 
+/* ---------- P0: the envelope error contract ---------- */
+
+/* tuya.device.versions.update rejects a body without "versions" with
+ * errorCode ILLEGAL_PARAM. That envelope must be an error carrying the code --
+ * before the fix it came back as OPRT_OK with result=NULL, so every caller that
+ * only checked the return value silently treated a rejection as success. */
+static int test_envelope_rejection_is_an_error(void)
+{
+    const pal_t *pal = get_default_pal();
+    char body[64];
+    snprintf(body, sizeof(body), "{\"t\":%u}", (unsigned)time(NULL));
+
+    atop_base_request_t req = {
+        .path      = "/d.json",
+        .key       = TEST_SEC_KEY,
+        .devid     = TEST_DEVID,
+        .api       = "tuya.device.versions.update",
+        .version   = "4.1",
+        .timestamp = (uint32_t)time(NULL),
+        .data      = body,
+        .datalen   = strlen(body),
+        .host      = MOCK_HOST,
+        .port      = MOCK_PORT,
+        .cacert    = g_cacert,
+    };
+
+    atop_base_response_t resp = {0};
+    int rt = atop_base_request(pal, &req, &resp);
+
+    if (rt != OPRT_ATOP_BUSINESS_ERROR) {
+        printf("  returned %d, expected OPRT_ATOP_BUSINESS_ERROR (%d)\n",
+               rt, OPRT_ATOP_BUSINESS_ERROR);
+        atop_base_response_free(pal, &resp);
+        return -1;
+    }
+    if (resp.success != false) {
+        printf("  success flag should be false\n");
+        atop_base_response_free(pal, &resp);
+        return -1;
+    }
+    if (strcmp(resp.error_code, "ILLEGAL_PARAM") != 0) {
+        printf("  error_code is \"%s\", expected \"ILLEGAL_PARAM\"\n", resp.error_code);
+        atop_base_response_free(pal, &resp);
+        return -1;
+    }
+    if (resp.error_msg[0] == '\0') {
+        printf("  error_msg was not carried out of the envelope\n");
+        atop_base_response_free(pal, &resp);
+        return -1;
+    }
+    printf("  rejection surfaced: %s (%s)\n", resp.error_code, resp.error_msg);
+    atop_base_response_free(pal, &resp);
+    return 0;
+}
+
+/* The success path must not have moved: an empty result is still OPRT_OK with
+ * no error code, which is what distinguishes "nothing to report" from a
+ * rejection now that the two return different codes. */
+static int test_empty_result_is_still_success(void)
+{
+    const pal_t *pal = get_default_pal();
+    schema_newest_request_t req = {
+        .devid     = TEST_DEVID,
+        .key       = TEST_SEC_KEY,
+        .schema_id = "test_schema_id",
+        .version   = "NOUPDATE",   /* mock sentinel: returns result [] */
+        .host      = MOCK_HOST,
+        .port      = MOCK_PORT,
+        .cacert    = g_cacert,
+    };
+
+    schema_newest_response_t resp = {0};
+    int rt = atop_schema_newest_get(pal, &req, &resp);
+    if (rt != OPRT_OK) {
+        printf("  returned %d, expected OPRT_OK for the no-update case\n", rt);
+        atop_schema_newest_response_free(pal, &resp);
+        return -1;
+    }
+    if (resp.updated) {
+        printf("  reported an update for the NOUPDATE sentinel\n");
+        atop_schema_newest_response_free(pal, &resp);
+        return -1;
+    }
+    atop_schema_newest_response_free(pal, &resp);
+    return 0;
+}
+
 int main(void)
 {
     printf("========== ATOP Test Suite ==========\n");
@@ -598,6 +688,10 @@ int main(void)
         fprintf(stderr, "Failed to start mock server\n");
         return 1;
     }
+
+    /* Envelope error contract */
+    RUN_TEST(test_envelope_rejection_is_an_error);
+    RUN_TEST(test_empty_result_is_still_success);
 
     /* Parameter validation tests */
     RUN_TEST(test_activate_null_params);
