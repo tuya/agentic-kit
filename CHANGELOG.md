@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- iot-client — generic ATOP call (`iot_atop_call`), for cloud interfaces the SDK
+  does not wrap by name.
+  - New public header `iot_atop.h`: pass an `api` name, its `version` and a JSON
+    request body; get the envelope's `result` back as a JSON string, plus the
+    cloud's `errorCode` / `errorMsg` and server time. Signing, AES-GCM body
+    encryption, TLS, host resolution and envelope parsing stay inside the SDK,
+    so the caller never handles the device secret key.
+  - Credentials and endpoint come from `iot_client_t` (same pattern as
+    `iot_ota.c`), so the call covers activated devices only — it signs with
+    `devid` + `secret_key` and returns `OPRT_UNINITIALIZED` before activation.
+    Activation itself uses `uuid` + `authkey` and stays behind
+    `iot_client_init_on_boarding()`.
+  - `result` is returned as a JSON string rather than a `cJSON *`, keeping cJSON
+    out of the public ABI and the memory ownership on one side
+    (`iot_atop_response_free`). Request bodies are forwarded verbatim — callers
+    supply whatever the interface needs, including the `t` field most ATOP
+    interfaces expect in the body — and are validated only as far as "parses as
+    a JSON object", to turn a typo into a local error instead of a round trip.
+  - New guide `docs-site/docs/guides/atop-generic-call.md` lists the existing
+    named wrappers (so they are not reimplemented) and the three criteria for
+    promoting an interface to a named wrapper: used by more than one product,
+    non-trivial protocol semantics, or needs SDK-internal state.
+  - `modules/iot-client/CONTEXT.md` gains the ATOP vocabulary it was missing —
+    *ATOP interface*, *envelope*, *named wrapper*, *generic call* — and flags
+    "封装/wrap" as the ambiguity that made the design discussion circle.
+
 - iot-client — cloud device-remove (protocol 11) callback.
   - New `iot_reset_callback_t` and `iot_reset_type_t` in `iot_client.h`;
     `iot_client_config_t` / `iot_on_boarding_config_t` / `iot_client_t` carry

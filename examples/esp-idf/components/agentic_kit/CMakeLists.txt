@@ -15,6 +15,7 @@ set(AK_SRCS
     ${AK_DIR}/modules/iot-client/src/atop_base.c
     ${AK_DIR}/modules/iot-client/src/cipher_wrapper.c
     ${AK_DIR}/modules/iot-client/src/http_client_interface.c
+    ${AK_DIR}/modules/iot-client/src/iot_atop.c
     ${AK_DIR}/modules/iot-client/src/iot_client.c
     ${AK_DIR}/modules/iot-client/src/iot_client_message.c
     ${AK_DIR}/modules/iot-client/src/iot_dns.c

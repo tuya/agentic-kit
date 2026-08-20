@@ -54,6 +54,7 @@ const sidebars: SidebarsConfig = {
             'guides/dp-persistence',
             'guides/device-mcp',
             'guides/ota-upgrade',
+            'guides/atop-generic-call',
             'guides/tls-cert-verification',
             'guides/porting-to-new-platform',
           ],
