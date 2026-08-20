@@ -83,6 +83,36 @@ typedef void (*iot_message_callback_t)(const char *topic, size_t topic_len,
                                        const uint8_t *data, size_t data_len);
 
 /**
+ * @brief Reset type classification (mirrors TuyaOpen TUYA_RESET_TYPE_REMOTE_*).
+ */
+typedef enum {
+    IOT_RESET_REMOTE_UNBIND = 0,  // user removed the device (re-bind allowed)
+    IOT_RESET_REMOTE_FACTORY,     // cloud-ordered factory reset
+} iot_reset_type_t;
+
+/**
+ * @brief Callback fired when the cloud pushes a device-remove (protocol 11)
+ * notice over MQTT.
+ *
+ * Fired on the iot_client_process() thread, exactly like message_callback.
+ * Must NOT block (it runs inside the MQTT process loop). The recommended
+ * action is to set a flag and let the app loop tear down (disconnect → wipe
+ * persisted credentials/schema/DP state → restart on-boarding). Do NOT call
+ * iot_client_deinit() or iot_client_message_disconnect() from within this
+ * callback — both free the mqtt client that the coreMQTT receive loop is
+ * still using on this very stack (it dereferences the context again to send
+ * acks and compact the network buffer after the callback returns).
+ *
+ * Registering this callback opts the client in to consuming protocol-11
+ * notices: they then never reach the DP layer or the raw message_callback.
+ * Without it they stay on the message_callback path.
+ *
+ * @param type      Reset classification (remote unbind vs. factory reset).
+ * @param user_data The reset_user_data pointer registered with the config.
+ */
+typedef void (*iot_reset_callback_t)(iot_reset_type_t type, void *user_data);
+
+/**
  * @brief IoT client configuration structure
  */
 typedef struct {
@@ -96,6 +126,8 @@ typedef struct {
     const char *cacert;            // CA cert for all TLS (MQTT/HTTPS/IoT-DNS) (PEM, caller-owned, must outlive client)
     tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (NULL = none)
     iot_message_callback_t message_callback; // MQTT message callback
+    iot_reset_callback_t reset_callback;     // Cloud device-remove (protocol 11) callback
+    void *reset_user_data;                   // Opaque pointer passed back to reset_callback
 
     /* ---- DP layer restore (all caller-owned, may be NULL) ---- */
     const char *schema;            // Persisted DP schema JSON to restore on restart (NULL = none / loose mode)
@@ -122,6 +154,8 @@ typedef struct {
     const char *cacert;            // CA cert for all TLS (MQTT/HTTPS/IoT-DNS) (PEM, caller-owned, must outlive client)
     tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (NULL = none)
     iot_message_callback_t message_callback; // MQTT message callback
+    iot_reset_callback_t reset_callback;     // Cloud device-remove (protocol 11) callback
+    void *reset_user_data;                   // Opaque pointer passed back to reset_callback
     const char *sw_ver;            // Application firmware version (e.g. "1.2.3"); NULL = use SDK default IOT_SDK_SW_VER
 } iot_on_boarding_config_t;
 
@@ -157,6 +191,8 @@ struct iot_dp_context;
     tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (borrowed, NULL = none)
     struct mqtt_client *mqtt;     // Internal MQTT client handle
     iot_message_callback_t message_callback;  // User callback for incoming messages
+    iot_reset_callback_t reset_callback;      // Cloud device-remove (protocol 11) callback
+    void *reset_user_data;                    // Opaque pointer passed back to reset_callback
 
     struct iot_dp_context *dp;    // DP layer state; points into dp_storage, NULL when inactive
     void *dp_storage[IOT_DP_CONTEXT_STORAGE / sizeof(void *)]; // inline storage for *dp (no heap)

@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- iot-client — cloud device-remove (protocol 11) callback.
+  - New `iot_reset_callback_t` and `iot_reset_type_t` in `iot_client.h`;
+    `iot_client_config_t` / `iot_on_boarding_config_t` / `iot_client_t` carry
+    `reset_callback` and `reset_user_data` fields, forwarded through both
+    on-boarding paths.
+  - When the cloud pushes a `{"protocol":11,…}` MQTT notice (user removed the
+    device or ordered a factory reset), the message layer classifies it by the
+    root-level `"type"` field (`"reset_factory"` → `IOT_RESET_REMOTE_FACTORY`,
+    else `IOT_RESET_REMOTE_UNBIND`) and fires the callback. Consumption is
+    opt-in: with a `reset_callback` registered the notice never reaches the
+    DP layer or the raw `message_callback`; without one it stays on the
+    `message_callback` path exactly as in earlier releases. Works in loose
+    mode (no schema). Mirrors TuyaOpen's `mqtt_service_reset_cmd_on`
+    (`tuya_iot.c:301-328`).
+  - The `dp_management_demo` registers the callback and, on fire, wipes
+    `dp_state.json` / `schema.json` and exits, pointing at `pair/scan-by-app`
+    for re-pairing. The SDK fires the event; the app owns storage wipe and
+    pairing restart — no `tal_kv` / state machine is added.
+
+- Examples — device-unbind demo (`unbind_demo`).
+  - New POSIX example `examples/posix/pair/unbind-demo/` that connects with
+    existing credentials, registers `reset_callback`, and waits for the cloud
+    device-remove notice, printing whether it was an unbind or a factory
+    reset. Registered as the `unbind_demo` target in
+    `examples/posix/CMakeLists.txt`.
+
 - Examples — music play demo (`tai_music_play_demo`)(#15).
   - New POSIX example `examples/posix/ai/rtc-tcp-client/music_play_demo.c` that
     sends a text query triggering the server's music skill, parses the returned
