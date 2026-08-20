@@ -123,6 +123,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- iot-client — a cloud-rejected ATOP call reported success. When the envelope
+  carried `success: false`, `atop_response_result_parse_cjson()` logged
+  `errorCode` / `errorMsg` and dropped them, then returned `OPRT_OK` for every
+  code except `GATEWAY_NOT_EXISTS`. Callers had to inspect
+  `atop_base_response_t.success` separately, and only three of the eight named
+  wrappers did.
+  - Worst case was `tuya.device.schema.newest.get`: a rejection came back as
+    `OPRT_OK` with `result == NULL`, which `atop_schema_newest_get()` reports as
+    "no newer schema" — a permission error and an up-to-date schema were
+    indistinguishable from the return value.
+  - The envelope now copies both strings into new `error_code` / `error_msg`
+    fields on `atop_base_response_t` and returns the new
+    `OPRT_ATOP_BUSINESS_ERROR (-0x000E)` for every rejection uniformly —
+    including `GATEWAY_NOT_EXISTS`, whose historical `OPRT_COMMUNICATION_ERROR`
+    mapping protected no caller (nothing in the repo branches on it) while
+    presenting a permanent "device removed" verdict as a retryable transport
+    failure. A caller that needs per-code policy branches on `error_code`.
+  - Behavioral note: named wrappers now return `-0x000E` instead of the old
+    `OPRT_OK`-with-empty-result (or, for two wrappers, an internal
+    `OPRT_COMMUNICATION_ERROR` mapping) when the cloud rejects a call. The
+    activation error log names the new code; the two now-unreachable
+    `.success` re-checks in `atop.c` were removed.
+  - `atop_base_response_free()` is now NULL-safe and frees `result` whenever it
+    is set instead of gating on `.success`, which only ever added a way to leak.
+    A rejection whose envelope lacks `errorCode` still logs the server's
+    `errorMsg` (previously that text was dropped on this path).
+
 - iot-client — US-East (`UEAZ`) and West-Europe (`WEAZ`) never resolved an MQTT
   broker(#15). `iot_region_to_string()` sent the enum name as the `region` field
   of `POST /v2/url_config`, but the service knows those two by their two-letter

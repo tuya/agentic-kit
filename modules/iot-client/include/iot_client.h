@@ -28,6 +28,7 @@
 
 /* -0x0008..-0x000C are used by iot_dp.h (DP error codes) */
 #define OPRT_OTA_VERIFY_FAILED        (-0x000D) //-13, OTA firmware digest mismatch
+#define OPRT_ATOP_BUSINESS_ERROR      (-0x000E) //-14, ATOP call reached the cloud but was rejected (see errorCode)
 
 /* ---- Logging subsystem ----
  * The IoT SDK shares the process-wide log facade (see log.h).
