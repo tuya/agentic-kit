@@ -555,21 +555,13 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
             # Determine encryption key
             # For activation: use authkey from config
             # For AI config: use sec_key from config (or devid's key)
-            if api == 'thing.device.opensdk.active':
-                key = self.config.get('authkey', '').encode('utf-8')
-            elif api == 'thing.ai.agent.token.get':
-                key = self.config.get('sec_key', '').encode('utf-8')
-            elif api == 'tuya.device.qrcode.info.get':
-                key = self.config.get('authkey', '').encode('utf-8')
-            elif api == 'tuya.device.meta.save':
-                key = self.config.get('sec_key', '').encode('utf-8')
-            elif api == 'tuya.device.schema.newest.get':
-                key = self.config.get('sec_key', '').encode('utf-8')
-            elif api == 'tuya.device.upgrade.get':
-                key = self.config.get('sec_key', '').encode('utf-8')
-            elif api == 'tuya.device.versions.update':
-                key = self.config.get('sec_key', '').encode('utf-8')
-            elif api == 'tuya.device.upgrade.status.update':
+            # Key selection follows the credential the device signs with, keyed
+            # purely off the identity param in the URL: a devId means the caller
+            # is an activated device signing with sec_key; otherwise (uuid-only,
+            # i.e. pre-activation) it signs with authkey. No per-API list -- that
+            # is what lets the generic entry point reach interfaces the mock has
+            # no handler for, including ones the named wrappers also cover.
+            if devid:
                 key = self.config.get('sec_key', '').encode('utf-8')
             else:
                 key = self.config.get('authkey', '').encode('utf-8')
@@ -615,6 +607,24 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
                 response_json = handle_version_update(decrypted_data, self.config)
             elif api == 'tuya.device.upgrade.status.update':
                 response_json = handle_upgrade_status_update(decrypted_data, self.config)
+            elif api == 'tuya.test.result.null':
+                # Test-only: a success envelope whose result is JSON null --
+                # the generic entry must hand this back as NULL, not "null".
+                response_json = json.dumps({
+                    "success": True,
+                    "t": int(time.time()),
+                    "result": None
+                }, separators=(',', ':'))
+            elif api == 'tuya.test.gateway.gone':
+                # Test-only: the errorCode that historically had a special
+                # OPRT_COMMUNICATION_ERROR mapping; it must now be the same
+                # uniform business error as every other rejection.
+                response_json = json.dumps({
+                    "success": False,
+                    "t": int(time.time()),
+                    "errorCode": "GATEWAY_NOT_EXISTS",
+                    "errorMsg": "device removed from the cloud"
+                }, separators=(',', ':'))
             else:
                 response_json = json.dumps({
                     "success": False,

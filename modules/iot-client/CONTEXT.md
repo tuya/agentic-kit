@@ -53,12 +53,39 @@ Replacing the device's schema with a newer version for the same Schema ID, fetch
 the application polling the cloud (there is no MQTT schema-change notification).
 _Avoid_: migration, update (too generic).
 
+**ATOP interface**:
+A named device-side HTTP service in the cloud, identified by the pair `api` name and
+`version` — e.g. `tuya.device.upgrade.get` v4.4. Nothing else distinguishes one from
+another.
+_Avoid_: interface (too generic), HTTP request (that is the transport).
+
+**Envelope**:
+The outer `{success, result, t, errorCode, errorMsg}` structure wrapping every ATOP
+response. A well-formed envelope does not mean the call succeeded: `success` is a
+separate verdict, and a rejection carries `errorCode` instead of `result`.
+_Avoid_: response, payload.
+
+**Named wrapper**:
+A typed SDK function covering one ATOP interface — it builds the request body, parses
+the result into a struct, and defines who frees what. E.g. `iot_ota_check_upgrade()`.
+_Avoid_: 封装 / wrapping (verb, ambiguous about which layer), packaging.
+
+**Generic call**:
+The public entry point (`iot_atop_call()`) that reaches any ATOP interface by `api` +
+`version`, JSON in and JSON out, with no typing. Signing and encryption still happen
+inside the SDK.
+_Avoid_: passthrough (implies unsigned, which it is not), raw call.
+
 ### Flagged ambiguities
 
 - **"state"** is overloaded: *DP state* (the values), *schema* (the definitions), and
   *connection state* (MQTT up/down) are three different things — always qualify it.
 - **"update"** is overloaded: *DP set* (cloud changes a value) vs *schema upgrade*
   (the DP definitions change). Use the specific term.
+- **"封装" / "wrap"** is overloaded when talking about cloud interfaces: adding a
+  *named wrapper* to the SDK is a different act from calling an interface through the
+  *generic call*. Say which one — "does this need a named wrapper?" is answerable,
+  "should we wrap this?" is not.
 
 ## Example dialogue
 
