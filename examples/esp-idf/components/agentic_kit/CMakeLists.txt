@@ -21,6 +21,7 @@ set(AK_SRCS
     ${AK_DIR}/modules/iot-client/src/iot_dp.c
     ${AK_DIR}/modules/iot-client/src/iot_on_boarding.c
     ${AK_DIR}/modules/iot-client/src/iot_ota.c
+    ${AK_DIR}/modules/iot-client/src/iot_ota_verify.c
     ${AK_DIR}/modules/iot-client/src/mqtt.c
 
     # tuya-ble

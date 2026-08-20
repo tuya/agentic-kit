@@ -103,13 +103,28 @@ static void wifi_init_sta(void)
 /* Firmware download + flash (ESP-IDF esp_ota_* + esp_http_client)         */
 /* ----------------------------------------------------------------------- */
 
-static esp_err_t download_and_flash(const char *url)
+static esp_err_t download_and_flash(iot_client_t *iot,
+                                    const iot_ota_upgrade_info_t *info)
 {
+    const char *url = info->url;
     ESP_LOGI(TAG, "Starting firmware download: %s", url);
+
+    /* Digest verification context (NULL = cloud sent no digest; skip check) */
+    iot_ota_verify_ctx_t *verify = NULL;
+    int vrc = iot_ota_verify_init(iot, info, &verify);
+    if (vrc == OPRT_OK) {
+        ESP_LOGI(TAG, "Digest verification enabled");
+    } else if (vrc == OPRT_NOT_SUPPORTED) {
+        ESP_LOGW(TAG, "Cloud provided no md5/hmac — downloading without digest check");
+    } else {
+        ESP_LOGE(TAG, "iot_ota_verify_init failed: %d", vrc);
+        return ESP_FAIL;
+    }
 
     const esp_partition_t *update_part = esp_ota_get_next_update_partition(NULL);
     if (update_part == NULL) {
         ESP_LOGE(TAG, "No OTA partition available");
+        iot_ota_verify_abort(verify);
         return ESP_FAIL;
     }
     ESP_LOGI(TAG, "Update partition: %s @ 0x%08lx", update_part->label,
@@ -127,6 +142,7 @@ static esp_err_t download_and_flash(const char *url)
     esp_http_client_handle_t client = esp_http_client_init(&http_cfg);
     if (client == NULL) {
         ESP_LOGE(TAG, "Failed to init HTTP client");
+        iot_ota_verify_abort(verify);
         return ESP_FAIL;
     }
 
@@ -134,6 +150,7 @@ static esp_err_t download_and_flash(const char *url)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
         esp_http_client_cleanup(client);
+        iot_ota_verify_abort(verify);
         return err;
     }
 
@@ -145,6 +162,7 @@ static esp_err_t download_and_flash(const char *url)
         ESP_LOGE(TAG, "HTTP error: status %d", status_code);
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
+        iot_ota_verify_abort(verify);
         return ESP_FAIL;
     }
 
@@ -155,6 +173,7 @@ static esp_err_t download_and_flash(const char *url)
         ESP_LOGE(TAG, "esp_ota_begin failed: %s", esp_err_to_name(err));
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
+        iot_ota_verify_abort(verify);
         return err;
     }
 
@@ -164,6 +183,7 @@ static esp_err_t download_and_flash(const char *url)
         esp_ota_abort(update_handle);
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
+        iot_ota_verify_abort(verify);
         return ESP_ERR_NO_MEM;
     }
 
@@ -178,10 +198,21 @@ static esp_err_t download_and_flash(const char *url)
             esp_ota_abort(update_handle);
             esp_http_client_close(client);
             esp_http_client_cleanup(client);
+            iot_ota_verify_abort(verify);
             return ESP_FAIL;
         }
         if (read_len == 0) {
             break;  /* EOF */
+        }
+
+        if (verify != NULL && iot_ota_verify_update(verify, (const uint8_t *)buf, read_len) != OPRT_OK) {
+            ESP_LOGE(TAG, "Digest update failed");
+            free(buf);
+            esp_ota_abort(update_handle);
+            esp_http_client_close(client);
+            esp_http_client_cleanup(client);
+            iot_ota_verify_abort(verify);
+            return ESP_FAIL;
         }
 
         err = esp_ota_write(update_handle, buf, read_len);
@@ -191,6 +222,7 @@ static esp_err_t download_and_flash(const char *url)
             esp_ota_abort(update_handle);
             esp_http_client_close(client);
             esp_http_client_cleanup(client);
+            iot_ota_verify_abort(verify);
             return err;
         }
 
@@ -212,10 +244,23 @@ static esp_err_t download_and_flash(const char *url)
     if (content_length > 0 && total_read != content_length) {
         ESP_LOGE(TAG, "Size mismatch: read %d, expected %d", total_read, content_length);
         esp_ota_abort(update_handle);
+        iot_ota_verify_abort(verify);
         return ESP_FAIL;
     }
 
     ESP_LOGI(TAG, "Download complete: %d bytes", total_read);
+
+    /* Verify the cloud digest before making the image bootable */
+    if (verify != NULL) {
+        vrc = iot_ota_verify_finish(verify);  /* frees verify */
+        verify = NULL;
+        if (vrc != OPRT_OK) {
+            ESP_LOGE(TAG, "Firmware digest mismatch (rc=%d) — aborting upgrade", vrc);
+            esp_ota_abort(update_handle);
+            return ESP_FAIL;
+        }
+        ESP_LOGI(TAG, "Firmware digest verified");
+    }
 
     err = esp_ota_end(update_handle);
     if (err != ESP_OK) {
@@ -346,8 +391,8 @@ void app_main(void)
         ESP_LOGW(TAG, "Failed to report UPGRADING status: %d (continuing)", rc);
     }
 
-    /* 5. Download and flash firmware */
-    esp_err_t err = download_and_flash(info.url);
+    /* 5. Download and flash firmware (verifies cloud md5/hmac before boot switch) */
+    esp_err_t err = download_and_flash(iot, &info);
     iot_ota_upgrade_info_free(iot, &info);
 
     if (err != ESP_OK) {

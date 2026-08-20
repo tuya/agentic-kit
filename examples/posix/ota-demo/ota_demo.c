@@ -43,6 +43,56 @@
 /* Firmware download (simulated — writes to a local file)                  */
 /* ----------------------------------------------------------------------- */
 
+static int verify_firmware(iot_client_t *client, const char *path,
+                           const iot_ota_upgrade_info_t *info)
+{
+    iot_ota_verify_ctx_t *ctx = NULL;
+    int rc = iot_ota_verify_init(client, info, &ctx);
+    if (rc == OPRT_NOT_SUPPORTED) {
+        printf("[%s] cloud provided no md5/hmac — skipping digest check\n", TAG);
+        return 0;
+    }
+    if (rc != OPRT_OK) {
+        fprintf(stderr, "[%s] iot_ota_verify_init failed: %d\n", TAG, rc);
+        return -1;
+    }
+
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "[%s] cannot open %s for verification\n", TAG, path);
+        iot_ota_verify_abort(ctx);
+        return -1;
+    }
+
+    uint8_t buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+        if (iot_ota_verify_update(ctx, buf, n) != OPRT_OK) {
+            fprintf(stderr, "[%s] digest update failed\n", TAG);
+            fclose(f);
+            iot_ota_verify_abort(ctx);
+            return -1;
+        }
+    }
+    /* fread() returns 0 for both EOF and I/O error; without this the digest
+     * would be computed over a truncated prefix and reported as a mismatch. */
+    if (ferror(f)) {
+        fprintf(stderr, "[%s] read error on %s\n", TAG, path);
+        fclose(f);
+        iot_ota_verify_abort(ctx);
+        return -1;
+    }
+    fclose(f);
+
+    rc = iot_ota_verify_finish(ctx);
+    if (rc == OPRT_OK) {
+        printf("[%s] firmware digest verified\n", TAG);
+        return 0;
+    }
+    fprintf(stderr, "[%s] firmware digest mismatch (rc=%d)\n", TAG, rc);
+    return -1;
+}
+
 static int download_firmware(const char *url, const char *out_path,
                              long expected_size)
 {
@@ -152,8 +202,9 @@ int demo_ota_run(const char *devid, const char *secret_key, const char *local_ke
         snprintf(out_path, sizeof(out_path), "firmware_%s.bin",
                  info.version ? info.version : "unknown");
 
-        if (download_firmware(info.url, out_path, info.file_size) != 0) {
-            fprintf(stderr, "[%s] firmware download failed\n", TAG);
+        if (download_firmware(info.url, out_path, info.file_size) != 0 ||
+            verify_firmware(client, out_path, &info) != 0) {
+            fprintf(stderr, "[%s] firmware download/verify failed\n", TAG);
             printf("[%s] reporting FAILURE status...\n", TAG);
             iot_ota_report_status(client, info.channel, OTA_STATUS_ERROR);
             result = -1;

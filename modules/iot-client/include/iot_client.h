@@ -26,6 +26,9 @@
 #define OPRT_MALLOC_FAILED            (-0x0006) //-6, Memory allocation failed
 #define OPRT_TLS_HANDSHAKE_FAILED     (-0x0007) //-7, TLS handshake failed
 
+/* -0x0008..-0x000C are used by iot_dp.h (DP error codes) */
+#define OPRT_OTA_VERIFY_FAILED        (-0x000D) //-13, OTA firmware digest mismatch
+
 /* ---- Logging subsystem ----
  * The IoT SDK shares the process-wide log facade (see log.h).
  * To redirect output: log_set_handler(my_fn);
