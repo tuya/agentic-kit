@@ -60,6 +60,13 @@ bool iot_client_message_handle_reset(iot_client_t *client,
         return false;
     }
 
+    /* Not opted in: leave protocol 11 on the raw message_callback path,
+     * as v0.1.0-v0.3.0 did. */
+    if (!client->reset_callback) {
+        cJSON_Delete(root);
+        return false;
+    }
+
     /* data.gwId: the removed device id. TuyaOpen only logs it; we defensively
      * consume-but-skip if it doesn't match our devid (broker anomaly). */
     cJSON *data = cJSON_GetObjectItem(root, "data");
@@ -88,9 +95,7 @@ bool iot_client_message_handle_reset(iot_client_t *client,
     log_warn("reset: device-remove notice received (type=%s)",
              type == IOT_RESET_REMOTE_FACTORY ? "factory" : "unbind");
 
-    if (client->reset_callback) {
-        client->reset_callback(type, NULL);
-    }
+    client->reset_callback(type, client->reset_user_data);
 
     cJSON_Delete(root);
     return true;

@@ -21,7 +21,9 @@
  *   6. Persist on every change via the save callback; persist a newer schema via
  *      the schema-update callback. The SDK provides the mechanism; the app owns
  *      the storage.
- *   7. On Ctrl-C: dump the final state, disconnect, free, deinit.
+ *   7. On a cloud device-remove notice (reset_callback): wipe dp_state.json /
+ *      schema.json and exit with re-pair guidance.
+ *   8. On Ctrl-C: dump the final state, disconnect, free, deinit.
  */
 
 #include "dp_management_demo.h"
@@ -413,7 +415,7 @@ int demo_dp_management_run(const char *devid,
         client->pal->free(final_state);
     }
 
-    /* 7. Tear down. */
+    /* 8. Tear down. */
     iot_client_message_disconnect(client);
     iot_client_deinit(client);
     return 0;

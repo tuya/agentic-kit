@@ -93,6 +93,9 @@ idf.py flash monitor
 
 # 设备扫码配网示例（默认使用 res/qr.jpg）
 ./build/scan_by_device_pair_demo
+
+# 设备解绑通知示例（等待云端移除设备 / 恢复出厂通知）
+./build/unbind_demo <devid> <secret_key> <local_key>
 ```
 
 > 上述 AI demo 均内置默认设备凭据，可直接运行；要用自己的设备时，多数 demo 支持追加 `[devid] [secret_key] [local_key]` 参数。`tai_audio_chat_demo` 仅在检测到 libopus 时才会编译。

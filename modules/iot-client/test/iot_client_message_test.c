@@ -479,7 +479,7 @@ static int test_iot_client_init_no_autoconnect(void)
 /* ---------- Reset callback tests (network-free, plaintext input) ---------- */
 
 static volatile int reset_cb_called = 0;
-static iot_reset_type_t reset_cb_type = -1;
+static int reset_cb_type = -1;   /* int, not iot_reset_type_t: -1 sentinel + %d printing */
 
 static void test_reset_callback(iot_reset_type_t type, void *user_data)
 {
@@ -503,6 +503,7 @@ static int test_reset_unbind(void)
 {
     const pal_t *pal = get_default_pal();
     iot_client_t *c = make_bare_client(pal, TEST_DEVID);
+    if (!c) { printf("  alloc failed\n"); return -1; }
     int rc = -1;
     reset_cb_called = 0;
     reset_cb_type = -1;
@@ -525,6 +526,7 @@ static int test_reset_factory(void)
 {
     const pal_t *pal = get_default_pal();
     iot_client_t *c = make_bare_client(pal, TEST_DEVID);
+    if (!c) { printf("  alloc failed\n"); return -1; }
     int rc = -1;
     reset_cb_called = 0;
     reset_cb_type = -1;
@@ -547,8 +549,10 @@ static int test_reset_foreign_gwid(void)
 {
     const pal_t *pal = get_default_pal();
     iot_client_t *c = make_bare_client(pal, TEST_DEVID);
+    if (!c) { printf("  alloc failed\n"); return -1; }
     int rc = -1;
     reset_cb_called = 0;
+    reset_cb_type = -1;
     c->reset_callback = test_reset_callback;
 
     const char *json = "{\"protocol\":11,\"data\":{\"gwId\":\"some_other_device\"}}";
@@ -567,20 +571,28 @@ static int test_reset_passthrough(void)
 {
     const pal_t *pal = get_default_pal();
     iot_client_t *c = make_bare_client(pal, TEST_DEVID);
+    if (!c) { printf("  alloc failed\n"); return -1; }
     int rc = -1;
+    reset_cb_called = 0;
     c->reset_callback = test_reset_callback;
 
     /* protocol 5 (DP set) */
-    if (iot_client_message_handle_reset(c, (const uint8_t *)"{\"protocol\":5,\"data\":{\"dps\":{\"1\":true}}}", 44)) {
+    static const char dp_json[] = "{\"protocol\":5,\"data\":{\"dps\":{\"1\":true}}}";
+    if (iot_client_message_handle_reset(c, (const uint8_t *)dp_json, sizeof(dp_json) - 1)) {
         printf("  protocol 5 consumed\n"); goto out;
     }
     /* no protocol field */
-    if (iot_client_message_handle_reset(c, (const uint8_t *)"{\"type\":\"test\"}", 15)) {
+    static const char no_proto_json[] = "{\"type\":\"test\"}";
+    if (iot_client_message_handle_reset(c, (const uint8_t *)no_proto_json, sizeof(no_proto_json) - 1)) {
         printf("  no-protocol consumed\n"); goto out;
     }
     /* garbage */
-    if (iot_client_message_handle_reset(c, (const uint8_t *)"not json", 8)) {
+    static const char garbage[] = "not json";
+    if (iot_client_message_handle_reset(c, (const uint8_t *)garbage, sizeof(garbage) - 1)) {
         printf("  garbage consumed\n"); goto out;
+    }
+    if (reset_cb_called != 0) {
+        printf("  callback fired on passthrough (%d)\n", reset_cb_called); goto out;
     }
     rc = 0;
 out:
@@ -588,17 +600,18 @@ out:
     return rc;
 }
 
-/* [11] protocol 11 with no callback registered → consumed, no crash */
-static int test_reset_no_callback(void)
+/* [11] protocol 11 with no callback registered → passthrough (opt-in gate) */
+static int test_reset_no_callback_passthrough(void)
 {
     const pal_t *pal = get_default_pal();
     iot_client_t *c = make_bare_client(pal, TEST_DEVID);
+    if (!c) { printf("  alloc failed\n"); return -1; }
     int rc = -1;
     /* reset_callback is NULL (memset to 0) */
 
     const char *json = "{\"protocol\":11,\"data\":{\"gwId\":\"test_device_msg_001\"}}";
-    if (!iot_client_message_handle_reset(c, (const uint8_t *)json, strlen(json))) {
-        printf("  protocol 11 not consumed (no callback)\n"); goto out;
+    if (iot_client_message_handle_reset(c, (const uint8_t *)json, strlen(json))) {
+        printf("  protocol 11 consumed without a registered callback\n"); goto out;
     }
     rc = 0;
 out:
@@ -656,7 +669,7 @@ int main(void)
     RUN_TEST(test_reset_factory);
     RUN_TEST(test_reset_foreign_gwid);
     RUN_TEST(test_reset_passthrough);
-    RUN_TEST(test_reset_no_callback);
+    RUN_TEST(test_reset_no_callback_passthrough);
 
     stop_mock_wrongkey();
     stop_mock_invalid();
