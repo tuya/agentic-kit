@@ -35,6 +35,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     reset. Registered as the `unbind_demo` target in
     `examples/posix/CMakeLists.txt`.
 
+- iot-client — OTA firmware digest verification (`iot_ota_verify_*`).
+  - New streaming verifier API `iot_ota_verify_init` / `iot_ota_verify_update` /
+    `iot_ota_verify_finish` / `iot_ota_verify_abort` in `iot_ota.h`: the
+    application feeds downloaded firmware chunks into the context while
+    flashing, and `iot_ota_verify_finish()` compares the result against the
+    cloud-provided digest from `iot_ota_check_upgrade()`.
+  - Algorithm matches TuyaOpen's `tuya_ota.c`: when `hmac` is present the
+    expected value is `HMAC-SHA256(device secret_key,
+    UPPERCASE_hex(SHA-256(image)))` (the HMAC message is the 64-char
+    uppercase hex string of the SHA-256 digest, matching TuyaOpen's `hex2str`);
+    when only `md5` is present it falls back to plain MD5. Comparison is
+    case-insensitive. Neither digest present → `OPRT_NOT_SUPPORTED`;
+    mismatch → the new error code `OPRT_OTA_VERIFY_FAILED (-0x000D)`.
+  - An empty digest string counts as absent, so a blank `hmac` falls through
+    to a usable `md5` instead of failing the upgrade; a non-empty `hmac` of
+    the wrong length is still rejected rather than downgraded to `md5`.
+    `iot_ota_verify_init` does not write `*ctx_out` on any error path
+    (initialize it to NULL), so the skip path is `if (ctx != NULL)`;
+    `finish(NULL)` is a parameter error, not "skip".
+  - Both OTA demos now verify: the ESP-IDF demo checks the digest before
+    `esp_ota_set_boot_partition` and aborts on mismatch; the POSIX demo
+    re-reads the downloaded file, checking `ferror` so a read error is not
+    reported as a digest mismatch. Unit tests with Python-generated
+    known-answer vectors added as `iot_ota_verify_test`.
+
 - Examples — music play demo (`tai_music_play_demo`)(#15).
   - New POSIX example `examples/posix/ai/rtc-tcp-client/music_play_demo.c` that
     sends a text query triggering the server's music skill, parses the returned

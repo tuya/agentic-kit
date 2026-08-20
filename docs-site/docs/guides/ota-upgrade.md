@@ -42,6 +42,7 @@ SDK 只提供**云端协议原语**——版本上报、升级查询、状态回
 | `iot_ota_report_version` | `tuya.device.versions.update` (v4.1) | 上报当前固件版本（`iot_client_init` 会用 `iot_client_config_t.sw_ver` 自动调用，NULL 时用 SDK 默认 `IOT_SDK_SW_VER`） |
 | `iot_ota_check_upgrade` | `tuya.device.upgrade.get` (v4.4) | 查询是否有待升级固件，返回 URL / 版本 / 大小 / 哈希（云端与已上报的版本比较，不再传版本号） |
 | `iot_ota_report_status` | `tuya.device.upgrade.status.update` (v4.1) | 回报升级生命周期状态 |
+| `iot_ota_verify_init/update/finish` | — | 流式校验下载固件的 md5/hmac 摘要（见下文） |
 
 ### `iot_ota_check_upgrade` 返回的升级信息
 
@@ -70,6 +71,51 @@ typedef enum {
     OTA_STATUS_ERROR     = 4,  // 升级失败 / 异常
 } iot_ota_status_t;
 ```
+
+## 固件摘要校验（md5 / hmac）
+
+云端在升级信息里返回固件摘要（`info.hmac` 优先，否则 `info.md5`；字段缺失或为空串都算没有下发该摘要）。SDK 提供**流式校验 API**：应用在下载循环中把每个固件块喂给校验器，下载完成后 `iot_ota_verify_finish()` 比对云端摘要，不匹配返回 `OPRT_OTA_VERIFY_FAILED`。
+
+算法与 TuyaOpen 一致：
+
+```
+expected = HMAC-SHA256(key = 设备 secret_key,
+                       msg = UPPERCASE_hex(SHA-256(固件字节)))
+```
+
+注意 HMAC 的消息是 SHA-256 摘要的 **64 字符大写十六进制字符串**（与 TuyaOpen 的 `hex2str` 一致，不是小写，也不是原始 32 字节）。云端没有下发 `hmac`（字段缺失或为空串）时退化为 `MD5(固件字节)` 比对；但 `hmac` 非空而长度不对时 `init` 直接报错，不会降级到 `md5`。比较大小写不敏感。
+
+```c
+iot_ota_verify_ctx_t *ctx = NULL;
+int rc = iot_ota_verify_init(iot, &info, &ctx);
+if (rc != OPRT_OK && rc != OPRT_NOT_SUPPORTED) {
+    /* 摘要格式非法、内存不足等 —— 中止升级，上报 OTA_STATUS_ERROR */
+    return -1;
+}
+/* rc == OPRT_NOT_SUPPORTED: 云端没有摘要字段，ctx 保持 NULL，跳过校验
+ * （应用自行决定） */
+
+while ((n = read_firmware_chunk(buf)) > 0) {
+    if (ctx != NULL && iot_ota_verify_update(ctx, buf, n) != OPRT_OK) {
+        iot_ota_verify_abort(ctx);
+        return -1;
+    }
+    flash_write(buf, n);                  /* 与喂给校验器的数据一致 */
+}
+
+if (ctx != NULL) {
+    rc = iot_ota_verify_finish(ctx);      /* 内部释放 ctx */
+    if (rc != OPRT_OK) {
+        /* OPRT_OTA_VERIFY_FAILED: 固件被篡改/损坏 —— 中止，上报 OTA_STATUS_ERROR */
+        return -1;
+    }
+}
+```
+
+- 校验失败时**不要切换启动分区**，上报 `OTA_STATUS_ERROR` 后丢弃本次下载。
+- 下载中途失败用 `iot_ota_verify_abort(ctx)` 直接释放（不比对）。
+- `finish` 无论成败都会释放上下文，之后不要再使用；`finish(NULL)` 不是"跳过校验"，会返回参数错误，所以跳过校验的路径必须用 `if (ctx != NULL)` 把 `update`/`finish` 一起圈起来。
+- `init` 只要返回**非 `OPRT_OK` 且非 `OPRT_NOT_SUPPORTED`** 就必须中止升级，`ctx` 此时不会被写入（保持 NULL）；按这两个值分支，不要枚举具体错误码。
 
 ## 完整示例（ESP-IDF）
 
@@ -147,8 +193,8 @@ if (rc == OPRT_OK && info.has_upgrade) {
 /* 下载前上报"升级中" */
 iot_ota_report_status(iot, 0, OTA_STATUS_UPGRADING);
 
-/* 用 esp_http_client 下载 info.url，逐块 esp_ota_write */
-esp_err_t err = download_and_flash(info.url);
+/* 用 esp_http_client 下载 info.url，逐块 esp_ota_write + 摘要校验 */
+esp_err_t err = download_and_flash(iot, &info);
 iot_ota_upgrade_info_free(iot, &info);
 
 if (err != ESP_OK) {
@@ -164,23 +210,45 @@ esp_restart();
 `download_and_flash` 的核心流程（完整代码见 demo）：
 
 ```c
-static esp_err_t download_and_flash(const char *url)
+static esp_err_t download_and_flash(iot_client_t *iot,
+                                    const iot_ota_upgrade_info_t *info)
 {
     const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
 
+    /* 摘要校验上下文（云端无 md5/hmac 时返回 OPRT_NOT_SUPPORTED，verify 保持 NULL） */
+    iot_ota_verify_ctx_t *verify = NULL;
+    int vrc = iot_ota_verify_init(iot, info, &verify);
+    if (vrc != OPRT_OK && vrc != OPRT_NOT_SUPPORTED) {
+        ESP_LOGE(TAG, "iot_ota_verify_init failed: %d", vrc);
+        return ESP_FAIL;   /* 校验器建不起来 —— 不装这个固件 */
+    }
+
     esp_http_client_config_t http_cfg = {
-        .url              = url,
+        .url              = info->url,
         .timeout_ms       = 30000,
         .buffer_size      = 4096,
         .crt_bundle_attach = esp_crt_bundle_attach,  /* 公共 CA 包 */
     };
-    /* ... open / fetch headers / 检查 200 ... */
+    /* ... open / fetch headers / 检查 200；任何失败路径都要 iot_ota_verify_abort(verify) ... */
 
     esp_ota_handle_t handle;
     esp_ota_begin(part, OTA_WITH_SEQUENTIAL_WRITES, &handle);
 
     while ((n = esp_http_client_read(client, buf, sizeof(buf))) > 0) {
-        esp_ota_write(handle, buf, n);   /* 逐块写入 */
+        if (verify != NULL) {
+            iot_ota_verify_update(verify, (const uint8_t *)buf, n);  /* 与写入数据一致 */
+        }
+        esp_ota_write(handle, buf, n);                               /* 逐块写入 */
+    }
+
+    /* 切分区前校验云端摘要；不匹配则 esp_ota_abort 放弃 */
+    if (verify != NULL) {
+        vrc = iot_ota_verify_finish(verify);   /* 内部释放 verify */
+        if (vrc != OPRT_OK) {
+            ESP_LOGE(TAG, "Firmware digest mismatch (rc=%d)", vrc);
+            esp_ota_abort(handle);
+            return ESP_FAIL;
+        }
     }
 
     esp_ota_end(handle);
@@ -223,4 +291,4 @@ idf flash monitor
 - **SDK 不下载/不烧写**——`iot_ota` 只负责云端协议；下载校验、分区管理、防回滚全部由应用实现。
 - **栈要足够大**——TLS 握手 + HTTP 缓冲 + `esp_ota_write` 需要较大栈空间（demo 用 16KB）。
 - **回报时机**——`UPGRADING` 在下载前、`COMPLETE` 在重启前、`ERROR` 在失败时；漏报会导致云端升级面板状态不准。
-- **MD5/HMAC 可选校验**——`info.md5` / `info.hmac` 可能为 NULL；若存在，建议在 `esp_ota_end` 后做一次校验再切分区。
+- **MD5/HMAC 摘要校验**——`iot_ota_verify_init/update/finish` 在下载时流式计算摘要，`esp_ota_set_boot_partition` **之前**完成校验；不匹配必须中止升级（见上文「固件摘要校验」）。
