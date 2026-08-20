@@ -19,6 +19,12 @@ find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 set(AGENTIC_KIT_ENABLE_PROJECT_TESTS ${AGENTIC_KIT_BUILD_TESTS})
 set(BUILD_TESTING OFF CACHE BOOL "Disable third-party tests" FORCE)
+# include(CTest) only calls enable_testing() while BUILD_TESTING is ON, and the cache
+# is forced OFF above — so re-configures would silently stop regenerating the ctest
+# list. Enable it explicitly for our own tests.
+if(AGENTIC_KIT_BUILD_TESTS)
+    enable_testing()
+endif()
 set(ENABLE_TESTING OFF CACHE BOOL "Disable mbedTLS tests" FORCE)
 set(ENABLE_PROGRAMS OFF CACHE BOOL "Disable mbedTLS programs" FORCE)
 set(ENABLE_TESTING OFF CACHE BOOL "Disable cJSON tests" FORCE)
