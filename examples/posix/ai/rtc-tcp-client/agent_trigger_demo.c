@@ -25,9 +25,9 @@
  * Order matters: the session is opened BEFORE the DP report. A trigger that
  * fires while the device holds no session has nowhere to push to.
  *
- * The rule is evaluated on a TRANSITION, so the demo reports three values with
- * a settle between each: the baseline (dp101 = 100), then a random value inside
- * the DP's range, then the one that fires the rule (dp101 = 5). Re-reporting a
+ * The rule is evaluated on a TRANSITION, so the demo reports three values 2 s
+ * apart: the baseline (dp101 = 100), then a random value inside the DP's
+ * range, then the one that fires the rule (dp101 = 5). Re-reporting a
  * value the cloud already holds is not a transition and may not fire anything,
  * which is what the random middle step defends against -- it guarantees a real
  * change even if an earlier run left the cloud on either endpoint. Pin it with
@@ -71,8 +71,8 @@ extern const pal_t *tai_pal_posix(void);
  * other device would need that device's schema and its own cloud-side rule, so
  * there is nothing useful to parameterise -- edit these five values instead. */
 #define DEVICE_DEVID       "6c3540f2e13ffee11bykbb"
-#define DEVICE_SECRET_KEY  "Y;(wBA@)B]$c<y{g"
-#define DEVICE_LOCAL_KEY   "pdd~Udn>V17|BwIG"
+#define DEVICE_SECRET_KEY  "$fAD1P;bRwWPes9n"
+#define DEVICE_LOCAL_KEY   "wj*u^p=73j`Fql1p"
 #define DEVICE_REGION      AY      /* China */
 #define DEVICE_ENV         PROD
 
@@ -84,15 +84,20 @@ extern const pal_t *tai_pal_posix(void);
 /* Used as-is for a value DP; for a bool DP (the current one) they are
  * overridden to 1 / 0 unless given on the command line -- see main(). */
 #define DEFAULT_BATTERY      5     /* the state that fires the rule          */
-#define DEFAULT_BASELINE     100   /* the state reported first               */
+#define DEFAULT_BASELINE     99    /* the state reported first               */
 #define DEFAULT_CHARGE       "none"
 #define DEFAULT_BASELINE_CHARGE "charging"
 #define DEFAULT_TIMEOUT_S    120
 #define DEFAULT_AUDIO_PATH   "output_trigger_tts.pcm"
 
-/* Seconds between the baseline report and the trigger report -- long enough for
- * the cloud to record the healthy state as the "before" side of the transition. */
-#define BASELINE_SETTLE_S    3
+/* Seconds between consecutive DP reports. The loop below polls the MQTT socket
+ * in 200 ms slices, so this is a real wait during which the client stays
+ * responsive -- long enough for the cloud to record each value as a distinct
+ * state rather than coalescing the three into one. */
+#define REPORT_INTERVAL_S    2
+
+/* Consecutive broker failures before the run is abandoned. */
+#define MQTT_MAX_CONSECUTIVE_FAILS  8
 
 /* The product's schema, from the DP snapshot the cloud returned at activation:
  *   {"dps":{"1":true,"101":0}}
@@ -799,6 +804,21 @@ static int tai_link_up(tai_ctx_t *ctx, demo_reconnect_t *r)
 /* Report the (battery, charge status) pair the rule reads, in one uplink.
  * iot_dp_set validates against the schema, so a wrong id/type/range is reported
  * here instead of being silently rejected by the cloud. */
+/* Wait `seconds` while still pumping the MQTT receive path.
+ *
+ * Deliberately deadline-driven rather than a fixed iteration count:
+ * iot_client_message_process() DISCARDS its timeout argument (mqtt.c does
+ * `(void)timeout_ms;`) and blocks for up to the compile-time
+ * MQTT_RECV_TIMEOUT_MS -- 1000 ms, five times the 200 we pass. Counting
+ * iterations therefore overshoots by 5x on an idle link. Overshoot here is
+ * bounded by one recv budget instead. */
+static void pump_for(iot_client_t *iot, int seconds)
+{
+    int64_t until = now_us() + (int64_t)seconds * 1000000LL;
+    while (g_running && now_us() < until)
+        iot_client_message_process(iot, 200);
+}
+
 static int report_state(iot_client_t *iot, const opts_t *o,
                         long battery, int32_t charge_index, const char *what)
 {
@@ -1086,8 +1106,7 @@ int main(int argc, char **argv)
             if (report_state(iot, &o, o.baseline, baseline_charge_index,
                              "baseline") != OPRT_OK)
                 goto cleanup;
-            for (int i = 0; i < BASELINE_SETTLE_S * 5 && g_running; i++)
-                iot_client_message_process(iot, 200);
+            pump_for(iot, REPORT_INTERVAL_S);
         }
         if (o.use_mid) {
             /* A third, differing report between the two endpoints: it guarantees
@@ -1095,8 +1114,7 @@ int main(int argc, char **argv)
              * baseline or the trigger value from an earlier run. */
             if (report_state(iot, &o, o.mid, charge_index, "mid") != OPRT_OK)
                 goto cleanup;
-            for (int i = 0; i < BASELINE_SETTLE_S * 5 && g_running; i++)
-                iot_client_message_process(iot, 200);
+            pump_for(iot, REPORT_INTERVAL_S);
         }
         dc.fire_us = now_us();
         if (report_state(iot, &o, o.battery, charge_index, "trigger") != OPRT_OK)
@@ -1114,13 +1132,41 @@ int main(int argc, char **argv)
     unsigned seen     = 0;
     int64_t  deadline = now_us() + (int64_t)o.timeout_s * 1000000LL;
 
+    int mqtt_fails = 0;
+
     while (g_running) {
+        /* Checked FIRST. When the broker link flaps, the reconnect arm below
+         * can take hundreds of ms per pass; checking the deadline last let a
+         * flapping link run well past --timeout before the loop noticed. */
+        if (now_us() > deadline) {
+            if (seen == 0)
+                fprintf(stderr, "[main] no push within %d s\n", o.timeout_s);
+            else
+                printf("[main] no further push within %d s\n", o.timeout_s);
+            break;
+        }
+
         int rc = iot_client_message_process(iot, 200);
-        if (rc != OPRT_OK) {
-            /* No auto-reconnect in the IoT SDK: reconnect, then re-report. */
-            fprintf(stderr, "[iot] MQTT link error %d; reconnecting\n", rc);
+        if (rc == OPRT_OK) {
+            mqtt_fails = 0;
+        } else {
+            /* No auto-reconnect in the IoT SDK: reconnect, then re-report.
+             * Back off on EVERY failed pass, not just a failed connect: a
+             * broker that accepts the connection and then drops it immediately
+             * would otherwise spin here reconnecting many times a second. */
+            fprintf(stderr, "[iot] MQTT link error %d; reconnecting (%d)\n",
+                    rc, mqtt_fails + 1);
             iot_client_message_disconnect(iot);
-            if (mqtt_up(iot) != OPRT_OK) usleep(2000 * 1000);
+            if (++mqtt_fails >= MQTT_MAX_CONSECUTIVE_FAILS) {
+                fprintf(stderr, "[iot] giving up on the broker after %d "
+                                "consecutive failures\n", mqtt_fails);
+                failed = 1;
+                break;
+            }
+            uint32_t back_ms = 500u << (mqtt_fails - 1);   /* 0.5s,1s,2s,... */
+            if (back_ms > 5000u) back_ms = 5000u;
+            usleep(back_ms * 1000);
+            mqtt_up(iot);
         }
 
         if (dc.reconn.need_reconnect) {
@@ -1154,13 +1200,6 @@ int main(int argc, char **argv)
             printf("[main] %u push(es) received; waiting for more\n", seen);
         }
 
-        if (now_us() > deadline) {
-            if (seen == 0)
-                fprintf(stderr, "[main] no push within %d s\n", o.timeout_s);
-            else
-                printf("[main] no further push within %d s\n", o.timeout_s);
-            break;
-        }
     }
 
 cleanup:
