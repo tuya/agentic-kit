@@ -67,8 +67,10 @@ _Avoid_: packet type (the wire kind), stream flag (chunk position), command.
 
 **Sign level**:
 How each Frame is authenticated: `NONE`, `HMAC_SHA1` (20-byte sig), or `HMAC_SHA256`
-(32-byte sig) (`TAI_SIGN_*`). ClientHello is the one Frame sent unsigned.
-_Avoid_: encryption (signing ≠ confidentiality), auth mode.
+(32-byte sig) (`TAI_SIGN_*`). The names are wire labels, not algorithm choices — there is no
+SHA-1 primitive in `tai_crypto.c`; both signed levels compute HMAC-SHA256 into a 32-byte buffer
+and `HMAC_SHA1` merely ships its first 20 bytes. ClientHello is the one Frame sent unsigned.
+_Avoid_: encryption (signing ≠ confidentiality), auth mode, "the SHA-1 signature".
 
 **Keepalive (Ping / Pong)**:
 The liveness exchange the background thread runs: it sends a Ping every `ping_interval_ms`
@@ -242,6 +244,13 @@ must not block — captured in the callback-contract block in `tuya_ai.h`.
   large, a single Frame stays well within it.
 - Reassembly trusts FIRST/MIDDLE/LAST ordering — safe over the reliable, in-order Connection.
 - ClientHello is the only unsigned Frame.
+- Only sign levels 1 and 2 map to a signature length; any other value falls through to
+  `sig_len = 0`, which disables signing in *both* directions — every Frame ships unsigned and
+  `tai_frame_verify` returns OK without looking — while ClientHello's security suite still
+  advertises that level byte. A configured `sign_level` of 0 is not that case: zero reads as
+  "unset" and becomes HMAC_SHA256. Nothing local catches a wrong choice here — the loopback
+  server derives keys and signs through the very same functions as the client, so even a wrong
+  algorithm round-trips.
 
 ## Example dialogue
 

@@ -110,6 +110,8 @@ iot_atop_response_free(client, &resp);   /* 每条路径都要调，包括失败
 
 **只支持已激活的设备。** 通用入口用 `devid` + `secret_key` 签名。激活本身用的是 `uuid` + `authkey`，是另一条路径，仍然只能通过 `iot_client_init_on_boarding()` 走。在没有凭据的 client 上调用返回 `OPRT_UNINITIALIZED`。
 
+**单次响应不能超过 4096 字节，连 HTTP 头一起算。** 状态行、响应头和加密后的响应体共用一个固定大小的缓冲区（`RESPONSE_BUFFER_SIZE`，`http_client_interface.c`），没有分段续读。溢出时底层 coreHTTP 返回 `HTTPInsufficientMemory`，SDK 把它折叠成 `OPRT_COMMUNICATION_ERROR`——和"socket 断了"是同一个返回值，而 coreHTTP 自己的解释性日志在本项目里被编译掉了（`HTTP_DO_NOT_USE_CUSTOM_CONFIG`），所以现场只看得到一次"传输层失败"，重试也不会好。扣掉响应头、base64 膨胀和信封字段，**解密后 JSON 的实际上限约 2.8 KB**。返回定长字段的接口绰绰有余；返回列表、DP schema 这类长度随产品增长的接口很容易撞上——遇到这种接口请提 issue，把它变成具名接口的同一个改动里需要把这个常量一起抬上去。
+
 **请求体原样透传。** SDK 不会改写你的请求体，所以接口要求的字段必须自己带齐——**包括大多数 ATOP 接口在请求体里要求的 `t` 时间戳字段**。SDK 只校验到"能解析成 JSON 对象"为止，目的是把手误变成一个立刻返回的 `OPRT_INVALID_PARAMETER`，而不是花一次 HTTPS 往返换一句含义模糊的云端拒绝。
 
 **`result` 是字符串，不是 cJSON 对象。** 这样 cJSON 不会进入 SDK 的公共 ABI，业务层不必绑定 SDK 的 cJSON 版本，内存归属也清晰：`iot_atop_response_free()` 负责释放。

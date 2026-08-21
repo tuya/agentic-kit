@@ -37,7 +37,12 @@ void tai_loopback_reset(void);
  * reproducible. Defaults to seed=1 after reset. */
 void tai_loopback_seed_random(uint64_t seed);
 
-/* Virtual clock. Defaults to 1700000000000 ms after reset. */
+/* Virtual clock. Defaults to 1700000000000 ms after reset.
+ *
+ * NOT wired to the receive worker: the worker reads real CLOCK_MONOTONIC, so
+ * advancing this clock does not move its Ping schedule or liveness deadline.
+ * Keepalive and liveness tests therefore need real timeouts and real sleeps --
+ * driving them with advance_time() looks like the production code is broken. */
 uint64_t tai_loopback_now_ms(void);
 void     tai_loopback_advance_time(uint64_t delta_ms);
 

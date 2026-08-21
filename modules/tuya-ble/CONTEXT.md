@@ -46,7 +46,8 @@ _Avoid_: uuid (the input string), device id, MAC address.
 
 **product_key**:
 The static Tuya vendor identifier for the product *family*, embedded in the advertising
-data so the app knows what kind of device this is.
+data so the app knows what kind of device this is. Copied in as exactly 16 raw bytes and
+never measured, so a shorter string broadcasts the rodata behind it.
 _Avoid_: uuid (per-device), auth_key (the secret), schema id (an IoT-Client term).
 
 **uuid**:
@@ -56,7 +57,8 @@ _Avoid_: BLE ID (the derived 16-byte value), product_key.
 
 **auth_key**:
 The 32-byte per-device shared secret, the root from which the encryption keys are derived
-via MD5.
+via MD5; its first 16 bytes also key the AES block returned in the device-info response.
+Read as a fixed-length raw buffer and, like the product_key, never measured.
 _Avoid_: key (unqualified), token, local_key (an IoT-Client term).
 
 **pair_rand**:
@@ -125,6 +127,24 @@ _Avoid_: handler, listener, hook.
 - **"len"** is overloaded: *data_len* (a Frame's payload size), *enc_pkt_len* (a Packet's
   size), and *rx_total_len* (the full reassembled length across Trsmitr segments). Qualify
   it.
+
+## Invariants
+
+- Inbound dispatch is gated on nothing. `tuya_ble_recv` switches on `cmd` alone, accepts
+  Encryption mode `NONE`, and validates only the length fields and the Frame's CRC16-MODBUS — a
+  public checksum. `paired` is read in exactly one place (whether to follow the pair response
+  with net-status), never as authorization, so any peer that can connect and write the
+  characteristic can hand the device creds with no auth_key. A handler that acts on device state
+  must gate itself on `paired` *and* on the Encryption mode being KEY_12 — which means plumbing
+  the mode down, since `tuya_ble_recv` keeps it in a local and passes handlers only the payload.
+- `tuya_ble_hal_random` is the whole entropy supply — this context does not use `common/rng.c` —
+  and a stub still provisions. pair_rand goes to the app in the device-info response and both
+  sides then derive `key_12 = MD5(key_11 ‖ pair_rand)`, so an all-zero pair_rand still yields a
+  *matching* key: Pairing, Provisioning and cloud activation all succeed, on a deterministic
+  key_12 with a fixed IV, identically on every device. A port must supply a real CSPRNG that
+  fills the whole buffer — a missing one is a link error, a stubbed one is silent.
+- `tuya_ble_prov_init` validates only non-NULL, so the caller owns every length. A short
+  product_key or auth_key gives no crash and no log — the app simply never pairs.
 
 ## Example dialogue
 

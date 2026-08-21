@@ -45,6 +45,18 @@ extern "C" {
  * Every callback below is mandatory.  pal_is_valid() rejects any pal_t
  * that leaves a field NULL, so SDK call sites may dereference these
  * pointers without re-checking.
+ *
+ * ADDING, REMOVING OR REORDERING A MEMBER means editing four separate
+ * designated-initializer tables plus pal_is_valid() below:
+ *   pal/pal_posix.c, pal/pal_freertos.c,
+ *   modules/rtc-tcp-client/test/tai_pal_loopback.c, and .../test/test_core.c
+ * The host build compiles three of them -- pal_freertos.c is in no CMake
+ * target here, only the ESP-IDF component -- and C99 zero-fills whatever a
+ * designated initializer omits, with no -Wmissing-field-initializers
+ * anywhere in this project.  So a green build and a green ctest run prove
+ * nothing about the FreeRTOS table: it silently carries a NULL member, and
+ * on device you get either pal_is_valid() refusing the pal at init or a
+ * call straight through a NULL pointer.
  */
 typedef struct pal {
 
@@ -121,6 +133,13 @@ typedef struct pal {
  * Both ai-tcp and iot-client call this once at init and reject any pal
  * that returns false, so downstream code may dereference these pointers
  * without further null checks.
+ *
+ * This checks PRESENCE, never behaviour.  A port whose mutex_create()
+ * returns a non-recursive mutex passes here, activates, reports DPs and
+ * handles downlinks -- then hard-deadlocks the first time the cloud offers a
+ * newer schema (see the mutex_create contract above).  No test covers it:
+ * the only path that needs the recursion is iot-client's, and every pal in
+ * the test suite is already recursive.
  * ------------------------------------------------------------------------- */
 static inline bool pal_is_valid(const pal_t *p)
 {

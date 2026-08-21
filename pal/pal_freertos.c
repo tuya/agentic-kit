@@ -36,9 +36,11 @@
  * --------------------------------------------------------------------------
  * Build-time tunables
  * --------------------------------------------------------------------------
- *   PAL_FR_TASK_STACK_WORDS  worker task stack in StackType_t units
- *                            (default ~6 KB; bump if TLS handshake stack
- *                            overflows)
+ *   PAL_FR_TASK_STACK_WORDS  worker task stack, in StackType_t WORDS (not
+ *                            bytes) -- passed straight to xTaskCreate as
+ *                            usStackDepth.  The 6144 default is ~24 KB on a
+ *                            32-bit port; do not "correct" it to 1536 to get
+ *                            6 KB, the TLS handshake runs on this task.
  *   PAL_FR_TASK_PRIORITY     worker task priority
  *   PAL_FR_TASK_NAME         task name string (debug only)
  *
@@ -277,10 +279,15 @@ static void pal_tcp_close(void *handle)
  * ------------------------------------------------------------------------- */
 static uint64_t pal_time_ms(void)
 {
-    /* xTaskGetTickCount() is 32-bit on most ports; cast before multiply so
-     * the result keeps growing past 49 days at 1 ms tick.  Caller only uses
-     * the value for elapsed-time deltas, so wrap/precision past that is
-     * irrelevant. */
+    /* NOT monotonic, despite pal.h's contract: the cast stops the MULTIPLY
+     * overflowing, it does not stop xTaskGetTickCount() itself wrapping --
+     * back to 0 after 2^32 ticks (~49.7 days at a 1 ms tick), or every ~65 s
+     * if the port sets configUSE_16_BIT_TICKS 1 (so: don't).  Deltas do not
+     * survive the wrap either; they are the worst case.  now < start makes the
+     * unsigned subtraction ~1.8e19, so every connect deadline, keepalive and
+     * liveness check in the SDK trips at once and the client tears down and
+     * reconnects.  It re-stamps its timestamps on the way back up, so this
+     * self-heals and leaves no trace but one unexplained reconnect. */
     return (uint64_t)xTaskGetTickCount() * (uint64_t)portTICK_PERIOD_MS;
 }
 

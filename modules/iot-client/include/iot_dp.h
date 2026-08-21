@@ -26,8 +26,14 @@
 extern "C" {
 #endif
 
-/* ---- DP error codes (continue the iot_client.h OPRT_* sequence; last was
- *      OPRT_TLS_HANDSHAKE_FAILED = -0x0007) ---- */
+/* ---- DP error codes ----
+ * The OPRT_* space is hand-partitioned between two public headers and nothing
+ * enforces it: this file owns -0x0008..-0x000C, iot_client.h owns
+ * -0x0001..-0x0007 plus -0x000D onwards.  Read BOTH before allocating a new
+ * code and append after the current maximum -- reusing a number under a new
+ * name draws no diagnostic, and callers branch on exact values (an app's
+ * `rc == OPRT_NOT_SUPPORTED` skip test would start firing on your condition).
+ */
 #define OPRT_DP_SCHEMA_PARSE_FAILED  (-0x0008) //-8,  Schema JSON could not be parsed
 #define OPRT_DP_INVALID_ID           (-0x0009) //-9,  No such DP id in the schema registry
 #define OPRT_DP_TYPE_MISMATCH        (-0x000A) //-10, Value type does not match the DP type
