@@ -351,6 +351,15 @@ tai_ctx_t *tai_ctx_init(void *mem, const tai_config_t *cfg)
     return ctx;
 }
 
+void tai_set_event_params(tai_ctx_t *ctx,
+                          const char *user_data_json,
+                          const char *custom_param_json)
+{
+    if (!ctx) return;
+    ctx->event_user_data_json    = user_data_json;
+    ctx->event_custom_param_json = custom_param_json;
+}
+
 void tai_ctx_deinit(tai_ctx_t *ctx)
 {
     if (!ctx) return;
