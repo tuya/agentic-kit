@@ -107,6 +107,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     copyright notes on trial-clip duration limits and NetEase Cloud Music
     integration via the Tuya content server.
 
+- rtc-tcp-client — send an image and streamed audio as ONE multimodal event.
+  - `tai_send_image_audio_start()` / `_chunk()` / `_end()` emit
+    `EventStart -> Image(OneShot) -> Audio(START..MIDDLE..END) ->
+    EventPayloadsEnd -> EventEnd`, so a spoken question *about a picture*
+    arrives as a single turn. Composing it from the existing calls produces two
+    separate events, leaving the server no way to know the speech refers to the
+    image.
+  - `_chunk` / `_end` keep `tai_send_audio_chunk` / `_end` semantics, so an
+    existing audio loop only changes the call that opens the turn.
+  - Covered by `test_image_audio_query()` in the loopback integration test.
+
+- rtc-tcp-client — per-connection custom parameters on `EventStart`.
+  - New `tai_config_t.event_custom_param_json`. When set, the event's user data
+    gains a sibling to `chatAttributes`:
+    `{"chatAttributes":"...","sessionAttributes":{"custom.param":<raw>}}`.
+    Server-side workflows read device intent from `custom.param`, e.g.
+    `{"clm_intent":"ai_image"}`. It is spliced in as a nested object rather than
+    an escaped string because that is the shape the workflow expects.
+  - `NULL` (the default) omits `sessionAttributes` entirely, so existing callers
+    are unaffected.
+
+- rtc-tcp-client — `tai_set_event_params()` changes the event parameters per
+  turn. Without it the intent is fixed at `tai_ctx_init()` time, so a device
+  that alternates between turn kinds — an image-recognition turn and a plain
+  chat turn, say — cannot tell the server which one it is sending. Both
+  arguments are borrowed, not copied, and must stay valid until the next call.
+
 ### Changed
 
 - Examples — the rtc-tcp-client POSIX demos share their parsing helpers.
@@ -148,6 +175,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tuya-ble and common. Log-only — no behaviour change.
 
 ### Fixed
+
+- common/tls — a TLS 1.3 `NewSessionTicket` tore the session down. A server may
+  deliver one between application records; mbedTLS surfaces it to the reader as
+  `MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET`, a non-fatal "read again"
+  signal, but `tls_read()` fell through to its generic error branch. Observed as
+  a session dropping mid-stream at random, with nothing in the log to tell it
+  apart from a real transport failure. Guarded by `#ifdef` so the code still
+  builds against mbedTLS versions predating the constant.
 
 - iot-client — a cloud-rejected ATOP call reported success. When the envelope
   carried `success: false`, `atop_response_result_parse_cjson()` logged
