@@ -352,6 +352,15 @@ void        tai_disconnect(tai_ctx_t *ctx);
  * worker, send SessionClose, and release resources. */
 void        tai_request_disconnect(tai_ctx_t *ctx);
 
+/* Update the user-data emitted on subsequent EventStart packets, so the intent
+ * can change per turn (e.g. an image-recognition turn vs. a plain chat turn).
+ * Pass NULL for user_data_json to fall back to the built-in default, and NULL
+ * for custom_param_json to omit sessionAttributes.custom.param entirely.
+ * The pointers must stay valid until the next call (typically string literals). */
+void tai_set_event_params(tai_ctx_t *ctx,
+                          const char *user_data_json,
+                          const char *custom_param_json);
+
 /* =========================================================================
  * Sending data
  * ========================================================================= */
