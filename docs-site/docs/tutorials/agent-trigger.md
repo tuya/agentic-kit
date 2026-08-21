@@ -10,7 +10,7 @@ sidebar_position: 5
 >      * `examples/posix/ai/rtc-tcp-client/agent_trigger_demo.c`
 
 :::note 前置条件
-- 设备凭据（`devid`、`secret_key`、`local_key`）—— 示例内置默认测试凭据，可直接运行。用自己的设备时需先完成[配网](./scan-by-device.md)获取凭据。
+- 设备凭据（`devid`、`secret_key`、`local_key`）—— **编译进示例**（源码顶部的 `DEVICE_*` 宏），无需命令行传入。换设备请改这几个宏：触发器 demo 只对配好了事件规则和触发器的那个产品（PID）有意义，而产品又决定了 schema，所以换设备本来就得连 schema 和云端规则一起换。凭据由[配网](./scan-by-device.md)获得。
 - **云端必须先配置好触发器**，否则示例只会上报 DP 然后超时退出。云端配置步骤见下文[云端配置](#云端配置)。
 - 产品已关联智能体，参见[创建 Agent](../guides/create-agent.md)。
 :::
@@ -32,7 +32,7 @@ sidebar_position: 5
 只有第三部分是代码：
 
 ```
-① 设备事件规则（云端配置）      dp109(电量) < 20 且 dp4(充电状态) = none
+① 设备事件规则（云端配置）      dp109(电量) < 20
         ↓ 命中
 ② 智能体触发器（云端配置）      任务 = 智能体推消息
                                 Prompt = "当前电量 {{dp109}}%，用一句话提醒充电"
@@ -47,7 +47,7 @@ sidebar_position: 5
         │                                                                        │
         │  iot-client (MQTT)                          rtc-tcp-client (TAI 会话)   │
         │       │  上行：iot_dp_report_all_dirty()          │  下行：空闲会话      │
-        │       │  DP109=15, DP4=none                       │  等待服务端开回合   │
+        │       │  DP109=15                                 │  等待服务端开回合   │
         └───────┼───────────────────────────────────────────┼────────────────────┘
                 │                                           │
                 ▼                                           ▲
@@ -73,10 +73,9 @@ sidebar_position: 5
 
 ```
 dp109（电量）   < 20
-dp4（充电状态） = none
 ```
 
-两个条件是「且」关系——只有在没插充电器时低电量才值得提醒。创建完成后**记得启用该规则**，未启用的规则不会产生事件。
+示例产品有两个数值型 DP（108/109），规则用 109；没有 enum DP，所以规则是单条件。产品若另有 enum DP（例如充电状态），可以再加一条 `且` 条件，并用 `--charge-dp N` 让示例一并上报。创建完成后**记得启用该规则**，未启用的规则不会产生事件。
 
 ### 2. 配置智能体触发器
 
@@ -145,14 +144,11 @@ cmake --build build --target tai_agent_trigger_demo
 # 默认：先上报正常值，再上报低电量，然后等待推送
 ./build/tai_agent_trigger_demo
 
-# 用自己的设备
-./build/tai_agent_trigger_demo -d <devid> -s <secret_key> -k <local_key>
-
-# 设备不在中国区时，必须同时指定数据中心（否则解析不到端点，见下文注意事项）
-./build/tai_agent_trigger_demo -d <devid> -s <secret_key> -k <local_key> -r SG
-
 # 用自己产品的 schema 和 DP 编号
-./build/tai_agent_trigger_demo --schema my_product.json --battery-dp 2 --charge-dp 3
+./build/tai_agent_trigger_demo --schema my_product.json --battery-dp 109
+
+# 产品另有 enum DP 时，让示例一并上报第二个条件
+./build/tai_agent_trigger_demo --charge-dp 4
 
 # 只监听，不上报任何 DP（配合平台的虚拟设备调试使用）
 ./build/tai_agent_trigger_demo --listen --timeout 300
@@ -165,15 +161,10 @@ cmake --build build --target tai_agent_trigger_demo
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `-d, --devid ID` | 设备 ID | 内置测试设备 |
-| `-s, --secret-key KEY` | 设备密钥 | 内置测试密钥 |
-| `-k, --local-key KEY` | 本地密钥 | 内置测试密钥 |
-| `-r, --region NAME` | 设备所属数据中心：`AY` `AZ` `UE`(=`UEAZ`) `EU` `WE`(=`WEAZ`) `IN` `SG`，大小写不敏感 | `AY` |
-| `--env NAME` | 环境：`prod` / `pre` / `test` | `prod` |
 | `-a, --agent-code CODE` | 指定智能体 | 产品默认智能体 |
 | `--schema FILE` | 产品 schema JSON 文件 | 内置示例 schema |
 | `--battery-dp N` | 电量 DP 编号 | `109` |
-| `--charge-dp N` | 充电状态 DP 编号 | `4` |
+| `--charge-dp N` | 充电状态 DP 编号，`0` = 不上报 | `0` |
 | `--battery N` | 用于触发规则的电量值 | `15` |
 | `--charge LABEL\|IDX` | 用于触发规则的充电状态（枚举标签或下标） | `none` |
 | `--baseline N` | 触发前先上报的"正常"电量 | `80` |
@@ -189,16 +180,16 @@ cmake --build build --target tai_agent_trigger_demo
 
 ```
 === tai_agent_trigger_demo ===
-Device ID : 6cd370251e8be96de8vwoe
+Device ID : 6c3540f2…bykbb
 Region    : AY / prod
 Mode      : report DPs, then wait for a push
 [tai] server    : 101.132.65.94:443 (SNI: rtc-ai1-5.tuyacn.com)
-[tai] client id : 6cd370251e8be96de8vwoe:1786541120:jdVXdg0acvt+H3NQ...
+[tai] client id : 6c3540f2…bykbb:1786541120:jdVXdg0acvt+H3NQ...
 [tai] opening the AI session...
 [tai] session open; the demo sends nothing on it -- every turn from here on is server-initiated
 [iot] MQTT connected; reporting full DP state
-[dp] -> baseline: DP 109 = 80, DP 4 = enum[1] (rc=0)
-[dp] -> trigger: DP 109 = 15, DP 4 = enum[0] (rc=0)
+[dp] -> baseline: DP 109 = 80 (rc=0)
+[dp] -> trigger: DP 109 = 15 (rc=0)
 [main] waiting up to 120 s for the agent to push (Ctrl-C to stop)
 
 [push] server-initiated turn started (event_id=vcd-event-...)
@@ -236,7 +227,7 @@ report_state(iot, &o, o.battery, charge_index, "trigger");
 
 ```c
 if (o.use_baseline) {
-    report_state(iot, &o, o.baseline, baseline_charge_index, "baseline");   /* 80 / charging */
+    report_state(iot, &o, o.baseline, baseline_charge_index, "baseline");   /* 80 */
     for (int i = 0; i < BASELINE_SETTLE_S * 5 && g_running; i++)
         iot_client_message_process(iot, 200);                              /* 等云端记下 */
 }
@@ -338,8 +329,8 @@ ffplay -f s16le -ar 16000 -ac 1 output_trigger_tts.pcm
 
 ## 注意事项
 
-- **`--schema` 要用你自己产品的 schema。** 内置 schema（dp1 开关 / dp3 设定值 / dp4 充电状态 / dp5 raw / dp109 电量）只是示例，DP 编号和类型必须和平台上的产品一致，否则云端会拒绝上报。
-- **`--region` 填错不会报错。** 区域不对时 IoT-DNS 会返回 HTTP 200 但不含端点，`mqtt_url` 为空，示例连不上 MQTT 却也拿不到明确的失败原因；ATOP 调用则会打到错误的数据中心被拒签。用自己的设备时，`--region` 必须和激活时拿到的 `client->region` 一致（启动横幅里会回显当前用的是哪个区域/环境，先核对一眼）。
+- **`--schema` 要用你自己产品的 schema。** 内置 schema（dp101 bool / dp102·dp103·dp105 string / dp108·dp109 value）取自该产品激活时云端返回的 DP 快照，DP 编号和类型必须和平台上的产品一致，否则云端会拒绝上报。其中两个 value DP 的 min/max 是按百分比推断的，raw 类型 DP 不会出现在快照里。
+- **`DEVICE_REGION` 填错不会报错。** 区域不对时 IoT-DNS 会返回 HTTP 200 但不含端点，`mqtt_url` 为空，示例连不上 MQTT 却也拿不到明确的失败原因；ATOP 调用则会打到错误的数据中心被拒签。改设备时它必须和激活时拿到的 `client->region` 一致（启动横幅会回显当前区域/环境，先核对一眼）。
 - **`iot_dp_report_all_dirty()` 返回 0 只代表消息发出去了**，不代表云端规则命中。规则是否命中要在平台侧看事件记录。
 - **触发器的平台调试仅支持虚拟设备**，真实设备验证请用本示例上报 DP。
 - 示例把 MQTT 收包和 TAI 重连放在同一个主线程循环里，TAI 的接收回调跑在 SDK 自己的 worker 线程上。跨线程共享的字段用 `volatile` 标注，含义见源码里的说明。

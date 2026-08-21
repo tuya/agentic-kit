@@ -3,9 +3,9 @@
  *
  * A cloud agent trigger has three parts, and only the last one is code:
  *
- *   1. a DEVICE EVENT RULE on the product -- DP conditions such as
- *      "dp109 (battery) < 20 AND dp4 (charge status) = none" -- configured on
- *      the Tuya platform;
+ *   1. a DEVICE EVENT RULE on the product -- a DP condition such as
+ *      "dp109 (battery) < 20" -- configured on the Tuya platform. Add further
+ *      conditions if the product has DPs for them (--charge-dp);
  *   2. an AGENT TRIGGER bound to that event, whose task is "agent pushes a
  *      message" and whose Prompt may interpolate DP values ({{dp109}});
  *   3. THIS demo: the device that makes the rule match, and that holds an AI
@@ -26,13 +26,13 @@
  * fires while the device holds no session has nowhere to push to.
  *
  * The rule is evaluated on a TRANSITION, so by default the demo reports a
- * healthy baseline first (battery 80 / charging), waits, then reports the
- * trigger values (battery 15 / none). Re-reporting a value the cloud already
- * holds is not a transition and may not fire anything. Use --no-baseline when
- * the cloud state is already known to be healthy.
+ * healthy baseline first (battery 80), waits, then reports the trigger value
+ * (battery 15). Re-reporting a value the cloud already holds is not a
+ * transition and may not fire anything. Use --no-baseline when the cloud state
+ * is already known to be healthy.
  *
- * Build:
- *   cmake -S examples/posix -B build
+ * Build (from examples/posix):
+ *   cmake -S . -B build
  *   cmake --build build --target tai_agent_trigger_demo
  *
  * Usage:
@@ -63,14 +63,22 @@ extern const pal_t *tai_pal_posix(void);
 
 /* -- Defaults ------------------------------------------------------------- */
 
-#define DEFAULT_DEVID      "6cd370251e8be96de8vwoe"
-#define DEFAULT_SECRET_KEY "[SPT;N:b@)wPzK/)"
-#define DEFAULT_LOCAL_KEY  "#d[<4y*N.vE]RAAG"
+/* The device is baked in on purpose: a trigger demo is only meaningful against
+ * the product (PID) whose event rule and agent trigger were configured for it,
+ * and that product is what pins the schema below. Pointing this demo at some
+ * other device would need that device's schema and its own cloud-side rule, so
+ * there is nothing useful to parameterise -- edit these five values instead. */
+#define DEVICE_DEVID       "6c3540f2e13ffee11bykbb"
+#define DEVICE_SECRET_KEY  "Tn)2X[4gg@mAU^kz"
+#define DEVICE_LOCAL_KEY   "UNyI]C`x'eT$af|C"
+#define DEVICE_REGION      AY      /* China */
+#define DEVICE_ENV         PROD
 
-#define DEFAULT_REGION       AY
-#define DEFAULT_ENV          PROD
 #define DEFAULT_BATTERY_DP   109
-#define DEFAULT_CHARGE_DP    4
+/* 0 = report no charge-status DP. This product has no enum DP to use as a
+ * second rule condition, so the rule is a single condition on the battery DP.
+ * Set --charge-dp N for a product that does have one. */
+#define DEFAULT_CHARGE_DP    0
 #define DEFAULT_BATTERY      15    /* below the rule's threshold             */
 #define DEFAULT_BASELINE     80    /* healthy value reported first           */
 #define DEFAULT_CHARGE       "none"
@@ -82,37 +90,43 @@ extern const pal_t *tai_pal_posix(void);
  * the cloud to record the healthy state as the "before" side of the transition. */
 #define BASELINE_SETTLE_S    3
 
-/* The demo product's schema. dp109 / dp4 are the two DPs the platform's example
- * low-battery rule reads; the rest are here so the schema matches a real
- * product (and dp_management_demo's). Replace with YOUR product's schema --
- * ids/types must match the product on the platform or the cloud rejects the
- * reports -- or pass --schema <file>.
- *   1   bool  rw  power switch
- *   3   value rw  writable setpoint 0..100 (%)
- *   4   enum  ro  charge status {none,charging,charge_done}  <- rule input
- *   5   raw   ro  opaque binary frame
- *   109 value ro  battery level 0..100 (%)                  <- rule input
- */
+/* The product's schema, from the DP snapshot the cloud returned at activation:
+ *   {"dps":{"101":false,"102":"","103":"","105":"","108":0,"109":0}}
+ *
+ *   101 bool
+ *   102 string
+ *   103 string
+ *   105 string
+ *   108 value
+ *   109 value   <- rule input (DEFAULT_BATTERY_DP)
+ *
+ * No enum DP exists, hence DEFAULT_CHARGE_DP = 0 above: the rule is a single
+ * condition. Any raw DPs are absent here because raw is never included in a DP
+ * snapshot. Pass --schema <file> to override the whole thing.
+ *
+ * Three things were inferred from the snapshot rather than read from the real
+ * schema, so correct them against the platform if they matter: which of the two
+ * value DPs is the battery (109 per the product owner; 108 is carried so the
+ * registry matches the device), their min/max (0..100 assumed, the shape of a
+ * percentage -- a value outside the real range fails locally with
+ * OPRT_DP_VALUE_OUT_OF_RANGE, which at least says so), and every `mode`, which
+ * the SDK never parses or enforces anyway. */
 static const char *DEFAULT_SCHEMA =
     "["
-    "{\"mode\":\"rw\",\"property\":{\"type\":\"bool\"},\"id\":1,\"type\":\"obj\"},"
-    "{\"mode\":\"rw\",\"property\":{\"min\":0,\"max\":100,\"scale\":0,\"step\":1,\"type\":\"value\"},\"id\":3,\"type\":\"obj\"},"
-    "{\"mode\":\"ro\",\"property\":{\"range\":[\"none\",\"charging\",\"charge_done\"],\"type\":\"enum\"},\"id\":4,\"type\":\"obj\"},"
-    "{\"mode\":\"ro\",\"property\":{\"type\":\"raw\"},\"id\":5,\"type\":\"obj\"},"
+    "{\"mode\":\"rw\",\"property\":{\"type\":\"bool\"},\"id\":101,\"type\":\"obj\"},"
+    "{\"mode\":\"rw\",\"property\":{\"type\":\"string\"},\"id\":102,\"type\":\"obj\"},"
+    "{\"mode\":\"rw\",\"property\":{\"type\":\"string\"},\"id\":103,\"type\":\"obj\"},"
+    "{\"mode\":\"rw\",\"property\":{\"type\":\"string\"},\"id\":105,\"type\":\"obj\"},"
+    "{\"mode\":\"ro\",\"property\":{\"min\":0,\"max\":100,\"scale\":0,\"step\":1,\"type\":\"value\"},\"id\":108,\"type\":\"obj\"},"
     "{\"mode\":\"ro\",\"property\":{\"min\":0,\"max\":100,\"scale\":0,\"step\":1,\"type\":\"value\"},\"id\":109,\"type\":\"obj\"}"
     "]";
 
 /* -- Options -------------------------------------------------------------- */
 
 typedef struct {
-    const char *devid;
-    const char *secret_key;
-    const char *local_key;
     const char *agent_code;      /* NULL = the product's default agent        */
     const char *schema_path;     /* NULL = DEFAULT_SCHEMA                     */
     const char *audio_path;      /* "" disables writing TTS audio             */
-    iot_region_t region;         /* must match the device's data center       */
-    iot_env_t   env;
     int         battery_dp;
     int         charge_dp;
     long        battery;         /* value that satisfies the rule             */
@@ -126,12 +140,10 @@ typedef struct {
     int         verbose;
 } opts_t;
 
-/* Region / env names accepted on the command line. Both spellings are allowed
- * per region: the 2-letter form is what the pairing token and IoT-DNS use on
- * the wire, the longer one is what iot_client.h calls the enum. Getting this
- * wrong is worth catching here, because the SDK does not report it: a devid
- * from another data center resolves no endpoint, so mqtt_url comes back empty
- * and the client sits there connected to nothing. */
+/* Names for the banner only. Worth printing: if DEVICE_REGION ever stops
+ * matching the data center the device belongs to, the SDK does not say so --
+ * IoT-DNS answers 200 with no endpoint, mqtt_url comes back empty, and the
+ * client sits there having "succeeded" while connected to nothing. */
 static const struct { const char *name; iot_region_t region; } REGION_NAMES[] = {
     { "AY",   AY   }, { "AZ",   AZ   }, { "UE", UEAZ }, { "UEAZ", UEAZ },
     { "EU",   EU   }, { "WE", WEAZ }, { "WEAZ", WEAZ }, { "IN",   IN   },
@@ -141,16 +153,6 @@ static const struct { const char *name; iot_region_t region; } REGION_NAMES[] = 
 static const struct { const char *name; iot_env_t env; } ENV_NAMES[] = {
     { "prod", PROD }, { "pre", PRE }, { "test", TEST },
 };
-
-static int str_ieq(const char *a, const char *b)
-{
-    for (; *a && *b; a++, b++) {
-        int ca = (*a >= 'a' && *a <= 'z') ? *a - 32 : *a;
-        int cb = (*b >= 'a' && *b <= 'z') ? *b - 32 : *b;
-        if (ca != cb) return 0;
-    }
-    return *a == '\0' && *b == '\0';
-}
 
 static const char *region_name(iot_region_t r)
 {
@@ -166,26 +168,6 @@ static const char *env_name(iot_env_t e)
     return "?";
 }
 
-static int parse_region(const char *s, iot_region_t *out)
-{
-    for (size_t i = 0; i < sizeof(REGION_NAMES) / sizeof(REGION_NAMES[0]); i++) {
-        if (str_ieq(s, REGION_NAMES[i].name)) { *out = REGION_NAMES[i].region; return 0; }
-    }
-    fprintf(stderr, "--region: unknown region \"%s\"; valid values are:"
-                    " AY AZ UE(AZ) EU WE(AZ) IN SG\n", s);
-    return -1;
-}
-
-static int parse_env(const char *s, iot_env_t *out)
-{
-    for (size_t i = 0; i < sizeof(ENV_NAMES) / sizeof(ENV_NAMES[0]); i++) {
-        if (str_ieq(s, ENV_NAMES[i].name)) { *out = ENV_NAMES[i].env; return 0; }
-    }
-    fprintf(stderr, "--env: unknown environment \"%s\"; valid values are:"
-                    " prod pre test\n", s);
-    return -1;
-}
-
 static void usage(const char *argv0)
 {
     printf(
@@ -194,18 +176,15 @@ static void usage(const char *argv0)
 "Reports the DPs that make a cloud device-event rule match, then prints the\n"
 "message the agent trigger pushes back over an idle AI session.\n"
 "\n"
-"Device credentials:\n"
-"  -d, --devid ID            device id            (default: built-in test device)\n"
-"  -s, --secret-key KEY      device secret key\n"
-"  -k, --local-key KEY       device local key\n"
-"  -r, --region NAME         data center: AY AZ UE EU WE IN SG  (default: %s)\n"
-"      --env NAME            prod | pre | test                  (default: %s)\n"
-"  -a, --agent-code CODE     agent code           (default: product's default agent)\n"
+"The device is compiled in (DEVICE_* at the top of this file): the demo only\n"
+"means anything against the product whose cloud-side rule and trigger were set\n"
+"up for it, and that product pins the schema. Device: %s (%s / %s).\n"
 "\n"
 "Product / DP mapping:\n"
-"      --schema FILE         product schema JSON  (default: built-in demo schema)\n"
+"      --schema FILE         product schema JSON  (default: the built-in one)\n"
 "      --battery-dp N        battery DP id        (default: %d)\n"
-"      --charge-dp N         charge-status DP id  (default: %d)\n"
+"      --charge-dp N         charge-status DP id, 0 = report none (default: %d)\n"
+"  -a, --agent-code CODE     agent code           (default: product's default agent)\n"
 "\n"
 "What to report:\n"
 "      --battery N           battery value that fires the rule   (default: %ld)\n"
@@ -222,7 +201,7 @@ static void usage(const char *argv0)
 "                            pass an empty string to discard it\n"
 "  -v, --verbose             enable SDK debug logging\n"
 "  -h, --help                this text\n",
-        argv0, region_name(DEFAULT_REGION), env_name(DEFAULT_ENV),
+        argv0, DEVICE_DEVID, region_name(DEVICE_REGION), env_name(DEVICE_ENV),
         DEFAULT_BATTERY_DP, DEFAULT_CHARGE_DP,
         (long)DEFAULT_BATTERY, DEFAULT_CHARGE,
         (long)DEFAULT_BASELINE, DEFAULT_BASELINE_CHARGE,
@@ -257,12 +236,7 @@ static int parse_long(const char *s, long lo, long hi, long *out, const char *wh
 static int parse_opts(int argc, char **argv, opts_t *o)
 {
     memset(o, 0, sizeof(*o));
-    o->devid           = DEFAULT_DEVID;
-    o->secret_key      = DEFAULT_SECRET_KEY;
-    o->local_key       = DEFAULT_LOCAL_KEY;
     o->audio_path      = DEFAULT_AUDIO_PATH;
-    o->region          = DEFAULT_REGION;
-    o->env             = DEFAULT_ENV;
     o->battery_dp      = DEFAULT_BATTERY_DP;
     o->charge_dp       = DEFAULT_CHARGE_DP;
     o->battery         = DEFAULT_BATTERY;
@@ -284,19 +258,7 @@ static int parse_opts(int argc, char **argv, opts_t *o)
         else if (!strcmp(a, "-v") || !strcmp(a, "--verbose")) o->verbose = 1;
         else if (!strcmp(a, "--listen"))      o->listen_only  = 1;
         else if (!strcmp(a, "--no-baseline")) o->use_baseline = 0;
-        else if (!strcmp(a, "-d") || !strcmp(a, "--devid")) {
-            if (TAKE(a)) return -1; o->devid = v;
-        } else if (!strcmp(a, "-s") || !strcmp(a, "--secret-key")) {
-            if (TAKE(a)) return -1; o->secret_key = v;
-        } else if (!strcmp(a, "-k") || !strcmp(a, "--local-key")) {
-            if (TAKE(a)) return -1; o->local_key = v;
-        } else if (!strcmp(a, "-r") || !strcmp(a, "--region")) {
-            if (TAKE(a)) return -1;
-            if (parse_region(v, &o->region) != 0) return -1;
-        } else if (!strcmp(a, "--env")) {
-            if (TAKE(a)) return -1;
-            if (parse_env(v, &o->env) != 0) return -1;
-        } else if (!strcmp(a, "-a") || !strcmp(a, "--agent-code")) {
+        else if (!strcmp(a, "-a") || !strcmp(a, "--agent-code")) {
             if (TAKE(a)) return -1; o->agent_code = v;
         } else if (!strcmp(a, "--schema")) {
             if (TAKE(a)) return -1; o->schema_path = v;
@@ -778,18 +740,26 @@ static int report_state(iot_client_t *iot, const opts_t *o,
         return rc;
     }
 
-    iot_dp_value_t charge = { .type = IOT_DP_TYPE_ENUM,
-                              .value.enum_index = charge_index };
-    rc = iot_dp_set(iot, (uint8_t)o->charge_dp, &charge);
-    if (rc != OPRT_OK) {
-        fprintf(stderr, "[dp] set DP %d = enum[%d] failed: %d\n",
-                o->charge_dp, charge_index, rc);
-        return rc;
+    /* charge_dp 0 = this product has no enum DP to use as a second condition,
+     * so the rule is a single condition on the battery DP. */
+    if (o->charge_dp != 0) {
+        iot_dp_value_t charge = { .type = IOT_DP_TYPE_ENUM,
+                                  .value.enum_index = charge_index };
+        rc = iot_dp_set(iot, (uint8_t)o->charge_dp, &charge);
+        if (rc != OPRT_OK) {
+            fprintf(stderr, "[dp] set DP %d = enum[%d] failed: %d\n",
+                    o->charge_dp, charge_index, rc);
+            return rc;
+        }
     }
 
     rc = iot_dp_report_all_dirty(iot);
-    printf("[dp] -> %s: DP %d = %ld, DP %d = enum[%d] (rc=%d)\n",
-           what, o->battery_dp, battery, o->charge_dp, charge_index, rc);
+    if (o->charge_dp != 0)
+        printf("[dp] -> %s: DP %d = %ld, DP %d = enum[%d] (rc=%d)\n",
+               what, o->battery_dp, battery, o->charge_dp, charge_index, rc);
+    else
+        printf("[dp] -> %s: DP %d = %ld (rc=%d)\n",
+               what, o->battery_dp, battery, rc);
     fflush(stdout);
     return rc;
 }
@@ -811,8 +781,8 @@ int main(int argc, char **argv)
     setvbuf(stdout, NULL, _IOLBF, 0);
 
     printf("=== tai_agent_trigger_demo ===\n");
-    printf("Device ID : %s\n", o.devid);
-    printf("Region    : %s / %s\n", region_name(o.region), env_name(o.env));
+    printf("Device ID : %s\n", DEVICE_DEVID);
+    printf("Region    : %s / %s\n", region_name(DEVICE_REGION), env_name(DEVICE_ENV));
     printf("Mode      : %s\n", o.listen_only ? "listen only (reports nothing)"
                                              : "report DPs, then wait for a push");
     fflush(stdout);   /* keep the banner ahead of anything the steps below log */
@@ -822,8 +792,11 @@ int main(int argc, char **argv)
     const char *schema      = file_schema ? file_schema : DEFAULT_SCHEMA;
     if (o.schema_path && !file_schema) return 1;
 
+    /* Only resolve the charge labels when a charge DP is actually in play:
+     * schema_enum_index() insists the DP is an enum with a range[], so leaving
+     * this unguarded would reject every product that has no such DP. */
     int32_t charge_index = 0, baseline_charge_index = 0;
-    if (!o.listen_only) {
+    if (!o.listen_only && o.charge_dp != 0) {
         if (schema_enum_index(schema, o.charge_dp, o.charge, &charge_index) != 0) {
             free(file_schema);
             return 1;
@@ -845,8 +818,8 @@ int main(int argc, char **argv)
     log_set_level(o.verbose ? LOG_DEBUG : LOG_WARN);   /* both SDKs share the facade */
 
     iot_client_config_t iot_cfg = {
-        .region            = o.region,   /* --region / --env; must match the */
-        .env               = o.env,      /* data center the device belongs to */
+        .region            = DEVICE_REGION,
+        .env               = DEVICE_ENV,
         .mqtt_disable_tls  = false,
         .mqtt_auto_connect = false,   /* this demo owns the connect loop */
         .message_callback  = on_mqtt_message,
@@ -854,9 +827,9 @@ int main(int argc, char **argv)
         .schema_id         = NULL,
         .dp_state          = NULL,
     };
-    if (demo_copy_field(iot_cfg.devid,      sizeof(iot_cfg.devid),      o.devid,      "devid")      != 0 ||
-        demo_copy_field(iot_cfg.secret_key, sizeof(iot_cfg.secret_key), o.secret_key, "secret_key") != 0 ||
-        demo_copy_field(iot_cfg.local_key,  sizeof(iot_cfg.local_key),  o.local_key,  "local_key")  != 0) {
+    if (demo_copy_field(iot_cfg.devid,      sizeof(iot_cfg.devid),      DEVICE_DEVID,      "devid")      != 0 ||
+        demo_copy_field(iot_cfg.secret_key, sizeof(iot_cfg.secret_key), DEVICE_SECRET_KEY, "secret_key") != 0 ||
+        demo_copy_field(iot_cfg.local_key,  sizeof(iot_cfg.local_key),  DEVICE_LOCAL_KEY,  "local_key")  != 0) {
         free(file_schema);
         return 1;
     }
@@ -913,7 +886,7 @@ int main(int argc, char **argv)
         .port             = cp.port,
         .tls_sni          = cp.tls_sni,
         .device_id        = cp.derived_client_id,
-        .local_key        = o.local_key,
+        .local_key        = DEVICE_LOCAL_KEY,
         .protocol_version = TAI_VER_21,
         .client_type      = TAI_CLIENT_DEVICE,
         .sign_level       = TAI_SIGN_HMAC_SHA256,
