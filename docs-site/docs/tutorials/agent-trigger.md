@@ -32,10 +32,10 @@ sidebar_position: 5
 只有第三部分是代码：
 
 ```
-① 设备事件规则（云端配置）      dp2(电量) < 20 且 dp4(充电状态) = none
+① 设备事件规则（云端配置）      dp109(电量) < 20 且 dp4(充电状态) = none
         ↓ 命中
 ② 智能体触发器（云端配置）      任务 = 智能体推消息
-                                Prompt = "当前电量 {{dp2}}%，用一句话提醒充电"
+                                Prompt = "当前电量 {{dp109}}%，用一句话提醒充电"
         ↓ 推送
 ③ 设备端（本示例）              保持 AI 会话在线，接收并播放这段话
 ```
@@ -47,7 +47,7 @@ sidebar_position: 5
         │                                                                        │
         │  iot-client (MQTT)                          rtc-tcp-client (TAI 会话)   │
         │       │  上行：iot_dp_report_all_dirty()          │  下行：空闲会话      │
-        │       │  DP2=15, DP4=none                         │  等待服务端开回合   │
+        │       │  DP109=15, DP4=none                       │  等待服务端开回合   │
         └───────┼───────────────────────────────────────────┼────────────────────┘
                 │                                           │
                 ▼                                           ▲
@@ -72,7 +72,7 @@ sidebar_position: 5
 在[涂鸦开发者平台](https://platform.tuya.com/)的产品下创建设备事件，用 DP 条件描述"什么情况算一次事件"：
 
 ```
-dp2（电量）     < 20
+dp109（电量）   < 20
 dp4（充电状态） = none
 ```
 
@@ -167,7 +167,7 @@ cmake --build build --target tai_agent_trigger_demo
 | `-k, --local-key KEY` | 本地密钥 | 内置测试密钥 |
 | `-a, --agent-code CODE` | 指定智能体 | 产品默认智能体 |
 | `--schema FILE` | 产品 schema JSON 文件 | 内置示例 schema |
-| `--battery-dp N` | 电量 DP 编号 | `2` |
+| `--battery-dp N` | 电量 DP 编号 | `109` |
 | `--charge-dp N` | 充电状态 DP 编号 | `4` |
 | `--battery N` | 用于触发规则的电量值 | `15` |
 | `--charge LABEL\|IDX` | 用于触发规则的充电状态（枚举标签或下标） | `none` |
@@ -191,8 +191,8 @@ Mode      : report DPs, then wait for a push
 [tai] opening the AI session...
 [tai] session open; the demo sends nothing on it -- every turn from here on is server-initiated
 [iot] MQTT connected; reporting full DP state
-[dp] -> baseline: DP 2 = 80, DP 4 = enum[1] (rc=0)
-[dp] -> trigger: DP 2 = 15, DP 4 = enum[0] (rc=0)
+[dp] -> baseline: DP 109 = 80, DP 4 = enum[1] (rc=0)
+[dp] -> trigger: DP 109 = 15, DP 4 = enum[0] (rc=0)
 [main] waiting up to 120 s for the agent to push (Ctrl-C to stop)
 
 [push] server-initiated turn started (event_id=vcd-event-...)
@@ -332,7 +332,7 @@ ffplay -f s16le -ar 16000 -ac 1 output_trigger_tts.pcm
 
 ## 注意事项
 
-- **`--schema` 要用你自己产品的 schema。** 内置 schema（dp1 开关 / dp2 电量 / dp3 设定值 / dp4 充电状态 / dp5 raw）只是示例，DP 编号和类型必须和平台上的产品一致，否则云端会拒绝上报。
+- **`--schema` 要用你自己产品的 schema。** 内置 schema（dp1 开关 / dp3 设定值 / dp4 充电状态 / dp5 raw / dp109 电量）只是示例，DP 编号和类型必须和平台上的产品一致，否则云端会拒绝上报。
 - **`iot_dp_report_all_dirty()` 返回 0 只代表消息发出去了**，不代表云端规则命中。规则是否命中要在平台侧看事件记录。
 - **触发器的平台调试仅支持虚拟设备**，真实设备验证请用本示例上报 DP。
 - 示例把 MQTT 收包和 TAI 重连放在同一个主线程循环里，TAI 的接收回调跑在 SDK 自己的 worker 线程上。跨线程共享的字段用 `volatile` 标注，含义见源码里的说明。

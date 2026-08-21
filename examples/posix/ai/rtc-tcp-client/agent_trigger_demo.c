@@ -4,10 +4,10 @@
  * A cloud agent trigger has three parts, and only the last one is code:
  *
  *   1. a DEVICE EVENT RULE on the product -- DP conditions such as
- *      "dp2 (battery) < 20 AND dp4 (charge status) = none" -- configured on the
- *      Tuya platform;
+ *      "dp109 (battery) < 20 AND dp4 (charge status) = none" -- configured on
+ *      the Tuya platform;
  *   2. an AGENT TRIGGER bound to that event, whose task is "agent pushes a
- *      message" and whose Prompt may interpolate DP values ({{dp2}});
+ *      message" and whose Prompt may interpolate DP values ({{dp109}});
  *   3. THIS demo: the device that makes the rule match, and that holds an AI
  *      session open for the pushed message to land on.
  *
@@ -67,7 +67,7 @@ extern const pal_t *tai_pal_posix(void);
 #define DEFAULT_SECRET_KEY "[SPT;N:b@)wPzK/)"
 #define DEFAULT_LOCAL_KEY  "#d[<4y*N.vE]RAAG"
 
-#define DEFAULT_BATTERY_DP   2
+#define DEFAULT_BATTERY_DP   109
 #define DEFAULT_CHARGE_DP    4
 #define DEFAULT_BATTERY      15    /* below the rule's threshold             */
 #define DEFAULT_BASELINE     80    /* healthy value reported first           */
@@ -80,24 +80,24 @@ extern const pal_t *tai_pal_posix(void);
  * the cloud to record the healthy state as the "before" side of the transition. */
 #define BASELINE_SETTLE_S    3
 
-/* The demo product's schema. dp2 / dp4 are the two DPs the platform's example
+/* The demo product's schema. dp109 / dp4 are the two DPs the platform's example
  * low-battery rule reads; the rest are here so the schema matches a real
  * product (and dp_management_demo's). Replace with YOUR product's schema --
  * ids/types must match the product on the platform or the cloud rejects the
  * reports -- or pass --schema <file>.
- *   1 bool  rw  power switch
- *   2 value ro  battery level 0..100 (%)          <- rule input
- *   3 value rw  writable setpoint 0..100 (%)
- *   4 enum  ro  charge status {none,charging,charge_done}  <- rule input
- *   5 raw   ro  opaque binary frame
+ *   1   bool  rw  power switch
+ *   3   value rw  writable setpoint 0..100 (%)
+ *   4   enum  ro  charge status {none,charging,charge_done}  <- rule input
+ *   5   raw   ro  opaque binary frame
+ *   109 value ro  battery level 0..100 (%)                  <- rule input
  */
 static const char *DEFAULT_SCHEMA =
     "["
     "{\"mode\":\"rw\",\"property\":{\"type\":\"bool\"},\"id\":1,\"type\":\"obj\"},"
-    "{\"mode\":\"ro\",\"property\":{\"min\":0,\"max\":100,\"scale\":0,\"step\":1,\"type\":\"value\"},\"id\":2,\"type\":\"obj\"},"
     "{\"mode\":\"rw\",\"property\":{\"min\":0,\"max\":100,\"scale\":0,\"step\":1,\"type\":\"value\"},\"id\":3,\"type\":\"obj\"},"
     "{\"mode\":\"ro\",\"property\":{\"range\":[\"none\",\"charging\",\"charge_done\"],\"type\":\"enum\"},\"id\":4,\"type\":\"obj\"},"
-    "{\"mode\":\"ro\",\"property\":{\"type\":\"raw\"},\"id\":5,\"type\":\"obj\"}"
+    "{\"mode\":\"ro\",\"property\":{\"type\":\"raw\"},\"id\":5,\"type\":\"obj\"},"
+    "{\"mode\":\"ro\",\"property\":{\"min\":0,\"max\":100,\"scale\":0,\"step\":1,\"type\":\"value\"},\"id\":109,\"type\":\"obj\"}"
     "]";
 
 /* -- Options -------------------------------------------------------------- */
