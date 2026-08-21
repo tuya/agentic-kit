@@ -25,11 +25,13 @@
  * Order matters: the session is opened BEFORE the DP report. A trigger that
  * fires while the device holds no session has nowhere to push to.
  *
- * The rule is evaluated on a TRANSITION, so the demo reports a baseline first
- * (dp101 = 80), waits, then reports the value that fires the rule
- * (dp101 = 15). Re-reporting a value the cloud already holds is not a
- * transition and may not fire anything. Use --no-baseline when the cloud state
- * is already known to be on the far side of the condition.
+ * The rule is evaluated on a TRANSITION, so the demo reports three values with
+ * a settle between each: the baseline (dp101 = 100), then a random value inside
+ * the DP's range, then the one that fires the rule (dp101 = 5). Re-reporting a
+ * value the cloud already holds is not a transition and may not fire anything,
+ * which is what the random middle step defends against -- it guarantees a real
+ * change even if an earlier run left the cloud on either endpoint. Pin it with
+ * --mid N, drop it with --no-mid, drop the baseline with --no-baseline.
  *
  * Build (from examples/posix):
  *   cmake -S . -B build
@@ -81,8 +83,8 @@ extern const pal_t *tai_pal_posix(void);
 #define DEFAULT_CHARGE_DP    0
 /* Used as-is for a value DP; for a bool DP (the current one) they are
  * overridden to 1 / 0 unless given on the command line -- see main(). */
-#define DEFAULT_BATTERY      15    /* the state that fires the rule          */
-#define DEFAULT_BASELINE     80    /* the state reported first               */
+#define DEFAULT_BATTERY      5     /* the state that fires the rule          */
+#define DEFAULT_BASELINE     100   /* the state reported first               */
 #define DEFAULT_CHARGE       "none"
 #define DEFAULT_BASELINE_CHARGE "charging"
 #define DEFAULT_TIMEOUT_S    120
@@ -126,6 +128,9 @@ typedef struct {
     iot_dp_type_t trigger_type; /* resolved from the schema, not a CLI option  */
     int         battery_set;    /* --battery given: don't re-default for bool  */
     int         baseline_set;
+    long        mid;            /* value reported between baseline and trigger */
+    int         mid_set;        /* --mid given: use it instead of a random one  */
+    int         use_mid;
     int         charge_dp;
     long        battery;         /* value that satisfies the rule             */
     long        baseline;        /* healthy value reported first              */
@@ -189,7 +194,9 @@ static void usage(const char *argv0)
 "      --charge LABEL|IDX    charge status that fires the rule    (default: %s)\n"
 "      --baseline N          healthy battery reported first      (default: %ld)\n"
 "      --baseline-charge L   healthy charge status reported first (default: %s)\n"
+"      --mid N               value reported between them  (default: random in range)\n"
 "      --no-baseline         skip the baseline report (no transition is created)\n"
+"      --no-mid              skip the middle report\n"
 "      --listen              report nothing; only wait for a push\n"
 "\n"
 "Waiting:\n"
@@ -235,6 +242,7 @@ static int parse_opts(int argc, char **argv, opts_t *o)
 {
     memset(o, 0, sizeof(*o));
     o->audio_path      = DEFAULT_AUDIO_PATH;
+    o->use_mid         = 1;
     o->battery_dp      = DEFAULT_BATTERY_DP;
     o->charge_dp       = DEFAULT_CHARGE_DP;
     o->battery         = DEFAULT_BATTERY;
@@ -256,6 +264,11 @@ static int parse_opts(int argc, char **argv, opts_t *o)
         else if (!strcmp(a, "-v") || !strcmp(a, "--verbose")) o->verbose = 1;
         else if (!strcmp(a, "--listen"))      o->listen_only  = 1;
         else if (!strcmp(a, "--no-baseline")) o->use_baseline = 0;
+        else if (!strcmp(a, "--no-mid"))      o->use_mid      = 0;
+        else if (!strcmp(a, "--mid")) {
+            o->mid_set = 1;
+            if (TAKE(a) || parse_long(v, -2147483647L, 2147483647L, &o->mid, a)) return -1;
+        }
         else if (!strcmp(a, "-a") || !strcmp(a, "--agent-code")) {
             if (TAKE(a)) return -1; o->agent_code = v;
         } else if (!strcmp(a, "--schema")) {
@@ -375,7 +388,8 @@ static char *read_text_file(const char *path)
  * whatever type this returns: iot_dp_set() rejects a mismatch outright
  * (OPRT_DP_TYPE_MISMATCH), so hardcoding one type here would break the demo
  * every time it is pointed at a DP of another kind. */
-static int schema_dp_type(const char *schema_json, int dp_id, iot_dp_type_t *out)
+static int schema_dp_type(const char *schema_json, int dp_id, iot_dp_type_t *out,
+                          long *out_min, long *out_max)
 {
     static const struct { const char *name; iot_dp_type_t type; } TYPES[] = {
         { "bool",   IOT_DP_TYPE_BOOL   }, { "value", IOT_DP_TYPE_VALUE },
@@ -392,6 +406,8 @@ static int schema_dp_type(const char *schema_json, int dp_id, iot_dp_type_t *out
     int         rc  = -1;
     const char *str = NULL;
     cJSON      *item = NULL;
+    if (out_min) *out_min = 0;
+    if (out_max) *out_max = 100;
     cJSON_ArrayForEach(item, root) {
         cJSON *jid = cJSON_GetObjectItem(item, "id");
         if (!cJSON_IsNumber(jid) || jid->valueint != dp_id) continue;
@@ -402,6 +418,15 @@ static int schema_dp_type(const char *schema_json, int dp_id, iot_dp_type_t *out
         cJSON *jtyp  = cJSON_GetObjectItem(item, "type");
         str = cJSON_IsString(jptyp) ? jptyp->valuestring
             : (cJSON_IsString(jtyp) ? jtyp->valuestring : NULL);
+        /* min/max live under property, same as the SDK reads them; the 0..100
+         * fallback above only matters for a schema that omits them, where the
+         * SDK leaves the bounds wide open anyway. */
+        if (cJSON_IsObject(prop)) {
+            cJSON *jmin = cJSON_GetObjectItem(prop, "min");
+            cJSON *jmax = cJSON_GetObjectItem(prop, "max");
+            if (out_min && cJSON_IsNumber(jmin)) *out_min = (long)jmin->valuedouble;
+            if (out_max && cJSON_IsNumber(jmax)) *out_max = (long)jmax->valuedouble;
+        }
         break;
     }
     if (!str) {
@@ -853,7 +878,8 @@ int main(int argc, char **argv)
      * iot_dp_set() rejects a mismatch with OPRT_DP_TYPE_MISMATCH, so this is
      * what lets the same demo drive a bool DP or a numeric one. */
     if (!o.listen_only) {
-        if (schema_dp_type(schema, o.battery_dp, &o.trigger_type) != 0) {
+        long dp_min = 0, dp_max = 100;
+        if (schema_dp_type(schema, o.battery_dp, &o.trigger_type, &dp_min, &dp_max) != 0) {
             free(file_schema);
             return 1;
         }
@@ -869,7 +895,47 @@ int main(int argc, char **argv)
         if (o.trigger_type == IOT_DP_TYPE_BOOL) {
             if (!o.baseline_set) o.baseline = 0;
             if (!o.battery_set)  o.battery  = 1;
+            o.use_mid = 0;   /* a random third bool would just repeat one of the two */
         }
+        /* Pick the middle value inside the DP's own range, so it cannot be
+         * rejected locally with OPRT_DP_VALUE_OUT_OF_RANGE. Note it is NOT kept
+         * clear of the cloud's threshold -- that lives on the platform and is
+         * unknown here -- so a draw below it fires the rule one step early. */
+        if (o.use_mid && !o.mid_set) {
+            struct timeval sd;
+            gettimeofday(&sd, NULL);
+            srand((unsigned)(sd.tv_sec ^ sd.tv_usec));
+            long span = (dp_max > dp_min) ? (dp_max - dp_min + 1) : 1;
+            /* Must differ from BOTH endpoints. Drawing the trigger value here
+             * would make the final report carry no change at all, and the rule
+             * would fire on this step while fire_us is stamped on the next one,
+             * so every latency in the summary would be measured from the wrong
+             * report. Drawing the baseline just wastes a step. */
+            for (int tries = 0; tries < 16; tries++) {
+                o.mid = dp_min + (long)(rand() % span);
+                if (o.mid != o.battery && o.mid != o.baseline) break;
+            }
+            if (o.mid == o.battery || o.mid == o.baseline) {
+                o.use_mid = 0;   /* range too narrow to fit a third value */
+                printf("[dp] range %ld..%ld leaves no third value; skipping the "
+                       "middle report\n", dp_min, dp_max);
+            }
+        }
+
+        /* Print the plan before any network work: it is the only place the
+         * random draw is visible, and it also shows which DP and which type
+         * were resolved from the schema. */
+        if (o.trigger_type == IOT_DP_TYPE_BOOL) {
+            printf("Sequence  : DP %d (bool) %s -> %s\n", o.battery_dp,
+                   o.baseline ? "true" : "false", o.battery ? "true" : "false");
+        } else if (o.use_mid) {
+            printf("Sequence  : DP %d (value, %ld..%ld) %ld -> %ld -> %ld\n",
+                   o.battery_dp, dp_min, dp_max, o.baseline, o.mid, o.battery);
+        } else {
+            printf("Sequence  : DP %d (value, %ld..%ld) %ld -> %ld\n",
+                   o.battery_dp, dp_min, dp_max, o.baseline, o.battery);
+        }
+        fflush(stdout);
     }
 
     /* Only resolve the charge labels when a charge DP is actually in play:
@@ -1019,6 +1085,15 @@ int main(int argc, char **argv)
              * cloud already believes is low simply produces no event. */
             if (report_state(iot, &o, o.baseline, baseline_charge_index,
                              "baseline") != OPRT_OK)
+                goto cleanup;
+            for (int i = 0; i < BASELINE_SETTLE_S * 5 && g_running; i++)
+                iot_client_message_process(iot, 200);
+        }
+        if (o.use_mid) {
+            /* A third, differing report between the two endpoints: it guarantees
+             * the cloud sees a real change even when it already held the
+             * baseline or the trigger value from an earlier run. */
+            if (report_state(iot, &o, o.mid, charge_index, "mid") != OPRT_OK)
                 goto cleanup;
             for (int i = 0; i < BASELINE_SETTLE_S * 5 && g_running; i++)
                 iot_client_message_process(iot, 200);

@@ -47,7 +47,7 @@ sidebar_position: 5
         │                                                                        │
         │  iot-client (MQTT)                          rtc-tcp-client (TAI 会话)   │
         │       │  上行：iot_dp_report_all_dirty()          │  下行：空闲会话      │
-        │       │  DP101=15                                 │  等待服务端开回合   │
+        │       │  DP101: 100→随机→5                        │  等待服务端开回合   │
         └───────┼───────────────────────────────────────────┼────────────────────┘
                 │                                           │
                 ▼                                           ▲
@@ -165,9 +165,11 @@ cmake --build build --target tai_agent_trigger_demo
 | `--schema FILE` | 产品 schema JSON 文件 | 内置示例 schema |
 | `--battery-dp N` | 触发 DP 编号（类型由 schema 决定，支持 bool / value） | `101` |
 | `--charge-dp N` | 充电状态 DP 编号，`0` = 不上报 | `0` |
-| `--battery N` | 触发规则的值；bool DP 按 `≠0` 解释 | value:`15` / bool:`1` |
+| `--battery N` | 触发规则的值；bool DP 按 `≠0` 解释 | value:`5` / bool:`1` |
 | `--charge LABEL\|IDX` | 用于触发规则的充电状态（枚举标签或下标） | `none` |
-| `--baseline N` | 触发前先上报的"正常"值 | value:`80` / bool:`0` |
+| `--baseline N` | 触发前先上报的"正常"值 | value:`100` / bool:`0` |
+| `--mid N` | 两端之间再上报一个值，固定为 N | 范围内随机（避开两端） |
+| `--no-mid` | 跳过中间那次上报 | — |
 | `--baseline-charge L` | 触发前先上报的"正常"充电状态 | `charging` |
 | `--no-baseline` | 跳过基线上报 | — |
 | `--listen` | 什么都不上报，只等推送 | — |
@@ -188,8 +190,11 @@ Mode      : report DPs, then wait for a push
 [tai] opening the AI session...
 [tai] session open; the demo sends nothing on it -- every turn from here on is server-initiated
 [iot] MQTT connected; reporting full DP state
-[dp] -> baseline: DP 101 = 80 (rc=0)
-[dp] -> trigger: DP 101 = 15 (rc=0)
+Sequence  : DP 101 (value, 0..100) 100 -> 38 -> 5
+...
+[dp] -> baseline: DP 101 = 100 (rc=0)
+[dp] -> mid: DP 101 = 38 (rc=0)
+[dp] -> trigger: DP 101 = 5 (rc=0)
 [main] waiting up to 120 s for the agent to push (Ctrl-C to stop)
 
 [push] server-initiated turn started (event_id=vcd-event-...)
@@ -223,7 +228,9 @@ report_state(iot, &o, o.battery, charge_index, "trigger");
 
 ### 2. 规则命中的是"变化"，不是"状态"
 
-设备事件规则判定的是**进入条件的那一刻**。如果云端记录的电量本来就是 15，再上报一次 15 不构成变化，可能什么都不会发生。所以示例默认分两步：
+设备事件规则判定的是**进入条件的那一刻**。如果云端记录的值本来就是 5，再上报一次 5 不构成变化，可能什么都不会发生。所以示例默认分三步上报 `100` → 范围内随机一个值 → `5`，每步之间等 3 秒。
+
+中间那个随机值不是装饰：它保证本轮一定存在真实变化，即使上一轮跑完云端正停在某个端点上。它会避开两个端点——撞上 `5` 会让最后那次上报变成无变化，而且规则会提前在中间那步命中，而 `fire_us` 是在下一步才打的时间戳，摘要里所有时延就都是从错误的那次上报算起。它**不会**避开云端的阈值（阈值在平台上，端侧不知道），所以随机值落到阈值以下时规则会早一步命中；需要确定性就用 `--mid N` 固定。
 
 ```c
 if (o.use_baseline) {
