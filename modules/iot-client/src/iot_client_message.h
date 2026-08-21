@@ -7,6 +7,7 @@
  * Src-private on purpose, like DP_PROTO_* in iot_dp.c: the wire number is an
  * implementation detail; apps only see iot_reset_type_t. */
 #define IOT_PROTO_GW_RESET 11  /* cloud → device: device removed / factory reset */
+#define IOT_PROTO_UPGRADE_REQUEST 15  /* cloud → device: app confirmed an OTA upgrade */
 
 /**
  * @brief Connect to the MQTT broker and subscribe to the device's inbound topic.
@@ -74,5 +75,24 @@ int iot_client_message_publish(iot_client_t *client,
  */
 bool iot_client_message_handle_reset(iot_client_t *client,
                                      const uint8_t *bytes, size_t len);
+
+/**
+ * @brief Check if a decrypted MQTT payload is an APP-confirmed OTA notice
+ *        (protocol 15) and fire the OTA confirm callback if so.
+ *
+ * Parses data.firmwareType as the firmware channel; a missing or malformed
+ * value defaults to channel 0, mirroring TuyaOpen's app-triggered OTA flow.
+ * Consumption is opt-in: with an ota_confirm_callback registered, protocol-15
+ * envelopes are consumed and never reach the DP layer or raw message callback;
+ * without one they pass through as previous versions did.
+ *
+ * @param client IoT client (ota_confirm_callback NULL = passthrough)
+ * @param bytes  Decrypted payload bytes
+ * @param len    Length of payload
+ * @return true if the message was a protocol-15 OTA notice and an
+ *         ota_confirm_callback is registered (consumed), false otherwise
+ */
+bool iot_client_message_handle_ota_confirm(iot_client_t *client,
+                                            const uint8_t *bytes, size_t len);
 
 #endif /* __IOT_CLIENT_MESSAGE_H__ */
