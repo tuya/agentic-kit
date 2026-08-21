@@ -27,14 +27,6 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
-/* Minimal HTTP client for downloading the firmware image.
- * The SDK's http_client_interface is designed for small JSON ATOP responses
- * (fixed buffer), so for the firmware binary we use libcurl via popen, or
- * more simply, just report the URL and let the caller decide.
- *
- * For this POSIX demo, we download using the standard C library + OpenSSL
- * is overkill; instead we shell out to curl(1) which is universally available
- * on dev machines. */
 #include <sys/wait.h>
 
 #define TAG "ota_demo"
@@ -43,8 +35,8 @@
 /* Firmware download (simulated — writes to a local file)                  */
 /* ----------------------------------------------------------------------- */
 
-static int verify_firmware(iot_client_t *client, const char *path,
-                           const iot_ota_upgrade_info_t *info)
+int ota_demo_verify_firmware(iot_client_t *client, const char *path,
+                             const iot_ota_upgrade_info_t *info)
 {
     iot_ota_verify_ctx_t *ctx = NULL;
     int rc = iot_ota_verify_init(client, info, &ctx);
@@ -93,15 +85,20 @@ static int verify_firmware(iot_client_t *client, const char *path,
     return -1;
 }
 
-static int download_firmware(const char *url, const char *out_path,
-                             long expected_size)
+int ota_demo_download_firmware(const char *url, const char *out_path,
+                               long expected_size)
 {
     printf("[%s] downloading %s -> %s\n", TAG, url, out_path);
 
-    /* Use curl(1) for simplicity in this POSIX demo.
-     * A real device uses the platform HTTP client + flash-write API. */
+    /* Use curl(1) for simplicity in this POSIX demo. A real device uses its
+     * platform HTTP client and flash-write API. */
     char cmd[2048];
-    snprintf(cmd, sizeof(cmd), "curl -sSL -o '%s' '%s'", out_path, url);
+    int sn = snprintf(cmd, sizeof(cmd), "curl -sSL --fail -o '%s' '%s'",
+                      out_path, url);
+    if (sn < 0 || (size_t)sn >= sizeof(cmd)) {
+        fprintf(stderr, "[%s] firmware URL is too long for the demo buffer\n", TAG);
+        return -1;
+    }
 
     int rc = system(cmd);
     if (rc != 0) {
@@ -109,7 +106,6 @@ static int download_firmware(const char *url, const char *out_path,
         return -1;
     }
 
-    /* Verify the downloaded file size */
     struct stat st;
     if (stat(out_path, &st) != 0) {
         fprintf(stderr, "[%s] cannot stat %s\n", TAG, out_path);
@@ -117,7 +113,6 @@ static int download_firmware(const char *url, const char *out_path,
     }
 
     printf("[%s] downloaded %lld bytes\n", TAG, (long long)st.st_size);
-
     if (expected_size > 0 && (long)st.st_size != expected_size) {
         fprintf(stderr, "[%s] size mismatch: got %lld, expected %ld\n",
                 TAG, (long long)st.st_size, expected_size);
@@ -202,8 +197,8 @@ int demo_ota_run(const char *devid, const char *secret_key, const char *local_ke
         snprintf(out_path, sizeof(out_path), "firmware_%s.bin",
                  info.version ? info.version : "unknown");
 
-        if (download_firmware(info.url, out_path, info.file_size) != 0 ||
-            verify_firmware(client, out_path, &info) != 0) {
+        if (ota_demo_download_firmware(info.url, out_path, info.file_size) != 0 ||
+            ota_demo_verify_firmware(client, out_path, &info) != 0) {
             fprintf(stderr, "[%s] firmware download/verify failed\n", TAG);
             printf("[%s] reporting FAILURE status...\n", TAG);
             iot_ota_report_status(client, info.channel, OTA_STATUS_ERROR);
