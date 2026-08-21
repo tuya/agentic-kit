@@ -207,16 +207,28 @@ int tai_proto_build_event_start(tai_ctx_t *ctx,
                       : TAI_DEFAULT_EVENT_USER_DATA;
 
     /* Wrap chat user data inside attr 111 (USER_DATA) as JSON:
-     * {"chatAttributes":"<escaped-json>"} */
+     *   {"chatAttributes":"<escaped-json>"}
+     * and, when the app provides custom parameters (e.g. device intent), append
+     * a sibling where server-side workflows read them:
+     *   {"chatAttributes":"...","sessionAttributes":{"custom.param":<raw>}} */
+    const char *cparam = ctx->event_custom_param_json;
     size_t ud_cap = strlen("chatAttributes") + 2 * strlen(udata) + 32;
+    if (cparam)
+        ud_cap += strlen("sessionAttributes") + strlen("custom.param")
+                + strlen(cparam) + 24;
     char *ud_json = (char *)ctx->pal->malloc(ud_cap);
     if (!ud_json) {
         TAI_LOGE(ctx->pal, TAG, "build_event_start: user-data alloc failed (%zu bytes)", ud_cap);
         return TAI_ERR_MEM;
     }
 
-    build_userdata_json(ud_json, ud_cap,
-                        "chatAttributes", udata);
+    int udlen = build_userdata_json(ud_json, ud_cap, "chatAttributes", udata);
+    if (cparam && udlen > 0 && ud_json[udlen - 1] == '}') {
+        /* Splice ",\"sessionAttributes\":{\"custom.param\":<raw>}}" over the
+         * trailing '}' so custom.param is a nested object, not an escaped string. */
+        snprintf(ud_json + udlen - 1, ud_cap - (size_t)(udlen - 1),
+                 ",\"sessionAttributes\":{\"custom.param\":%s}}", cparam);
+    }
 
     tai_attr_t attrs[3];
     attrs[0] = tai_attr_strv(TAI_ATTR_SESSION_ID, ctx->session_id);

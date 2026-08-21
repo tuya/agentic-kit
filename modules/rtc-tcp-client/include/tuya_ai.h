@@ -260,7 +260,12 @@ typedef struct tai_config {
 
     /* --- Session / event JSON options (NULL = built-in defaults) --- */
     const char *session_attrs_json;
-    const char *event_user_data_json;
+    const char *event_user_data_json;      /* → chatAttributes value (string) */
+    /* Optional per-connection custom parameters emitted on every EventStart as
+     * {"sessionAttributes":{"custom.param":<this raw JSON object>}} alongside
+     * chatAttributes. This is where server-side workflows read device intent,
+     * e.g. "{\"clm_intent\":\"ai_image\"}". NULL = omit sessionAttributes. */
+    const char *event_custom_param_json;
     const char *agent_token;
 
     /* --- Business identifiers --- */

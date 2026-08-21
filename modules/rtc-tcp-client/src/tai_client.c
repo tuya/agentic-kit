@@ -312,6 +312,7 @@ tai_ctx_t *tai_ctx_init(void *mem, const tai_config_t *cfg)
 
     ctx->session_attrs_json    = cfg->session_attrs_json;
     ctx->event_user_data_json  = cfg->event_user_data_json;
+    ctx->event_custom_param_json = cfg->event_custom_param_json;
     ctx->agent_token           = cfg->agent_token;
     ctx->on_audio              = cfg->on_audio;
     ctx->on_text               = cfg->on_text;

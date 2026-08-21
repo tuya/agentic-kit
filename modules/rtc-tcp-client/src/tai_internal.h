@@ -231,6 +231,7 @@ struct tai_ctx {
     const char *device_id;
     const char *session_attrs_json;
     const char *event_user_data_json;
+    const char *event_custom_param_json;
     const char *agent_token;
 
     /* Protocol configuration */
