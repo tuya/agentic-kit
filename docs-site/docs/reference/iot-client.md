@@ -110,6 +110,8 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | `message_callback` | `iot_message_callback_t` | MQTT 消息回调，可为 NULL |
 | `reset_callback` | `iot_reset_callback_t` | 云端解绑/恢复出厂（protocol 11）通知回调，可为 NULL。注册后 protocol 11 消息由 SDK 消费，不再进入 `message_callback` |
 | `reset_user_data` | `void *` | 透传给 `reset_callback` 的用户指针，可为 NULL |
+| `ota_confirm_callback` | `iot_ota_confirm_callback_t` | APP 确认 OTA 升级（protocol 15）通知回调，可为 NULL。注册后 protocol 15 消息由 SDK 消费，不再进入 `message_callback` |
+| `ota_confirm_user_data` | `void *` | 透传给 `ota_confirm_callback` 的用户指针，可为 NULL |
 | `schema` | `const char *` | 重启时用于恢复的 DP schema JSON（调用方持有，NULL = 不恢复 / 宽松模式） |
 | `schema_id` | `const char *` | 持久化的 schema id（schema 升级查询的稳定 key，可为 NULL） |
 | `dp_state` | `const char *` | 持久化的 DP 当前状态 `{"dps":{...}}`，用于恢复（不置脏、不上报，可为 NULL） |
@@ -137,6 +139,8 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | `message_callback` | `iot_message_callback_t` | MQTT 消息回调 |
 | `reset_callback` | `iot_reset_callback_t` | 云端解绑/恢复出厂（protocol 11）通知回调，可为 NULL。注册后 protocol 11 消息由 SDK 消费，不再进入 `message_callback` |
 | `reset_user_data` | `void *` | 透传给 `reset_callback` 的用户指针，可为 NULL |
+| `ota_confirm_callback` | `iot_ota_confirm_callback_t` | APP 确认 OTA 升级（protocol 15）通知回调，可为 NULL。注册后 protocol 15 消息由 SDK 消费，不再进入 `message_callback` |
+| `ota_confirm_user_data` | `void *` | 透传给 `ota_confirm_callback` 的用户指针，可为 NULL |
 | `sw_ver` | `const char *` | 应用固件版本号（如 `"1.2.3"`），激活后自动上报供云端 OTA 比较；NULL 表示使用 SDK 默认 `IOT_SDK_SW_VER`。详见 [OTA 升级](../guides/ota-upgrade.md) |
 
 ### `iot_client_t`（返回实例）

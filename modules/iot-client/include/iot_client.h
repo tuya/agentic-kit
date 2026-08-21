@@ -117,6 +117,25 @@ typedef enum {
 typedef void (*iot_reset_callback_t)(iot_reset_type_t type, void *user_data);
 
 /**
+ * @brief Callback fired when the cloud confirms an OTA upgrade from the app.
+ *
+ * Fired on the iot_client_process() thread, exactly like message_callback.
+ * This means the app user has confirmed the upgrade and the cloud has notified
+ * the device over MQTT protocol 15. Keep this callback non-blocking: set a
+ * flag, signal a semaphore, or enqueue work for an application worker. Do not
+ * call iot_ota_check_upgrade(), download firmware, or write flash here — those
+ * operations must run outside the MQTT process loop.
+ *
+ * Registering this callback opts the client in to consuming protocol-15
+ * notices: they then never reach the DP layer or the raw message_callback.
+ * Without it they stay on the message_callback path for compatibility.
+ *
+ * @param channel   Firmware channel from data.firmwareType (0 = main MCU).
+ * @param user_data The ota_confirm_user_data pointer registered with the config.
+ */
+typedef void (*iot_ota_confirm_callback_t)(int channel, void *user_data);
+
+/**
  * @brief IoT client configuration structure
  */
 typedef struct {
@@ -132,6 +151,8 @@ typedef struct {
     iot_message_callback_t message_callback; // MQTT message callback
     iot_reset_callback_t reset_callback;     // Cloud device-remove (protocol 11) callback
     void *reset_user_data;                   // Opaque pointer passed back to reset_callback
+    iot_ota_confirm_callback_t ota_confirm_callback; // APP-confirmed OTA (protocol 15) callback
+    void *ota_confirm_user_data;                      // Opaque pointer passed back to ota_confirm_callback
 
     /* ---- DP layer restore (all caller-owned, may be NULL) ---- */
     const char *schema;            // Persisted DP schema JSON to restore on restart (NULL = none / loose mode)
@@ -160,6 +181,8 @@ typedef struct {
     iot_message_callback_t message_callback; // MQTT message callback
     iot_reset_callback_t reset_callback;     // Cloud device-remove (protocol 11) callback
     void *reset_user_data;                   // Opaque pointer passed back to reset_callback
+    iot_ota_confirm_callback_t ota_confirm_callback; // APP-confirmed OTA (protocol 15) callback
+    void *ota_confirm_user_data;                      // Opaque pointer passed back to ota_confirm_callback
     const char *sw_ver;            // Application firmware version (e.g. "1.2.3"); NULL = use SDK default IOT_SDK_SW_VER
 } iot_on_boarding_config_t;
 
@@ -197,6 +220,8 @@ struct iot_dp_context;
     iot_message_callback_t message_callback;  // User callback for incoming messages
     iot_reset_callback_t reset_callback;      // Cloud device-remove (protocol 11) callback
     void *reset_user_data;                    // Opaque pointer passed back to reset_callback
+    iot_ota_confirm_callback_t ota_confirm_callback; // APP-confirmed OTA (protocol 15) callback
+    void *ota_confirm_user_data;                      // Opaque pointer passed back to ota_confirm_callback
 
     struct iot_dp_context *dp;    // DP layer state; points into dp_storage, NULL when inactive
     void *dp_storage[IOT_DP_CONTEXT_STORAGE / sizeof(void *)]; // inline storage for *dp (no heap)

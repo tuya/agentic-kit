@@ -96,6 +96,24 @@ static void test_message_callback(const char *topic, size_t topic_len,
            cb_topic, cb_data_len, (int)cb_data_len, cb_data);
 }
 
+static volatile int ota_confirm_cb_called = 0;
+static int ota_confirm_cb_channel = -1;
+static void *ota_confirm_cb_user_data = NULL;
+
+static void test_ota_confirm_callback(int channel, void *user_data)
+{
+    ota_confirm_cb_called++;
+    ota_confirm_cb_channel = channel;
+    ota_confirm_cb_user_data = user_data;
+}
+
+static void reset_ota_confirm_callback_state(void)
+{
+    ota_confirm_cb_called = 0;
+    ota_confirm_cb_channel = -1;
+    ota_confirm_cb_user_data = NULL;
+}
+
 static int wait_for_port(int port)
 {
     for (int i = 0; i < 50; i++) {
@@ -476,6 +494,33 @@ static int test_iot_client_init_no_autoconnect(void)
     return result;
 }
 
+/* [7] init copies the APP-confirmed OTA callback and its user data */
+static int test_iot_client_init_copies_ota_confirm_config(void)
+{
+    static char user_data;
+    iot_client_config_t cfg = {0};
+    cfg.ota_confirm_callback = test_ota_confirm_callback;
+    cfg.ota_confirm_user_data = &user_data;
+
+    iot_client_t *client = iot_client_init(&cfg);
+    if (!client) {
+        printf("  iot_client_init returned NULL\n");
+        return -1;
+    }
+
+    int result = 0;
+    if (client->ota_confirm_callback != test_ota_confirm_callback) {
+        printf("  ota_confirm_callback was not copied\n");
+        result = -1;
+    }
+    if (client->ota_confirm_user_data != &user_data) {
+        printf("  ota_confirm_user_data was not copied\n");
+        result = -1;
+    }
+    iot_client_deinit(client);
+    return result;
+}
+
 /* ---------- Reset callback tests (network-free, plaintext input) ---------- */
 
 static volatile int reset_cb_called = 0;
@@ -619,6 +664,115 @@ out:
     return rc;
 }
 
+/* ---------- APP-confirmed OTA callback tests (network-free, plaintext) ---------- */
+
+static int test_ota_confirm_channel_from_firmware_type(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *c = make_bare_client(pal, TEST_DEVID);
+    if (!c) { printf("  alloc failed\n"); return -1; }
+    int rc = -1;
+    static char user_data;
+    reset_ota_confirm_callback_state();
+    c->ota_confirm_callback = test_ota_confirm_callback;
+    c->ota_confirm_user_data = &user_data;
+
+    const char *json = "{\"protocol\":15,\"t\":1700000000,\"data\":{\"firmwareType\":5}}";
+    if (!iot_client_message_handle_ota_confirm(c, (const uint8_t *)json, strlen(json))) {
+        printf("  protocol 15 not consumed\n"); goto out;
+    }
+    if (ota_confirm_cb_called != 1) {
+        printf("  callback not fired (%d)\n", ota_confirm_cb_called); goto out;
+    }
+    if (ota_confirm_cb_channel != 5) {
+        printf("  expected channel 5, got %d\n", ota_confirm_cb_channel); goto out;
+    }
+    if (ota_confirm_cb_user_data != &user_data) {
+        printf("  callback user_data mismatch\n"); goto out;
+    }
+    rc = 0;
+out:
+    pal->free(c);
+    return rc;
+}
+
+static int test_ota_confirm_missing_or_invalid_firmware_type_defaults_to_main(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *c = make_bare_client(pal, TEST_DEVID);
+    if (!c) { printf("  alloc failed\n"); return -1; }
+    int rc = -1;
+    reset_ota_confirm_callback_state();
+    c->ota_confirm_callback = test_ota_confirm_callback;
+
+    const char *json = "{\"protocol\":15,\"t\":1700000000}";
+    if (!iot_client_message_handle_ota_confirm(c, (const uint8_t *)json, strlen(json))) {
+        printf("  protocol 15 without firmwareType not consumed\n"); goto out;
+    }
+    if (ota_confirm_cb_called != 1 || ota_confirm_cb_channel != 0) {
+        printf("  callback result: called=%d channel=%d (expected 1/0)\n",
+               ota_confirm_cb_called, ota_confirm_cb_channel); goto out;
+    }
+
+    reset_ota_confirm_callback_state();
+    const char *invalid_type_json = "{\"protocol\":15,\"data\":{\"firmwareType\":\"5\"}}";
+    if (!iot_client_message_handle_ota_confirm(c, (const uint8_t *)invalid_type_json, strlen(invalid_type_json))) {
+        printf("  protocol 15 with malformed firmwareType not consumed\n"); goto out;
+    }
+    if (ota_confirm_cb_called != 1 || ota_confirm_cb_channel != 0) {
+        printf("  malformed firmwareType result: called=%d channel=%d (expected 1/0)\n",
+               ota_confirm_cb_called, ota_confirm_cb_channel); goto out;
+    }
+    rc = 0;
+out:
+    pal->free(c);
+    return rc;
+}
+
+static int test_ota_confirm_no_callback_passthrough(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *c = make_bare_client(pal, TEST_DEVID);
+    if (!c) { printf("  alloc failed\n"); return -1; }
+    int rc = -1;
+    reset_ota_confirm_callback_state();
+
+    const char *json = "{\"protocol\":15,\"data\":{\"firmwareType\":5}}";
+    if (iot_client_message_handle_ota_confirm(c, (const uint8_t *)json, strlen(json))) {
+        printf("  protocol 15 consumed without a registered callback\n"); goto out;
+    }
+    rc = 0;
+out:
+    pal->free(c);
+    return rc;
+}
+
+static int test_ota_confirm_non_matching_payloads_passthrough(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *c = make_bare_client(pal, TEST_DEVID);
+    if (!c) { printf("  alloc failed\n"); return -1; }
+    int rc = -1;
+    reset_ota_confirm_callback_state();
+    c->ota_confirm_callback = test_ota_confirm_callback;
+
+    static const char dp_json[] = "{\"protocol\":5,\"data\":{\"dps\":{\"1\":true}}}";
+    static const char no_proto_json[] = "{\"data\":{\"firmwareType\":5}}";
+    static const char garbage[] = "not json";
+    if (iot_client_message_handle_ota_confirm(c, (const uint8_t *)dp_json, sizeof(dp_json) - 1) ||
+        iot_client_message_handle_ota_confirm(c, (const uint8_t *)no_proto_json, sizeof(no_proto_json) - 1) ||
+        iot_client_message_handle_ota_confirm(c, (const uint8_t *)garbage, sizeof(garbage) - 1)) {
+        printf("  a non-protocol-15 payload was consumed\n"); goto out;
+    }
+    if (ota_confirm_cb_called != 0) {
+        printf("  callback fired on passthrough (%d)\n", ota_confirm_cb_called); goto out;
+    }
+    rc = 0;
+out:
+    pal->free(c);
+    return rc;
+}
+
 /* ---------- main ---------- */
 
 int main(void)
@@ -663,6 +817,7 @@ int main(void)
     /* iot_client_init + mqtt_auto_connect (no mocks needed: empty devid skips DNS) */
     RUN_TEST(test_iot_client_init_autoconnect_no_url);
     RUN_TEST(test_iot_client_init_no_autoconnect);
+    RUN_TEST(test_iot_client_init_copies_ota_confirm_config);
 
     /* Reset callback tests (network-free, no mocks needed) */
     RUN_TEST(test_reset_unbind);
@@ -670,6 +825,12 @@ int main(void)
     RUN_TEST(test_reset_foreign_gwid);
     RUN_TEST(test_reset_passthrough);
     RUN_TEST(test_reset_no_callback_passthrough);
+
+    /* APP-confirmed OTA callback tests (network-free, no mocks needed) */
+    RUN_TEST(test_ota_confirm_channel_from_firmware_type);
+    RUN_TEST(test_ota_confirm_missing_or_invalid_firmware_type_defaults_to_main);
+    RUN_TEST(test_ota_confirm_no_callback_passthrough);
+    RUN_TEST(test_ota_confirm_non_matching_payloads_passthrough);
 
     stop_mock_wrongkey();
     stop_mock_invalid();

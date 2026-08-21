@@ -8,7 +8,9 @@ sidebar_position: 6
 
 本指南说明如何使用 agentic-kit 的 `iot_ota` API 实现设备固件 OTA（Over-The-Air）升级。
 
-SDK 只提供**云端协议原语**——版本上报、升级查询、状态回报；**固件的下载与烧写由应用负责**（例如 ESP-IDF 的 `esp_ota_*` 或厂商自有的 bootloader API）。完整示例见 `examples/esp-idf/ota-demo`。
+SDK 只提供**云端协议原语**——版本上报、升级查询、状态回报，以及 APP 确认通知回调；**固件的下载与烧写由应用负责**（例如 ESP-IDF 的 `esp_ota_*` 或厂商自有的 bootloader API）。完整主动查询示例见 `examples/esp-idf/ota-demo`。
+
+如果产品要求“用户在 APP 上确认后才允许升级”，请将云端 OTA 任务配置为 APP 确认模式，并在设备上注册 `ota_confirm_callback`。agentic-kit 不调用 `tuya.device.upgrade.silent.get`，因此不会主动拉取或执行静默升级任务。
 
 ## 工作原理
 
@@ -43,6 +45,72 @@ SDK 只提供**云端协议原语**——版本上报、升级查询、状态回
 | `iot_ota_check_upgrade` | `tuya.device.upgrade.get` (v4.4) | 查询是否有待升级固件，返回 URL / 版本 / 大小 / 哈希（云端与已上报的版本比较，不再传版本号） |
 | `iot_ota_report_status` | `tuya.device.upgrade.status.update` (v4.1) | 回报升级生命周期状态 |
 | `iot_ota_verify_init/update/finish` | — | 流式校验下载固件的 md5/hmac 摘要（见下文） |
+
+## APP 确认后触发升级
+
+APP 确认升级后，云端通过 MQTT 协议号 `15` 通知设备。SDK 解密后读取 `data.firmwareType` 作为固件 channel，并调用 `ota_confirm_callback`：
+
+```c
+static volatile bool g_ota_confirmed;
+static volatile int g_ota_channel;
+
+static void on_ota_confirmed(int channel, void *user_data)
+{
+    (void)user_data;
+    g_ota_confirmed = true;   /* 只做轻量通知，不阻塞 MQTT process 线程 */
+    g_ota_channel = channel;
+}
+
+iot_client_config_t cfg = {
+    /* ... */
+    .ota_confirm_callback = on_ota_confirmed,
+    .ota_confirm_user_data = NULL,
+};
+```
+
+应用主循环或专用 OTA 工作线程收到该信号后，再执行升级原语：
+
+```text
+APP 点击确认 ──> 云端下发 MQTT protocol 15
+                     │
+                     v
+        ota_confirm_callback(channel)          /* SDK 只通知，不升级 */
+                     │
+              应用 worker 唤醒
+                     │
+                     v
+        iot_ota_check_upgrade(client, channel, &info)
+                     │
+                 有升级？
+                 /     \
+               否       是
+               │        │
+           保持运行   report_status(UPGRADING)
+                         │
+                         v
+                  下载 + 校验 + 烧写          /* 应用实现 */
+                         │
+                成功 / 失败
+                  │       │
+        report_status    report_status
+          (COMPLETE)       (ERROR)
+```
+
+```c
+iot_ota_upgrade_info_t info = {0};
+if (!g_ota_confirmed) {
+    /* 等待确认信号 */
+}
+
+int rc = iot_ota_check_upgrade(client, g_ota_channel, &info);
+if (rc == OPRT_OK && info.has_upgrade) {
+    rc = iot_ota_report_status(client, info.channel, OTA_STATUS_UPGRADING);
+    /* 在应用线程执行下载、iot_ota_verify_* 校验和平台 OTA 烧写 */
+}
+iot_ota_upgrade_info_free(client, &info);
+```
+
+`ota_confirm_callback` 与 `message_callback` 一样运行在调用 `iot_client_process()` / `iot_client_message_process()` 的线程内，coreMQTT 回调返回后还要继续处理 ack 和网络缓冲。回调中只允许置位标志、释放信号量或投递工作项；不要调用 `iot_ota_check_upgrade()`、下载固件、写 flash，也不要断开或销毁 IoT client。未注册该回调时，protocol 15 会继续透传给 `message_callback`，兼容旧应用自行解析的用法。
 
 ### `iot_ota_check_upgrade` 返回的升级信息
 
@@ -289,6 +357,7 @@ idf flash monitor
 ## 注意事项
 
 - **SDK 不下载/不烧写**——`iot_ota` 只负责云端协议；下载校验、分区管理、防回滚全部由应用实现。
+- **APP 确认模式**——云端任务需配置为 APP 确认模式；设备侧通过 `ota_confirm_callback` 接收 protocol 15，再由应用 worker 查询并执行升级。SDK 不调用静默升级接口。
 - **栈要足够大**——TLS 握手 + HTTP 缓冲 + `esp_ota_write` 需要较大栈空间（demo 用 16KB）。
 - **回报时机**——`UPGRADING` 在下载前、`COMPLETE` 在重启前、`ERROR` 在失败时；漏报会导致云端升级面板状态不准。
 - **MD5/HMAC 摘要校验**——`iot_ota_verify_init/update/finish` 在下载时流式计算摘要，`esp_ota_set_boot_partition` **之前**完成校验；不匹配必须中止升级（见上文「固件摘要校验」）。

@@ -216,6 +216,8 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
     client->message_callback = config->message_callback;
     client->reset_callback = config->reset_callback;
     client->reset_user_data = config->reset_user_data;
+    client->ota_confirm_callback = config->ota_confirm_callback;
+    client->ota_confirm_user_data = config->ota_confirm_user_data;
 
     /* DP layer: restore persisted schema_id / schema from config (restart path).
      * On-boarding paths leave these NULL here and set them after activation. */
@@ -373,6 +375,8 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
     client_config.message_callback = config->message_callback;
     client_config.reset_callback = config->reset_callback;
     client_config.reset_user_data = config->reset_user_data;
+    client_config.ota_confirm_callback = config->ota_confirm_callback;
+    client_config.ota_confirm_user_data = config->ota_confirm_user_data;
     client_config.sw_ver = sw_ver;
     /* schema / schema_id come from the activation response. iot_client_init()
      * copies them and rebuilds the DP registry from the schema (dp_state is then
@@ -467,6 +471,8 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
     client_config.message_callback = config->message_callback;
     client_config.reset_callback = config->reset_callback;
     client_config.reset_user_data = config->reset_user_data;
+    client_config.ota_confirm_callback = config->ota_confirm_callback;
+    client_config.ota_confirm_user_data = config->ota_confirm_user_data;
     client_config.sw_ver = sw_ver;
     /* schema / schema_id come from the activation response. iot_client_init()
      * copies them and rebuilds the DP registry from the schema (dp_state is then

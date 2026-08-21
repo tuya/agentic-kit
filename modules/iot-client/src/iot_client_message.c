@@ -31,6 +31,8 @@ static void mqtt_message_handler(const char *topic, size_t topic_len,
          * leak into the DP layer or raw message callback. */
         if (iot_client_message_handle_reset(client, decrypted, decrypted_len)) {
             /* consumed: reset notices never reach the DP layer or raw callback */
+        } else if (iot_client_message_handle_ota_confirm(client, decrypted, decrypted_len)) {
+            /* consumed: APP-confirmed OTA notices never reach the DP/raw path */
         } else if (!iot_dp_dispatch_downlink(client, topic, topic_len, decrypted, decrypted_len)
             && client->message_callback) {
             client->message_callback(topic, topic_len, decrypted, decrypted_len);
@@ -96,6 +98,44 @@ bool iot_client_message_handle_reset(iot_client_t *client,
              type == IOT_RESET_REMOTE_FACTORY ? "factory" : "unbind");
 
     client->reset_callback(type, client->reset_user_data);
+
+    cJSON_Delete(root);
+    return true;
+}
+
+bool iot_client_message_handle_ota_confirm(iot_client_t *client,
+                                            const uint8_t *bytes, size_t len)
+{
+    if (!client || !bytes || len == 0) return false;
+
+    cJSON *root = cJSON_ParseWithLength((const char *)bytes, len);
+    if (!root) return false;
+
+    cJSON *jproto = cJSON_GetObjectItem(root, "protocol");
+    if (!cJSON_IsNumber(jproto) || jproto->valueint != IOT_PROTO_UPGRADE_REQUEST) {
+        cJSON_Delete(root);
+        return false;
+    }
+
+    /* Not opted in: preserve the pre-callback behavior and expose protocol 15
+     * to the raw message_callback for applications that parse it themselves. */
+    if (!client->ota_confirm_callback) {
+        cJSON_Delete(root);
+        return false;
+    }
+
+    /* TuyaOpen treats a missing firmwareType as the main firmware channel.
+     * A malformed value follows the same default rather than rejecting an
+     * otherwise-authenticated cloud notice. */
+    int channel = 0;
+    cJSON *data = cJSON_GetObjectItem(root, "data");
+    cJSON *jchannel = data ? cJSON_GetObjectItem(data, "firmwareType") : NULL;
+    if (cJSON_IsNumber(jchannel)) {
+        channel = jchannel->valueint;
+    }
+
+    log_info("ota confirm: app-confirmed upgrade notice received (channel=%d)", channel);
+    client->ota_confirm_callback(channel, client->ota_confirm_user_data);
 
     cJSON_Delete(root);
     return true;
