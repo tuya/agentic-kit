@@ -67,6 +67,8 @@ extern const pal_t *tai_pal_posix(void);
 #define DEFAULT_SECRET_KEY "[SPT;N:b@)wPzK/)"
 #define DEFAULT_LOCAL_KEY  "#d[<4y*N.vE]RAAG"
 
+#define DEFAULT_REGION       AY
+#define DEFAULT_ENV          PROD
 #define DEFAULT_BATTERY_DP   109
 #define DEFAULT_CHARGE_DP    4
 #define DEFAULT_BATTERY      15    /* below the rule's threshold             */
@@ -109,6 +111,8 @@ typedef struct {
     const char *agent_code;      /* NULL = the product's default agent        */
     const char *schema_path;     /* NULL = DEFAULT_SCHEMA                     */
     const char *audio_path;      /* "" disables writing TTS audio             */
+    iot_region_t region;         /* must match the device's data center       */
+    iot_env_t   env;
     int         battery_dp;
     int         charge_dp;
     long        battery;         /* value that satisfies the rule             */
@@ -122,6 +126,66 @@ typedef struct {
     int         verbose;
 } opts_t;
 
+/* Region / env names accepted on the command line. Both spellings are allowed
+ * per region: the 2-letter form is what the pairing token and IoT-DNS use on
+ * the wire, the longer one is what iot_client.h calls the enum. Getting this
+ * wrong is worth catching here, because the SDK does not report it: a devid
+ * from another data center resolves no endpoint, so mqtt_url comes back empty
+ * and the client sits there connected to nothing. */
+static const struct { const char *name; iot_region_t region; } REGION_NAMES[] = {
+    { "AY",   AY   }, { "AZ",   AZ   }, { "UE", UEAZ }, { "UEAZ", UEAZ },
+    { "EU",   EU   }, { "WE", WEAZ }, { "WEAZ", WEAZ }, { "IN",   IN   },
+    { "SG",   SG   },
+};
+
+static const struct { const char *name; iot_env_t env; } ENV_NAMES[] = {
+    { "prod", PROD }, { "pre", PRE }, { "test", TEST },
+};
+
+static int str_ieq(const char *a, const char *b)
+{
+    for (; *a && *b; a++, b++) {
+        int ca = (*a >= 'a' && *a <= 'z') ? *a - 32 : *a;
+        int cb = (*b >= 'a' && *b <= 'z') ? *b - 32 : *b;
+        if (ca != cb) return 0;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
+static const char *region_name(iot_region_t r)
+{
+    for (size_t i = 0; i < sizeof(REGION_NAMES) / sizeof(REGION_NAMES[0]); i++)
+        if (REGION_NAMES[i].region == r) return REGION_NAMES[i].name;
+    return "?";
+}
+
+static const char *env_name(iot_env_t e)
+{
+    for (size_t i = 0; i < sizeof(ENV_NAMES) / sizeof(ENV_NAMES[0]); i++)
+        if (ENV_NAMES[i].env == e) return ENV_NAMES[i].name;
+    return "?";
+}
+
+static int parse_region(const char *s, iot_region_t *out)
+{
+    for (size_t i = 0; i < sizeof(REGION_NAMES) / sizeof(REGION_NAMES[0]); i++) {
+        if (str_ieq(s, REGION_NAMES[i].name)) { *out = REGION_NAMES[i].region; return 0; }
+    }
+    fprintf(stderr, "--region: unknown region \"%s\"; valid values are:"
+                    " AY AZ UE(AZ) EU WE(AZ) IN SG\n", s);
+    return -1;
+}
+
+static int parse_env(const char *s, iot_env_t *out)
+{
+    for (size_t i = 0; i < sizeof(ENV_NAMES) / sizeof(ENV_NAMES[0]); i++) {
+        if (str_ieq(s, ENV_NAMES[i].name)) { *out = ENV_NAMES[i].env; return 0; }
+    }
+    fprintf(stderr, "--env: unknown environment \"%s\"; valid values are:"
+                    " prod pre test\n", s);
+    return -1;
+}
+
 static void usage(const char *argv0)
 {
     printf(
@@ -134,6 +198,8 @@ static void usage(const char *argv0)
 "  -d, --devid ID            device id            (default: built-in test device)\n"
 "  -s, --secret-key KEY      device secret key\n"
 "  -k, --local-key KEY       device local key\n"
+"  -r, --region NAME         data center: AY AZ UE EU WE IN SG  (default: %s)\n"
+"      --env NAME            prod | pre | test                  (default: %s)\n"
 "  -a, --agent-code CODE     agent code           (default: product's default agent)\n"
 "\n"
 "Product / DP mapping:\n"
@@ -156,7 +222,8 @@ static void usage(const char *argv0)
 "                            pass an empty string to discard it\n"
 "  -v, --verbose             enable SDK debug logging\n"
 "  -h, --help                this text\n",
-        argv0, DEFAULT_BATTERY_DP, DEFAULT_CHARGE_DP,
+        argv0, region_name(DEFAULT_REGION), env_name(DEFAULT_ENV),
+        DEFAULT_BATTERY_DP, DEFAULT_CHARGE_DP,
         (long)DEFAULT_BATTERY, DEFAULT_CHARGE,
         (long)DEFAULT_BASELINE, DEFAULT_BASELINE_CHARGE,
         DEFAULT_TIMEOUT_S, DEFAULT_AUDIO_PATH);
@@ -194,6 +261,8 @@ static int parse_opts(int argc, char **argv, opts_t *o)
     o->secret_key      = DEFAULT_SECRET_KEY;
     o->local_key       = DEFAULT_LOCAL_KEY;
     o->audio_path      = DEFAULT_AUDIO_PATH;
+    o->region          = DEFAULT_REGION;
+    o->env             = DEFAULT_ENV;
     o->battery_dp      = DEFAULT_BATTERY_DP;
     o->charge_dp       = DEFAULT_CHARGE_DP;
     o->battery         = DEFAULT_BATTERY;
@@ -221,6 +290,12 @@ static int parse_opts(int argc, char **argv, opts_t *o)
             if (TAKE(a)) return -1; o->secret_key = v;
         } else if (!strcmp(a, "-k") || !strcmp(a, "--local-key")) {
             if (TAKE(a)) return -1; o->local_key = v;
+        } else if (!strcmp(a, "-r") || !strcmp(a, "--region")) {
+            if (TAKE(a)) return -1;
+            if (parse_region(v, &o->region) != 0) return -1;
+        } else if (!strcmp(a, "--env")) {
+            if (TAKE(a)) return -1;
+            if (parse_env(v, &o->env) != 0) return -1;
         } else if (!strcmp(a, "-a") || !strcmp(a, "--agent-code")) {
             if (TAKE(a)) return -1; o->agent_code = v;
         } else if (!strcmp(a, "--schema")) {
@@ -737,6 +812,7 @@ int main(int argc, char **argv)
 
     printf("=== tai_agent_trigger_demo ===\n");
     printf("Device ID : %s\n", o.devid);
+    printf("Region    : %s / %s\n", region_name(o.region), env_name(o.env));
     printf("Mode      : %s\n", o.listen_only ? "listen only (reports nothing)"
                                              : "report DPs, then wait for a push");
     fflush(stdout);   /* keep the banner ahead of anything the steps below log */
@@ -769,8 +845,8 @@ int main(int argc, char **argv)
     log_set_level(o.verbose ? LOG_DEBUG : LOG_WARN);   /* both SDKs share the facade */
 
     iot_client_config_t iot_cfg = {
-        .region            = AY,      /* match your device's region / env */
-        .env               = PROD,
+        .region            = o.region,   /* --region / --env; must match the */
+        .env               = o.env,      /* data center the device belongs to */
         .mqtt_disable_tls  = false,
         .mqtt_auto_connect = false,   /* this demo owns the connect loop */
         .message_callback  = on_mqtt_message,

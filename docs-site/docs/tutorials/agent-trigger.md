@@ -148,6 +148,9 @@ cmake --build build --target tai_agent_trigger_demo
 # 用自己的设备
 ./build/tai_agent_trigger_demo -d <devid> -s <secret_key> -k <local_key>
 
+# 设备不在中国区时，必须同时指定数据中心（否则解析不到端点，见下文注意事项）
+./build/tai_agent_trigger_demo -d <devid> -s <secret_key> -k <local_key> -r SG
+
 # 用自己产品的 schema 和 DP 编号
 ./build/tai_agent_trigger_demo --schema my_product.json --battery-dp 2 --charge-dp 3
 
@@ -165,6 +168,8 @@ cmake --build build --target tai_agent_trigger_demo
 | `-d, --devid ID` | 设备 ID | 内置测试设备 |
 | `-s, --secret-key KEY` | 设备密钥 | 内置测试密钥 |
 | `-k, --local-key KEY` | 本地密钥 | 内置测试密钥 |
+| `-r, --region NAME` | 设备所属数据中心：`AY` `AZ` `UE`(=`UEAZ`) `EU` `WE`(=`WEAZ`) `IN` `SG`，大小写不敏感 | `AY` |
+| `--env NAME` | 环境：`prod` / `pre` / `test` | `prod` |
 | `-a, --agent-code CODE` | 指定智能体 | 产品默认智能体 |
 | `--schema FILE` | 产品 schema JSON 文件 | 内置示例 schema |
 | `--battery-dp N` | 电量 DP 编号 | `109` |
@@ -185,6 +190,7 @@ cmake --build build --target tai_agent_trigger_demo
 ```
 === tai_agent_trigger_demo ===
 Device ID : 6cd370251e8be96de8vwoe
+Region    : AY / prod
 Mode      : report DPs, then wait for a push
 [tai] server    : 101.132.65.94:443 (SNI: rtc-ai1-5.tuyacn.com)
 [tai] client id : 6cd370251e8be96de8vwoe:1786541120:jdVXdg0acvt+H3NQ...
@@ -333,6 +339,7 @@ ffplay -f s16le -ar 16000 -ac 1 output_trigger_tts.pcm
 ## 注意事项
 
 - **`--schema` 要用你自己产品的 schema。** 内置 schema（dp1 开关 / dp3 设定值 / dp4 充电状态 / dp5 raw / dp109 电量）只是示例，DP 编号和类型必须和平台上的产品一致，否则云端会拒绝上报。
+- **`--region` 填错不会报错。** 区域不对时 IoT-DNS 会返回 HTTP 200 但不含端点，`mqtt_url` 为空，示例连不上 MQTT 却也拿不到明确的失败原因；ATOP 调用则会打到错误的数据中心被拒签。用自己的设备时，`--region` 必须和激活时拿到的 `client->region` 一致（启动横幅里会回显当前用的是哪个区域/环境，先核对一眼）。
 - **`iot_dp_report_all_dirty()` 返回 0 只代表消息发出去了**，不代表云端规则命中。规则是否命中要在平台侧看事件记录。
 - **触发器的平台调试仅支持虚拟设备**，真实设备验证请用本示例上报 DP。
 - 示例把 MQTT 收包和 TAI 重连放在同一个主线程循环里，TAI 的接收回调跑在 SDK 自己的 worker 线程上。跨线程共享的字段用 `volatile` 标注，含义见源码里的说明。
