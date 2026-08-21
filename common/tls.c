@@ -339,6 +339,12 @@ int tls_read(tls_t *t, uint8_t *buf, size_t len, uint32_t timeout_ms)
 
         if (n > 0) return n;
         if (n == 0 || n == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) return 0;
+#ifdef MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
+        /* TLS 1.3: the server may deliver a NewSessionTicket between app records.
+         * mbedtls surfaces it here as a non-fatal signal — just read again, or
+         * the whole session would tear down mid-stream at random. */
+        if (n == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) continue;
+#endif
         if (n != MBEDTLS_ERR_SSL_WANT_READ &&
             n != MBEDTLS_ERR_SSL_WANT_WRITE &&
             n != MBEDTLS_ERR_SSL_TIMEOUT) {
