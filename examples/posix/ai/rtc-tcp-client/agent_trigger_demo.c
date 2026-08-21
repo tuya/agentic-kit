@@ -4,10 +4,10 @@
  * A cloud agent trigger has three parts, and only the last one is code:
  *
  *   1. a DEVICE EVENT RULE on the product -- a DP condition such as
- *      "dp109 (battery) < 20" -- configured on the Tuya platform. Add further
+ *      "dp101 < 20" -- configured on the Tuya platform. Add further
  *      conditions if the product has DPs for them (--charge-dp);
  *   2. an AGENT TRIGGER bound to that event, whose task is "agent pushes a
- *      message" and whose Prompt may interpolate DP values ({{dp109}});
+ *      message" and whose Prompt may interpolate DP values ({{dp101}});
  *   3. THIS demo: the device that makes the rule match, and that holds an AI
  *      session open for the pushed message to land on.
  *
@@ -25,11 +25,11 @@
  * Order matters: the session is opened BEFORE the DP report. A trigger that
  * fires while the device holds no session has nowhere to push to.
  *
- * The rule is evaluated on a TRANSITION, so by default the demo reports a
- * healthy baseline first (battery 80), waits, then reports the trigger value
- * (battery 15). Re-reporting a value the cloud already holds is not a
+ * The rule is evaluated on a TRANSITION, so the demo reports a baseline first
+ * (dp101 = 80), waits, then reports the value that fires the rule
+ * (dp101 = 15). Re-reporting a value the cloud already holds is not a
  * transition and may not fire anything. Use --no-baseline when the cloud state
- * is already known to be healthy.
+ * is already known to be on the far side of the condition.
  *
  * Build (from examples/posix):
  *   cmake -S . -B build
@@ -69,18 +69,20 @@ extern const pal_t *tai_pal_posix(void);
  * other device would need that device's schema and its own cloud-side rule, so
  * there is nothing useful to parameterise -- edit these five values instead. */
 #define DEVICE_DEVID       "6c3540f2e13ffee11bykbb"
-#define DEVICE_SECRET_KEY  "Tn)2X[4gg@mAU^kz"
-#define DEVICE_LOCAL_KEY   "UNyI]C`x'eT$af|C"
+#define DEVICE_SECRET_KEY  "Y;(wBA@)B]$c<y{g"
+#define DEVICE_LOCAL_KEY   "pdd~Udn>V17|BwIG"
 #define DEVICE_REGION      AY      /* China */
 #define DEVICE_ENV         PROD
 
-#define DEFAULT_BATTERY_DP   109
+#define DEFAULT_BATTERY_DP   101
 /* 0 = report no charge-status DP. This product has no enum DP to use as a
  * second rule condition, so the rule is a single condition on the battery DP.
  * Set --charge-dp N for a product that does have one. */
 #define DEFAULT_CHARGE_DP    0
-#define DEFAULT_BATTERY      15    /* below the rule's threshold             */
-#define DEFAULT_BASELINE     80    /* healthy value reported first           */
+/* Used as-is for a value DP; for a bool DP (the current one) they are
+ * overridden to 1 / 0 unless given on the command line -- see main(). */
+#define DEFAULT_BATTERY      15    /* the state that fires the rule          */
+#define DEFAULT_BASELINE     80    /* the state reported first               */
 #define DEFAULT_CHARGE       "none"
 #define DEFAULT_BASELINE_CHARGE "charging"
 #define DEFAULT_TIMEOUT_S    120
@@ -91,34 +93,27 @@ extern const pal_t *tai_pal_posix(void);
 #define BASELINE_SETTLE_S    3
 
 /* The product's schema, from the DP snapshot the cloud returned at activation:
- *   {"dps":{"101":false,"102":"","103":"","105":"","108":0,"109":0}}
+ *   {"dps":{"1":true,"101":0}}
  *
- *   101 bool
- *   102 string
- *   103 string
- *   105 string
- *   108 value
- *   109 value   <- rule input (DEFAULT_BATTERY_DP)
+ *   1   bool
+ *   101 value   <- rule input (DEFAULT_BATTERY_DP)
  *
- * No enum DP exists, hence DEFAULT_CHARGE_DP = 0 above: the rule is a single
- * condition. Any raw DPs are absent here because raw is never included in a DP
- * snapshot. Pass --schema <file> to override the whole thing.
+ * Both DPs are carried, not just the rule input: the registry has to match the
+ * DPs the device actually has, or a downlink for the other one comes back
+ * OPRT_DP_INVALID_ID. No enum DP exists, hence DEFAULT_CHARGE_DP = 0 above:
+ * the rule is a single condition. Any raw DPs are absent here because raw is
+ * never in a DP snapshot. Pass --schema <file> to override all of it.
  *
- * Three things were inferred from the snapshot rather than read from the real
- * schema, so correct them against the platform if they matter: which of the two
- * value DPs is the battery (109 per the product owner; 108 is carried so the
- * registry matches the device), their min/max (0..100 assumed, the shape of a
- * percentage -- a value outside the real range fails locally with
- * OPRT_DP_VALUE_OUT_OF_RANGE, which at least says so), and every `mode`, which
- * the SDK never parses or enforces anyway. */
+ * dp101 serialises as a bare number, which means value (an enum with a range
+ * would come back as its label string). Inferred rather than read from the real
+ * schema, so correct against the platform if it matters: dp101's min/max
+ * (0..100 assumed, the shape of a percentage -- outside the real range
+ * iot_dp_set fails locally with OPRT_DP_VALUE_OUT_OF_RANGE, which at least says
+ * so), and both `mode`s, which the SDK never parses or enforces anyway. */
 static const char *DEFAULT_SCHEMA =
     "["
-    "{\"mode\":\"rw\",\"property\":{\"type\":\"bool\"},\"id\":101,\"type\":\"obj\"},"
-    "{\"mode\":\"rw\",\"property\":{\"type\":\"string\"},\"id\":102,\"type\":\"obj\"},"
-    "{\"mode\":\"rw\",\"property\":{\"type\":\"string\"},\"id\":103,\"type\":\"obj\"},"
-    "{\"mode\":\"rw\",\"property\":{\"type\":\"string\"},\"id\":105,\"type\":\"obj\"},"
-    "{\"mode\":\"ro\",\"property\":{\"min\":0,\"max\":100,\"scale\":0,\"step\":1,\"type\":\"value\"},\"id\":108,\"type\":\"obj\"},"
-    "{\"mode\":\"ro\",\"property\":{\"min\":0,\"max\":100,\"scale\":0,\"step\":1,\"type\":\"value\"},\"id\":109,\"type\":\"obj\"}"
+    "{\"mode\":\"rw\",\"property\":{\"type\":\"bool\"},\"id\":1,\"type\":\"obj\"},"
+    "{\"mode\":\"ro\",\"property\":{\"min\":0,\"max\":100,\"scale\":0,\"step\":1,\"type\":\"value\"},\"id\":101,\"type\":\"obj\"}"
     "]";
 
 /* -- Options -------------------------------------------------------------- */
@@ -128,6 +123,9 @@ typedef struct {
     const char *schema_path;     /* NULL = DEFAULT_SCHEMA                     */
     const char *audio_path;      /* "" disables writing TTS audio             */
     int         battery_dp;
+    iot_dp_type_t trigger_type; /* resolved from the schema, not a CLI option  */
+    int         battery_set;    /* --battery given: don't re-default for bool  */
+    int         baseline_set;
     int         charge_dp;
     long        battery;         /* value that satisfies the rule             */
     long        baseline;        /* healthy value reported first              */
@@ -275,8 +273,10 @@ static int parse_opts(int argc, char **argv, opts_t *o)
             if (TAKE(a) || parse_long(v, 1, 255, &n, a)) return -1;
             o->charge_dp = (int)n;
         } else if (!strcmp(a, "--battery")) {
+            o->battery_set = 1;
             if (TAKE(a) || parse_long(v, -2147483647L, 2147483647L, &o->battery, a)) return -1;
         } else if (!strcmp(a, "--baseline")) {
+            o->baseline_set = 1;
             if (TAKE(a) || parse_long(v, -2147483647L, 2147483647L, &o->baseline, a)) return -1;
         } else if (!strcmp(a, "--timeout")) {
             if (TAKE(a) || parse_long(v, 1, 86400, &n, a)) return -1;
@@ -371,6 +371,52 @@ static char *read_text_file(const char *path)
  * The index IS the wire value for an enum DP, so guessing it wrong reports a
  * different state than intended -- hence reading the product's own range[]
  * rather than assuming the demo schema's ordering. */
+/* Look up a DP's declared type in the schema. The trigger DP is reported with
+ * whatever type this returns: iot_dp_set() rejects a mismatch outright
+ * (OPRT_DP_TYPE_MISMATCH), so hardcoding one type here would break the demo
+ * every time it is pointed at a DP of another kind. */
+static int schema_dp_type(const char *schema_json, int dp_id, iot_dp_type_t *out)
+{
+    static const struct { const char *name; iot_dp_type_t type; } TYPES[] = {
+        { "bool",   IOT_DP_TYPE_BOOL   }, { "value", IOT_DP_TYPE_VALUE },
+        { "string", IOT_DP_TYPE_STRING }, { "enum",  IOT_DP_TYPE_ENUM  },
+        { "raw",    IOT_DP_TYPE_RAW    },
+    };
+    cJSON *root = cJSON_Parse(schema_json);
+    if (!cJSON_IsArray(root)) {
+        fprintf(stderr, "schema is not a JSON array\n");
+        cJSON_Delete(root);
+        return -1;
+    }
+
+    int         rc  = -1;
+    const char *str = NULL;
+    cJSON      *item = NULL;
+    cJSON_ArrayForEach(item, root) {
+        cJSON *jid = cJSON_GetObjectItem(item, "id");
+        if (!cJSON_IsNumber(jid) || jid->valueint != dp_id) continue;
+        /* Same precedence the SDK's parser uses: property.type first, then the
+         * top-level type as the simplified form's fallback. */
+        cJSON *prop  = cJSON_GetObjectItem(item, "property");
+        cJSON *jptyp = cJSON_IsObject(prop) ? cJSON_GetObjectItem(prop, "type") : NULL;
+        cJSON *jtyp  = cJSON_GetObjectItem(item, "type");
+        str = cJSON_IsString(jptyp) ? jptyp->valuestring
+            : (cJSON_IsString(jtyp) ? jtyp->valuestring : NULL);
+        break;
+    }
+    if (!str) {
+        fprintf(stderr, "DP %d is not in this schema (or has no type)\n", dp_id);
+        goto out;
+    }
+    for (size_t i = 0; i < sizeof(TYPES) / sizeof(TYPES[0]); i++) {
+        if (!strcmp(str, TYPES[i].name)) { *out = TYPES[i].type; rc = 0; goto out; }
+    }
+    fprintf(stderr, "DP %d has unsupported type \"%s\"\n", dp_id, str);
+out:
+    cJSON_Delete(root);
+    return rc;
+}
+
 static int schema_enum_index(const char *schema_json, int dp_id,
                              const char *label, int32_t *out_index)
 {
@@ -731,12 +777,23 @@ static int tai_link_up(tai_ctx_t *ctx, demo_reconnect_t *r)
 static int report_state(iot_client_t *iot, const opts_t *o,
                         long battery, int32_t charge_index, const char *what)
 {
-    iot_dp_value_t level = { .type = IOT_DP_TYPE_VALUE,
-                             .value.integer = (int32_t)battery };
+    /* Reported with the type the schema declares for this DP -- a bool DP takes
+     * the value as 0/1, a value DP as the integer itself. */
+    iot_dp_value_t level;
+    char           shown[24];
+    if (o->trigger_type == IOT_DP_TYPE_BOOL) {
+        level.type          = IOT_DP_TYPE_BOOL;
+        level.value.boolean = (battery != 0);
+        snprintf(shown, sizeof(shown), "%s", level.value.boolean ? "true" : "false");
+    } else {
+        level.type          = IOT_DP_TYPE_VALUE;
+        level.value.integer = (int32_t)battery;
+        snprintf(shown, sizeof(shown), "%ld", battery);
+    }
     int rc = iot_dp_set(iot, (uint8_t)o->battery_dp, &level);
     if (rc != OPRT_OK) {
-        fprintf(stderr, "[dp] set DP %d = %ld failed: %d\n",
-                o->battery_dp, battery, rc);
+        fprintf(stderr, "[dp] set DP %d = %s failed: %d\n",
+                o->battery_dp, shown, rc);
         return rc;
     }
 
@@ -755,11 +812,11 @@ static int report_state(iot_client_t *iot, const opts_t *o,
 
     rc = iot_dp_report_all_dirty(iot);
     if (o->charge_dp != 0)
-        printf("[dp] -> %s: DP %d = %ld, DP %d = enum[%d] (rc=%d)\n",
-               what, o->battery_dp, battery, o->charge_dp, charge_index, rc);
+        printf("[dp] -> %s: DP %d = %s, DP %d = enum[%d] (rc=%d)\n",
+               what, o->battery_dp, shown, o->charge_dp, charge_index, rc);
     else
-        printf("[dp] -> %s: DP %d = %ld (rc=%d)\n",
-               what, o->battery_dp, battery, rc);
+        printf("[dp] -> %s: DP %d = %s (rc=%d)\n",
+               what, o->battery_dp, shown, rc);
     fflush(stdout);
     return rc;
 }
@@ -791,6 +848,29 @@ int main(int argc, char **argv)
     char       *file_schema = o.schema_path ? read_text_file(o.schema_path) : NULL;
     const char *schema      = file_schema ? file_schema : DEFAULT_SCHEMA;
     if (o.schema_path && !file_schema) return 1;
+
+    /* Resolve the trigger DP's type from the schema and report it as that type.
+     * iot_dp_set() rejects a mismatch with OPRT_DP_TYPE_MISMATCH, so this is
+     * what lets the same demo drive a bool DP or a numeric one. */
+    if (!o.listen_only) {
+        if (schema_dp_type(schema, o.battery_dp, &o.trigger_type) != 0) {
+            free(file_schema);
+            return 1;
+        }
+        if (o.trigger_type != IOT_DP_TYPE_BOOL && o.trigger_type != IOT_DP_TYPE_VALUE) {
+            fprintf(stderr, "DP %d is neither bool nor value; this demo cannot "
+                            "drive it as a rule input\n", o.battery_dp);
+            free(file_schema);
+            return 1;
+        }
+        /* 80/15 are percentages and both read as "true" for a bool DP, which
+         * would report the same value twice and create no transition. Fall back
+         * to false -> true unless the values were given explicitly. */
+        if (o.trigger_type == IOT_DP_TYPE_BOOL) {
+            if (!o.baseline_set) o.baseline = 0;
+            if (!o.battery_set)  o.battery  = 1;
+        }
+    }
 
     /* Only resolve the charge labels when a charge DP is actually in play:
      * schema_enum_index() insists the DP is an enum with a range[], so leaving

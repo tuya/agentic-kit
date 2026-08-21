@@ -32,10 +32,10 @@ sidebar_position: 5
 只有第三部分是代码：
 
 ```
-① 设备事件规则（云端配置）      dp109(电量) < 20
+① 设备事件规则（云端配置）      dp101 < 20
         ↓ 命中
 ② 智能体触发器（云端配置）      任务 = 智能体推消息
-                                Prompt = "当前电量 {{dp109}}%，用一句话提醒充电"
+                                Prompt = "当前电量 {{dp101}}%，用一句话提醒充电"
         ↓ 推送
 ③ 设备端（本示例）              保持 AI 会话在线，接收并播放这段话
 ```
@@ -47,7 +47,7 @@ sidebar_position: 5
         │                                                                        │
         │  iot-client (MQTT)                          rtc-tcp-client (TAI 会话)   │
         │       │  上行：iot_dp_report_all_dirty()          │  下行：空闲会话      │
-        │       │  DP109=15                                 │  等待服务端开回合   │
+        │       │  DP101=15                                 │  等待服务端开回合   │
         └───────┼───────────────────────────────────────────┼────────────────────┘
                 │                                           │
                 ▼                                           ▲
@@ -72,10 +72,10 @@ sidebar_position: 5
 在[涂鸦开发者平台](https://platform.tuya.com/)的产品下创建设备事件，用 DP 条件描述"什么情况算一次事件"：
 
 ```
-dp109（电量）   < 20
+dp101 < 20
 ```
 
-示例产品有两个数值型 DP（108/109），规则用 109；没有 enum DP，所以规则是单条件。产品若另有 enum DP（例如充电状态），可以再加一条 `且` 条件，并用 `--charge-dp N` 让示例一并上报。创建完成后**记得启用该规则**，未启用的规则不会产生事件。
+示例产品只有 dp1(bool) 和 dp101(value)，规则用 dp101；没有 enum DP，所以规则是单条件。产品若另有 enum DP（例如充电状态），可以再加一条 `且` 条件，并用 `--charge-dp N` 让示例一并上报。创建完成后**记得启用该规则**，未启用的规则不会产生事件。
 
 ### 2. 配置智能体触发器
 
@@ -145,7 +145,7 @@ cmake --build build --target tai_agent_trigger_demo
 ./build/tai_agent_trigger_demo
 
 # 用自己产品的 schema 和 DP 编号
-./build/tai_agent_trigger_demo --schema my_product.json --battery-dp 109
+./build/tai_agent_trigger_demo --schema my_product.json --battery-dp 5
 
 # 产品另有 enum DP 时，让示例一并上报第二个条件
 ./build/tai_agent_trigger_demo --charge-dp 4
@@ -163,11 +163,11 @@ cmake --build build --target tai_agent_trigger_demo
 |------|------|--------|
 | `-a, --agent-code CODE` | 指定智能体 | 产品默认智能体 |
 | `--schema FILE` | 产品 schema JSON 文件 | 内置示例 schema |
-| `--battery-dp N` | 电量 DP 编号 | `109` |
+| `--battery-dp N` | 触发 DP 编号（类型由 schema 决定，支持 bool / value） | `101` |
 | `--charge-dp N` | 充电状态 DP 编号，`0` = 不上报 | `0` |
-| `--battery N` | 用于触发规则的电量值 | `15` |
+| `--battery N` | 触发规则的值；bool DP 按 `≠0` 解释 | value:`15` / bool:`1` |
 | `--charge LABEL\|IDX` | 用于触发规则的充电状态（枚举标签或下标） | `none` |
-| `--baseline N` | 触发前先上报的"正常"电量 | `80` |
+| `--baseline N` | 触发前先上报的"正常"值 | value:`80` / bool:`0` |
 | `--baseline-charge L` | 触发前先上报的"正常"充电状态 | `charging` |
 | `--no-baseline` | 跳过基线上报 | — |
 | `--listen` | 什么都不上报，只等推送 | — |
@@ -188,8 +188,8 @@ Mode      : report DPs, then wait for a push
 [tai] opening the AI session...
 [tai] session open; the demo sends nothing on it -- every turn from here on is server-initiated
 [iot] MQTT connected; reporting full DP state
-[dp] -> baseline: DP 109 = 80 (rc=0)
-[dp] -> trigger: DP 109 = 15 (rc=0)
+[dp] -> baseline: DP 101 = 80 (rc=0)
+[dp] -> trigger: DP 101 = 15 (rc=0)
 [main] waiting up to 120 s for the agent to push (Ctrl-C to stop)
 
 [push] server-initiated turn started (event_id=vcd-event-...)
@@ -329,7 +329,7 @@ ffplay -f s16le -ar 16000 -ac 1 output_trigger_tts.pcm
 
 ## 注意事项
 
-- **`--schema` 要用你自己产品的 schema。** 内置 schema（dp101 bool / dp102·dp103·dp105 string / dp108·dp109 value）取自该产品激活时云端返回的 DP 快照，DP 编号和类型必须和平台上的产品一致，否则云端会拒绝上报。其中两个 value DP 的 min/max 是按百分比推断的，raw 类型 DP 不会出现在快照里。
+- **`--schema` 要用你自己产品的 schema。** 内置 schema（dp1 bool / dp101 value）取自该产品激活时云端返回的 DP 快照，DP 编号和类型必须和平台上的产品一致，否则云端会拒绝上报。触发 DP 的上报类型由 schema 决定——`iot_dp_set()` 对类型不符会直接返回 `OPRT_DP_TYPE_MISMATCH`，所以指向 string/raw/enum 的 DP 会在联网前就被拒绝并列出原因。dp101 的 min/max 是按百分比推断的，raw 类型 DP 不会出现在快照里。
 - **`DEVICE_REGION` 填错不会报错。** 区域不对时 IoT-DNS 会返回 HTTP 200 但不含端点，`mqtt_url` 为空，示例连不上 MQTT 却也拿不到明确的失败原因；ATOP 调用则会打到错误的数据中心被拒签。改设备时它必须和激活时拿到的 `client->region` 一致（启动横幅会回显当前区域/环境，先核对一眼）。
 - **`iot_dp_report_all_dirty()` 返回 0 只代表消息发出去了**，不代表云端规则命中。规则是否命中要在平台侧看事件记录。
 - **触发器的平台调试仅支持虚拟设备**，真实设备验证请用本示例上报 DP。
