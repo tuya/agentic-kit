@@ -87,6 +87,7 @@ idf.py flash monitor
 ./build/tai_edu_camera_demo res/test.jpg   # 拍照识物 + TTS
 ./build/tai_music_play_demo                # 音乐播放（文本触发音乐技能，下载试听片段）
 ./build/tai_mcp_demo                       # 设备 MCP（initialize 握手 + 工具调用）
+./build/tai_agent_trigger_demo             # 智能体触发器（上报 DP 触发云端规则，接收主动推送）
 
 # --- AI 实时交互：rtc-client（预编译库，stm_open API）---
 ./build/chat_demo                          # 语音聊天
@@ -98,6 +99,6 @@ idf.py flash monitor
 ./build/unbind_demo <devid> <secret_key> <local_key>
 ```
 
-> 上述 AI demo 均内置默认设备凭据，可直接运行；要用自己的设备时，多数 demo 支持追加 `[devid] [secret_key] [local_key]` 参数。`tai_audio_chat_demo` 仅在检测到 libopus 时才会编译。
+> 上述 AI demo 均内置默认设备凭据，可直接运行；要用自己的设备时，多数 demo 支持追加 `[devid] [secret_key] [local_key]` 参数（`tai_agent_trigger_demo` 用命名参数，见 `--help`）。`tai_audio_chat_demo` 仅在检测到 libopus 时才会编译。
 
 
