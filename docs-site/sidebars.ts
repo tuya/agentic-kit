@@ -28,6 +28,7 @@ const sidebars: SidebarsConfig = {
             'tutorials/chat',
             'tutorials/music-play',
             'tutorials/edu-camera',
+            'tutorials/agent-trigger',
           ],
         },
       ],

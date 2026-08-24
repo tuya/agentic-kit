@@ -86,6 +86,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     reported as a digest mismatch. Unit tests with Python-generated
     known-answer vectors added as `iot_ota_verify_test`.
 
+- Examples — agent trigger demo (`tai_agent_trigger_demo`).
+  - New POSIX example `examples/posix/ai/rtc-tcp-client/agent_trigger_demo.c`
+    for cloud-initiated pushes: it runs both halves of the link at once —
+    iot-client reports the DPs a device event rule reads, rtc-tcp-client holds
+    an idle AI session for the agent's message to land on. It never calls
+    `tai_send_text()`, so every turn it prints is one the server started.
+    Registered as the `tai_agent_trigger_demo` target in
+    `examples/posix/CMakeLists.txt`.
+  - The session is opened before the DP report, and the demo reports a healthy
+    baseline (battery 99), then a random value inside the DP's range, before
+    the value that fires the rule (battery 5): a rule fires on a transition,
+    and a trigger that fires while the device holds no session has nowhere to
+    push to. `--no-baseline` skips the first report, `--no-mid` the middle one,
+    `--listen` skips them all.
+  - The device, its product schema and the trigger DP are compiled in
+    (`DEFAULT_*`), with no flags to override them: the demo only means anything
+    against the product whose rule and trigger were configured for it. The
+    trigger DP's type and range still come from that schema, so editing it for
+    another product needs no change to the reporting code.
+  - A run that received nothing exits after printing the cloud-side
+    configuration to check, since the device half is verifiable from its own
+    log. Dropped text streams fail the run — one of them may have been the
+    pushed message.
+  - User guide added at `docs-site/docs/tutorials/agent-trigger.md`, covering
+    the platform-side event rule and agent trigger setup that must exist
+    before the demo can print anything.
+
 - Examples — music play demo (`tai_music_play_demo`)(#15).
   - New POSIX example `examples/posix/ai/rtc-tcp-client/music_play_demo.c` that
     sends a text query triggering the server's music skill, parses the returned

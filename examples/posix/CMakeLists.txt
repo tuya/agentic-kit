@@ -151,6 +151,9 @@ target_link_libraries(tai_music_play_demo PRIVATE tuya_ai_tcp tuya_iot_client ag
 add_executable(tai_mcp_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/mcp_demo.c")
 target_link_libraries(tai_mcp_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
 
+add_executable(tai_agent_trigger_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/agent_trigger_demo.c")
+target_link_libraries(tai_agent_trigger_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
+
 find_library(OPUS_LIBRARY opus)
 find_path(OPUS_INCLUDE_DIR opus/opus.h)
 if(OPUS_LIBRARY AND OPUS_INCLUDE_DIR)
