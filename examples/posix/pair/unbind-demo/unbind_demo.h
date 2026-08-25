@@ -1,13 +1,18 @@
 #ifndef UNBIND_DEMO_H
 #define UNBIND_DEMO_H
 
+
 /**
  * @file unbind_demo.h
- * @brief Cloud device-remove (unbind/reset) demo.
+ * @brief Detect a cloud-initiated device removal.
  *
- * Connects an already-activated device to MQTT and listens for the
- * cloud's protocol-11 device-remove notice. When the user removes the
- * device from the app, the callback fires and the demo exits.
+ * Connect an already-activated device to MQTT and listen for the cloud's
+ * protocol-11 device-remove notice, fired when a user removes the device from
+ * the app.
+ *
+ * The device-initiated half -- resetting the device to hand the binding back --
+ * is demonstrated in pair/api-activate under --release, next to the activation
+ * it undoes.
  */
 
 /**

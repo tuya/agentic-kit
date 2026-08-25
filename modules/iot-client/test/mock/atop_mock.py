@@ -344,6 +344,59 @@ def handle_device_meta_save_request(request_data, config):
         return json.dumps(response, separators=(',', ':'))
 
 
+def handle_device_reset(request_data, config, url_params=None):
+    """Handle device reset / unbind (tuya.device.reset).
+
+    Success mirrors the interface doc exactly: an EMPTY result object. That is
+    the point of this handler -- a wrapper that insisted on a non-empty result
+    would reject a real success.
+
+    A devId containing 'busy' answers with the doc's own retryable rejection,
+    so a test can reach the "failure must leave the client intact" path. The
+    mock decrypts with sec_key regardless of which devId is presented, so a
+    test only has to vary the devid string.
+    """
+    try:
+        json.loads(request_data)
+    except Exception as e:
+        print(f"\u274c device reset: unparsable body: {e}", file=sys.stderr)
+        return json.dumps({
+            "success": False,
+            "t": int(time.time()),
+            "errorCode": "ILLEGAL_PARAM",
+            "errorMsg": str(e)
+        }, separators=(',', ':'))
+
+    # Pin the interface version. It is the one thing about this call that a
+    # local test cannot otherwise check: on a real device a wrong version comes
+    # back as an opaque cloud rejection, which reads like a network fault.
+    version = (url_params or {}).get('v', '')
+    if version != '3.0':
+        print(f"\u274c device reset: wrong interface version {version!r} (expected '3.0')",
+              file=sys.stderr)
+        return json.dumps({
+            "success": False,
+            "t": int(time.time()),
+            "errorCode": "UNKNOWN_API_VERSION",
+            "errorMsg": f"tuya.device.reset expects v=3.0, got {version!r}"
+        }, separators=(',', ':'))
+
+    devid = (url_params or {}).get('devId', '')
+    if 'busy' in devid:
+        return json.dumps({
+            "success": False,
+            "t": int(time.time()),
+            "errorCode": "REMOTE_API_RUN_UNKNOW_FAILED",
+            "errorMsg": "The server is busy, please try again later"
+        }, separators=(',', ':'))
+
+    return json.dumps({
+        "success": True,
+        "t": int(time.time()),
+        "result": {}
+    }, separators=(',', ':'))
+
+
 def handle_schema_newest_get(request_data, config):
     """Handle newest-schema query (tuya.device.schema.newest.get).
 
@@ -599,6 +652,8 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
                 response_json = handle_qrcode_info_request(decrypted_data, self.config, url_params)
             elif api == 'tuya.device.meta.save':
                 response_json = handle_device_meta_save_request(decrypted_data, self.config)
+            elif api == 'tuya.device.reset':
+                response_json = handle_device_reset(decrypted_data, self.config, url_params)
             elif api == 'tuya.device.schema.newest.get':
                 response_json = handle_schema_newest_get(decrypted_data, self.config)
             elif api == 'tuya.device.upgrade.get':

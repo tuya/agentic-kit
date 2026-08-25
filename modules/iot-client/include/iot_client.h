@@ -266,6 +266,53 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
 IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boarding_config_t *config, const char *token);
 
 /**
+ * @brief Tell the cloud this device is resetting (unbind), then destroy the client.
+ *
+ * Calls the cloud's device-reset interface with this device's credentials. On
+ * success every resource the client holds is released -- exactly what
+ * iot_client_deinit() frees -- and @p client is invalid on return: do not use
+ * or free it again.
+ *
+ * On failure NOTHING is destroyed: the client stays fully usable so the caller
+ * can retry, or give up and call iot_client_deinit() itself. The return code is
+ * therefore "does the cloud know", never "is the client still alive".
+ *
+ * Two things this does NOT do:
+ * - It does not erase persisted state. Credentials, DP state and schema live
+ *   wherever the app put them, so wiping them stays the app's job (see
+ *   examples/posix/pair/unbind-demo/).
+ * - It does not wait for the cloud's protocol-11 notice. That push is what a
+ *   *remote* removal looks like; a device-initiated reset is acknowledged by
+ *   this call's return code.
+ *
+ * Must NOT be called from a callback fired by iot_client_process() -- it frees
+ * the mqtt client that the coreMQTT receive loop is still using on that stack.
+ * See iot_reset_callback_t. Set a flag and reset from the app loop instead.
+ *
+ * On OPRT_ATOP_BUSINESS_ERROR the cloud's own errorCode decides what to do
+ * next, and the two cases are opposite: a terminal code such as
+ * GATEWAY_NOT_EXISTS means the binding is already gone, so retrying is
+ * pointless and the app should wipe its credentials and re-enter pairing, while
+ * REMOTE_API_RUN_UNKNOW_FAILED means the server was busy and the call should be
+ * retried. Pass @p error_code to tell them apart; without it the return code
+ * alone cannot.
+ *
+ * @param client         Pointer to iot_client_t instance (must be activated)
+ * @param error_code     Optional buffer receiving the cloud's errorCode; "" when
+ *                       the cloud did not send one. NULL if not needed.
+ *                       IOT_ATOP_ERROR_CODE_LEN bytes is always enough.
+ * @param error_code_len Size of @p error_code in bytes (ignored when NULL)
+ * @return OPRT_OK on success (client destroyed);
+ *         OPRT_INVALID_PARAMETER if client is NULL;
+ *         OPRT_UNINITIALIZED if the client has no device credentials yet;
+ *         OPRT_ATOP_BUSINESS_ERROR if the cloud rejected the reset;
+ *         other codes on transport failure (client left intact in every
+ *         non-OPRT_OK case)
+ */
+IOT_API int iot_client_reset(iot_client_t *client,
+                             char *error_code, size_t error_code_len);
+
+/**
  * @brief Destroy IoT client and release all resources.
  *
  * Disconnects MQTT, frees URLs, certificates, schema, and the client struct.

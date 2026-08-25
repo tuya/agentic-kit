@@ -5,6 +5,7 @@
 #include "iot_dns.h"
 #include "iot_client_message.h"
 #include "iot_ota.h"
+#include "iot_atop.h"
 #include "cipher_wrapper.h"
 #include "iot_config_defaults.h"
 #include "rng.h"
@@ -14,6 +15,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <inttypes.h>
+#include <time.h>
 
 static const pal_t *g_iot_pal = NULL;
 
@@ -301,7 +304,76 @@ IOT_API void iot_client_deinit(iot_client_t *client)
         client->pal->free(client->schema);
     }
     const pal_t *pal = client->pal;
+    /* Wipe before freeing: devid, secret_key and local_key are plaintext in this
+     * struct, and on an embedded allocator the next malloc of a similar size
+     * hands the block -- keys included -- to unrelated code. Matters most on the
+     * iot_client_reset() path, where the device is being decommissioned or handed
+     * to a new owner. Written through a volatile pointer so the store survives:
+     * a plain memset() immediately before free() is a dead store the compiler is
+     * free to elide. */
+    volatile unsigned char *wipe = (volatile unsigned char *)client;
+    for (size_t i = 0; i < sizeof(*client); i++) {
+        wipe[i] = 0;
+    }
     pal->free(client);
+}
+
+/* From the interface doc. Not the "1.0" most tuya.device.* interfaces use, so it
+ * is easy to "correct" by mistake -- and a wrong version does not fail locally,
+ * it comes back as a cloud rejection that reads like a network fault. The mock
+ * verifies this exact value so a slip fails in iot_reset_test. */
+#define IOT_ATOP_API_DEVICE_RESET         "tuya.device.reset"
+#define IOT_ATOP_API_DEVICE_RESET_VERSION "3.0"
+
+IOT_API int iot_client_reset(iot_client_t *client,
+                             char *error_code, size_t error_code_len)
+{
+    if (error_code != NULL && error_code_len > 0) {
+        error_code[0] = '\0';
+    }
+    if (client == NULL || client->pal == NULL) {
+        return OPRT_INVALID_PARAMETER;
+    }
+
+    /* Built on the generic entry rather than a dedicated wrapper: it already
+     * owns signing, AES-GCM, host resolution, envelope parsing and the
+     * credential check (returning OPRT_UNINITIALIZED before activation) -- and,
+     * unlike a result-less named wrapper, it hands back the cloud's errorCode,
+     * which is the one thing a caller needs to tell a terminal rejection from a
+     * retryable one. */
+    char body[32];
+    int sn = snprintf(body, sizeof(body), "{\"t\":%" PRIu32 "}",
+                      (uint32_t)time(NULL));
+    if (sn < 0 || (size_t)sn >= sizeof(body)) {
+        return OPRT_COMMUNICATION_ERROR;
+    }
+
+    iot_atop_request_t request = { .api     = IOT_ATOP_API_DEVICE_RESET,
+                                   .version = IOT_ATOP_API_DEVICE_RESET_VERSION,
+                                   .data    = body };
+    iot_atop_response_t response = {0};
+    int rt = iot_atop_call(client, &request, &response);
+
+    if (error_code != NULL && error_code_len > 0) {
+        snprintf(error_code, error_code_len, "%s", response.error_code);
+    }
+
+    if (rt != OPRT_OK) {
+        /* Leave the client intact: the caller may retry, and a half-torn-down
+         * client the cloud still considers bound is worse than none. */
+        log_error("iot_client_reset failed: %d errorCode=%s", rt,
+                  response.error_code);
+        iot_atop_response_free(client, &response);
+        return rt;
+    }
+
+    /* This interface answers with an empty result object, so there is nothing
+     * to read -- only to release, before the client that owns the allocator. */
+    iot_atop_response_free(client, &response);
+
+    /* Teardown last: the call above signs with client->devid / secret_key. */
+    iot_client_deinit(client);
+    return OPRT_OK;
 }
 
 IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t *config)

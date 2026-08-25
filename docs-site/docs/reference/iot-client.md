@@ -258,6 +258,65 @@ iot_client_t *iot_client_init_on_boarding_with_token(
 
 ---
 
+### `iot_client_reset`
+
+```c
+int iot_client_reset(iot_client_t *client, char *error_code, size_t error_code_len);
+```
+
+告知云端本设备正在重置（解绑），调用的是 ATOP 接口 `tuya.device.reset`（version `3.0`）。
+
+**成败决定 client 的归属**——这是使用本接口最重要的一点：
+
+| 返回 | client 状态 | 调用方要做什么 |
+|---|---|---|
+| `OPRT_OK` | **已销毁**（等同 `iot_client_deinit()` 释放的全部资源） | 不得再使用该指针，不要再 disconnect / deinit |
+| 其他任何值 | **完好可用** | 可重试，或自行调用 `iot_client_deinit()` 收尾 |
+
+也就是说返回码回答的是「云端是否已知道」，而不是「client 是否还活着」。失败时不销毁是刻意的：设备本地已解绑、而云端仍认为绑定，是比重试更糟的状态。
+
+两件本接口**不做**的事：
+
+1. **不清理持久化数据。** 凭据、DP 状态、schema 存在哪里只有应用知道，擦除仍归应用（参考 `examples/posix/pair/unbind-demo/`）。
+2. **不等待 protocol 11 通知。** 那条推送是「云端/用户从 App 移除设备」的表现；设备主动重置由本调用的返回码确认，不会另外收到通知。
+
+:::warning
+不要在 `iot_client_process()` 触发的回调（`message_callback` / `reset_callback` / `ota_confirm_callback`）里调用本函数——它会释放 coreMQTT 接收循环当前栈上仍在使用的 mqtt client。正确做法是置标志位，回到应用主循环再重置。
+:::
+
+### 被拒绝时必须看 `error_code`
+
+`OPRT_ATOP_BUSINESS_ERROR` 只说明「云端拒绝了」，而两种拒绝的处理**完全相反**——单看返回码无法区分，这是 `error_code` 出参存在的唯一理由：
+
+| errorCode | 含义 | 正确处理 |
+|---|---|---|
+| `REMOTE_API_RUN_UNKNOW_FAILED` | 服务器忙 | 退避后重试 |
+| `GATEWAY_NOT_EXISTS` | 云端已无此设备（绑定关系本就不在） | **重试永远不会成功**：擦除本地凭据、重新配网 |
+
+把后者当成可重试，设备会永久重试、永远不重新配网——凭据不擦、配网不进，等于报废。
+
+```c
+char err[64] = {0};
+int rc = iot_client_reset(client, err, sizeof(err));
+if (rc == OPRT_OK) {
+    /* client 已销毁；擦除自己保存的凭据即可 */
+} else if (strcmp(err, "GATEWAY_NOT_EXISTS") == 0) {
+    wipe_credentials();          /* 别重试 */
+    enter_pairing_mode();
+} else {
+    /* client 完好，可重试 */
+}
+```
+
+**参数：**
+- `client` — 已激活的 IoT 客户端实例
+- `error_code` — 可选，接收云端 errorCode；云端未给时为 `""`。不需要可传 `NULL`。`IOT_ATOP_ERROR_CODE_LEN`（48）字节足够
+- `error_code_len` — `error_code` 缓冲区大小（传 NULL 时忽略）
+
+**返回值：** `OPRT_OK` 成功（client 已销毁）；`OPRT_INVALID_PARAMETER` client 为 NULL；`OPRT_UNINITIALIZED` 尚无设备凭据（未激活）；`OPRT_ATOP_BUSINESS_ERROR` 云端拒绝（见上表）；其他为传输层错误。
+
+---
+
 ### `iot_client_deinit`
 
 ```c
