@@ -7,6 +7,16 @@
  *  1. Receive the pairing token from the caller (originally from OpenAPI).
  *  2. iot_client_init_on_boarding_with_token() -- activate device with token.
  *  3. iot_client_get_session_token() -- verify cloud connectivity.
+ *  4. With --release: iot_client_reset() -- hand the binding back.
+ *
+ * Step 4 is the other end of step 2. Activation and release are one lifecycle,
+ * so they live in one demo: a device that binds itself must be able to unbind
+ * itself, and the two calls have mirrored ownership -- activation returns a
+ * client, a successful reset destroys it.
+ *
+ * This is the *device-initiated* direction. The cloud-initiated one (a user
+ * removing the device from the app, which arrives as a protocol-11 push) is a
+ * different mechanism with a different callback; see pair/unbind-demo.
  */
 
 #include "activate_demo.h"
@@ -38,7 +48,8 @@ static void demo_dp_save_callback(const char *dp_state_json, void *user_data)
 
 int demo_activate_run(const char *token,
                       const char *uuid, const char *authkey,
-                      const char *product_key, const char *firmware_key)
+                      const char *product_key, const char *firmware_key,
+                      bool release)
 {
     if (iot_init_default() != OPRT_OK) {
         fprintf(stderr, "[%s] iot_init_default failed\n", TAG);
@@ -101,6 +112,42 @@ int demo_activate_run(const char *token,
     }
 
     /* Receive downlinks: call iot_client_process(client, timeout) in your loop. */
+
+    /* ---- Release: the counterpart of the activation above ----
+     * Note the asymmetry in ownership. Activation handed us a client; a
+     * successful reset takes it away again -- no deinit here, and the pointer
+     * must not be touched afterwards. On failure the client survives, which is
+     * why the error path below can still tear it down normally.
+     *
+     * No MQTT connect is needed: reset travels over ATOP HTTPS. */
+    if (release) {
+        char error_code[64] = {0};
+        printf("[%s] releasing the binding (device-initiated reset)...\n", TAG);
+        int rc = iot_client_reset(client, error_code, sizeof(error_code));
+        if (rc == OPRT_OK) {
+            /* `client` is gone from here on. A real device would now wipe the
+             * credentials and schema it persisted and re-enter pairing; this
+             * demo received them on the command line, so there is nothing on
+             * disk to clear. */
+            printf("[%s] cloud accepted the reset — client destroyed\n", TAG);
+            printf("[%s] activation and release both done; device is unbound\n", TAG);
+            return 0;
+        }
+
+        /* The return code says the cloud refused, not why. Which way to go is
+         * in the errorCode: a terminal one means the binding is already gone,
+         * so retrying never succeeds. */
+        fprintf(stderr, "[%s] reset refused: %d (errorCode=%s)\n",
+                TAG, rc, error_code[0] ? error_code : "(none)");
+        if (strcmp(error_code, "GATEWAY_NOT_EXISTS") == 0) {
+            fprintf(stderr, "[%s] the cloud has no such device — wipe credentials "
+                            "and re-pair; retrying will not help\n", TAG);
+        } else {
+            fprintf(stderr, "[%s] client still usable — retry, or exit\n", TAG);
+        }
+        iot_client_deinit(client);
+        return -1;
+    }
 
     iot_client_deinit(client);
     return 0;

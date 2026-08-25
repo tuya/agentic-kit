@@ -146,6 +146,7 @@ typedef struct {
  */
 int atop_device_meta_save(const pal_t *pal, const device_meta_save_request_t *request, device_meta_save_response_t *response);
 
+
 /**
  * @brief Get QR code info from Tuya cloud (tuya.device.qrcode.info.get)
  *

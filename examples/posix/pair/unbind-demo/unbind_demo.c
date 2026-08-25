@@ -1,6 +1,15 @@
 /**
  * @file unbind_demo.c
- * @brief Cloud device-remove (unbind/reset) demo for an activated device.
+ * @brief Detect a cloud-initiated device removal.
+ *
+ * One direction only, on purpose. The device-initiated half -- calling
+ * iot_client_reset() to hand the binding back -- lives with the activation it
+ * undoes, in pair/api-activate under --release: binding and unbinding are the
+ * two ends of one lifecycle, and splitting them across programs hides that.
+ *
+ * What arrives here is a different mechanism entirely: the cloud pushing a
+ * protocol-11 notice because a user removed the device from the app. Nothing
+ * local triggers it, and there is no return code to inspect -- only a callback.
  *
  * Flow:
  *   1. Initialize iot_client with activated device credentials.
@@ -10,7 +19,7 @@
  *      the app), the callback fires, the flag breaks the loop, and the
  *      demo exits.
  *
- * No storage is wiped here — the demo only demonstrates detection.
+ * No storage is wiped here — the demo only demonstrates the calls.
  * See dp_management_demo for the full teardown + state-wipe pattern.
  */
 
@@ -89,7 +98,9 @@ int demo_unbind_run(const char *devid, const char *secret_key,
         iot_client_deinit(client);
         return -1;
     }
-    printf("[%s] MQTT connected — waiting for device-remove notice\n", TAG);
+    printf("[%s] MQTT connected\n", TAG);
+
+    printf("[%s] waiting for device-remove notice\n", TAG);
     printf("[%s] Remove the device from the app to trigger the callback.\n", TAG);
     printf("[%s] (Ctrl-C to quit without unbinding)\n\n", TAG);
 

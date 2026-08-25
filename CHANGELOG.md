@@ -34,6 +34,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- iot-client — device-initiated reset (`iot_client_reset`), for a device that
+  unbinds itself rather than waiting to be removed from the app.
+  - New public `iot_client_reset()` in `iot_client.h` over a new
+    `atop_device_reset()` wrapper for the cloud's `tuya.device.reset`. Until
+    now every reset path in the SDK ran cloud → device (the protocol-11 notice
+    behind `iot_reset_callback_t`); there was no way for the device to start it.
+  - Success and failure decide who owns the client, and they differ: `OPRT_OK`
+    means the cloud accepted the reset and the client has already been
+    destroyed (everything `iot_client_deinit()` frees), so the pointer must not
+    be used, freed or disconnected again. Any other code means nothing was torn
+    down and the client is still fully usable, so the caller can retry. The
+    return code answers "does the cloud know", not "is the client alive".
+    Destroying on failure was rejected deliberately: a device that is locally
+    unbound while the cloud still has it bound is worse than a retry.
+  - Two non-responsibilities are documented at the declaration: it does not
+    erase persisted credentials/DP state/schema (only the app knows where those
+    live), and it does not wait for a protocol-11 notice — that push is what a
+    *remote* removal looks like, while a device-initiated reset is acknowledged
+    by the return code.
+  - `iot_client_reset()` takes an optional `error_code` out-param, and it is not
+    a convenience: `OPRT_ATOP_BUSINESS_ERROR` alone cannot separate
+    `REMOTE_API_RUN_UNKNOW_FAILED` (server busy — retry) from a terminal
+    `GATEWAY_NOT_EXISTS` (the binding is already gone — retrying never succeeds,
+    wipe credentials and re-pair). Treating the second as retryable strands the
+    device forever: it never wipes, never re-pairs.
+  - Built on the existing generic entry (`iot_atop_call`) rather than a
+    dedicated named wrapper. That entry already owns signing, AES-GCM, host
+    resolution, envelope parsing and the pre-activation credential check — and,
+    unlike a result-less wrapper, it surfaces the cloud's `errorCode`, which is
+    exactly what the out-param needs. A first version duplicated all of it in an
+    `atop_device_reset()`; removing that dropped ~80 lines and one of two
+    parallel request-assembly paths.
+  - Demonstrated in `examples/posix/pair/api-activate` under `--release`, beside
+    the activation it undoes: binding and unbinding are the two ends of one
+    lifecycle, and the ownership mirrors too — activation hands back a client, a
+    successful reset destroys it. `unbind-demo` keeps the other mechanism, the
+    cloud-initiated protocol-11 push, which has no return code to inspect and no
+    local trigger at all.
+  - New `iot_reset_test.c` (4 tests) pins the asymmetry, including that a
+    rejected reset leaves the client retryable. It uses a heap client because
+    the success path frees the struct; the mock answers a devId containing
+    "busy" with the interface doc's own `REMOTE_API_RUN_UNKNOW_FAILED` so the
+    failure path is reachable. Verified leak-free.
+  - The interface version is `"3.0"`, not the `"1.0"` most `tuya.device.*`
+    interfaces here use — easy to "correct" by mistake, and a wrong version
+    fails only at the cloud, as a rejection that reads like a network fault. The
+    mock therefore verifies `v=3.0` and answers anything else with
+    `UNKNOWN_API_VERSION`, so a slip fails in `iot_reset_test` instead of on a
+    real device.
+
 - iot-client — MQTT connect/disconnect are now public API.
   - New `iot_client_connect()` / `iot_client_disconnect()` in `iot_client.h`,
     thin wrappers over the message layer in the same shape as the existing
@@ -131,6 +181,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mqtt_abort_connect()`. They were a standing hazard rather than just noise: a
   fix to the teardown sequence applied to one copy could silently miss the other
   two, and a nearby teardown fix had just landed on this branch.
+
+- iot-client — `iot_client_deinit()` wipes the client before freeing it. `devid`,
+  `secret_key` and `local_key` are plaintext arrays in `iot_client_t`, so on an
+  embedded allocator the next comparable malloc handed the block — keys included
+  — to unrelated code. Written through a volatile pointer, since a plain
+  `memset()` immediately before `free()` is a dead store a compiler may elide.
+  Matters most on the `iot_client_reset()` path, where the device is being
+  decommissioned or handed to a new owner.
+
+- Examples — `unbind-demo --reset` no longer requires a working MQTT connection.
+  The reset call travels over ATOP HTTPS and needs no broker session, as the
+  demo's own comment said, but the code gated it behind a successful
+  `iot_client_connect()` — disabling the flag in the one case it exists for,
+  since a device the cloud has already unbound has its CONNECT refused
+  (CONNACK 4/5). The reset path now runs before any connect, and branches on the
+  returned `errorCode` to show the terminal-vs-retryable distinction.
 
 ### Fixed
 
