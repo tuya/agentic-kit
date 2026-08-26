@@ -9,6 +9,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- common — coreMQTT's Error/Warn logs are routed into the SDK log facade
+  (`common/core_mqtt_config.h`), so a broker's actual refusal reason is visible.
+  - coreMQTT was built with `MQTT_DO_NOT_USE_CUSTOM_CONFIG`, leaving its `Log*`
+    macros expanding to nothing. A refused CONNECT therefore reached the log as
+    a bare `MQTT_Connect failed: 6` — `MQTTServerRefused` — while coreMQTT knew
+    and discarded which of the five MQTT 3.1.1 reasons the broker sent.
+    `logConnackResponse()` had the answer and logged it into a void.
+  - The same connect now also prints `Connection refused: bad user name or
+    password.` (or `identifier rejected` / `not authorized` / …), plus the
+    SUBSCRIBE refusals that were equally invisible. Pinned by a new
+    `test_connack_reason_is_logged`, which captures the log facade and asserts
+    the broker's words arrive: the pre-existing `test_connect_auth_fail` drives
+    the same refusal but asserts only the return code, so it passes with the
+    routing disabled and cannot protect it.
+  - Wired in both build paths. `examples/esp-idf/components/agentic_kit` sets
+    its own compile definitions, so the ESP-IDF component kept the feature
+    switched off — on precisely the embedded target the diagnostic exists for —
+    until it was fixed too.
+  - `core_mqtt` now declares its dependency on `agentic_kit_common`. Its objects
+    reference `log_emit()`, and the link previously resolved only because
+    another archive was scanned first and happened to pull `log.o` in.
+  - Only Error and Warn are routed. `LogInfo`/`LogDebug` fire per packet, so
+    wiring them would cost flash and bury the useful lines; they stay compiled
+    out, which keeps this a diagnostics-only change with no behavioural or
+    hot-path effect.
+  - The SDK's own `mqtt.c` log lines that printed a bare `MQTTStatus_t` (all
+    seven: Init, InitStatefulQoS, Connect, Subscribe, Publish and both
+    ProcessLoop sites) now print the symbolic name alongside the number, via
+    coreMQTT's own `MQTT_Status_strerror()` — `MQTT_Connect failed:
+    MQTTServerRefused (6)`. The number is kept so existing logs and tickets
+    still line up.
+  - `docs-site/docs/reference/iot-client.md` gains a `MQTTStatus_t` table (for
+    reading older logs, which carry only the number) and a CONNACK refusal-code
+    table, noting that codes 4/5 usually mean the device was unbound in the
+    cloud rather than a wrong password, and how to confirm that over ATOP. The
+    sample output is the verbatim four-line block the SDK emits, timestamps
+    included — a paraphrase there defeats the page's only purpose.
+
+### Fixed
+
+- iot-client — a peer that closed a non-TLS MQTT connection went unnoticed until
+  the 60 s keepalive expired. `pal.h` defines a 0 from `tcp_recv` as EOF, but
+  coreMQTT reads a 0 from the transport as "no data yet", so `transport_recv()`
+  had to translate it — which the TLS branch did, with a comment explaining
+  exactly this, while the TCP branch (`mqtt_disable_tls = true`) passed it
+  straight through. Pinned by `test_closed_peer_is_reported`.
+
+- iot-client — tearing down an already-dead link no longer pushes a DISCONNECT
+  packet into a socket that cannot carry it. `mqtt_client_process()` now records
+  that the link died and `mqtt_client_disconnect()` skips only the packet, still
+  releasing the socket and buffer (clearing `connected` instead would have made
+  the teardown return early and leak both). This became worth fixing once
+  coreMQTT's errors were audible: the failed send is logged at ERROR level, so a
+  device reconnecting on a flaky link would report two errors per cycle for an
+  ordinary teardown. Not covered by a test — a just-killed peer usually absorbs
+  one more send, so the failure does not reliably reproduce against a mock.
+
 - iot-client — generic ATOP call (`iot_atop_call`), for cloud interfaces the SDK
   does not wrap by name.
   - New public header `iot_atop.h`: pass an `api` name, its `version` and a JSON

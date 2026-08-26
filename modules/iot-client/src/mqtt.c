@@ -63,6 +63,11 @@ struct mqtt_client {
     mqtt_message_callback_t message_callback;
     void *user_data;
     bool connected;
+    /* Set when the link is known dead (a failed process loop). Kept separate
+     * from `connected`, which still gates the teardown below: clearing that
+     * instead would make mqtt_client_disconnect() return early and leak the TLS
+     * context and the MQTT buffer. */
+    bool link_dead;
     bool use_tls;
     const char *cacert;
     tls_cert_bundle_attach_fn cert_bundle_attach;
@@ -149,6 +154,15 @@ static int32_t transport_recv(NetworkContext_t *pNetworkContext,
         }
         if (bytes_received < 0) {
             log_error("TCP recv failed: %d", bytes_received);
+            return OPRT_COMMUNICATION_ERROR;
+        }
+        if (bytes_received == 0) {
+            /* 0 is EOF per the PAL contract (pal.h) -- the peer closed. Same
+             * reasoning as the TLS branch above: handing coreMQTT a 0 reads as
+             * an idle poll, so a dropped link would go unnoticed until the
+             * 60 s keepalive expired. This branch used to be the asymmetric
+             * one; only mqtt_disable_tls=true builds ever reached it. */
+            log_error("TCP peer closed the connection");
             return OPRT_COMMUNICATION_ERROR;
         }
         return (int32_t)bytes_received;
@@ -417,7 +431,7 @@ int mqtt_client_connect(mqtt_client *client) {
     MQTTStatus_t status = MQTT_Init(&client->mqtt_context, &client->transport,
                                     mqtt_get_time_ms, mqtt_event_callback, &client->fixed_buffer);
     if (status != MQTTSuccess) {
-        log_error("MQTT_Init failed: %d", status);
+        log_error("MQTT_Init failed: %s (%d)", MQTT_Status_strerror(status), status);
         if (client->use_tls) {
             tls_cleanup(&client->network_context);
         } else {
@@ -435,7 +449,7 @@ int mqtt_client_connect(mqtt_client *client) {
                                    client->incoming_publish_records,
                                    MQTT_QOS_RECORD_COUNT);
     if (status != MQTTSuccess) {
-        log_error("MQTT_InitStatefulQoS failed: %d", status);
+        log_error("MQTT_InitStatefulQoS failed: %s (%d)", MQTT_Status_strerror(status), status);
         if (client->use_tls) {
             tls_cleanup(&client->network_context);
         } else {
@@ -469,7 +483,7 @@ int mqtt_client_connect(mqtt_client *client) {
                          MQTT_SEND_TIMEOUT_MS, &sessionPresent);
 
     if (status != MQTTSuccess) {
-        log_error("MQTT_Connect failed: %d", status);
+        log_error("MQTT_Connect failed: %s (%d)", MQTT_Status_strerror(status), status);
         if (client->use_tls) {
             tls_cleanup(&client->network_context);
         } else {
@@ -481,6 +495,7 @@ int mqtt_client_connect(mqtt_client *client) {
     }
 
     client->connected = true;
+    client->link_dead = false;
     log_info("Successfully connected to MQTT broker");
     return OPRT_OK;
 }
@@ -506,7 +521,7 @@ int mqtt_client_subscribe(mqtt_client *client) {
     MQTTStatus_t status = MQTT_Subscribe(&client->mqtt_context, &subscribe_info, 1, packet_id);
 
     if (status != MQTTSuccess) {
-        log_error("MQTT_Subscribe failed: %d", status);
+        log_error("MQTT_Subscribe failed: %s (%d)", MQTT_Status_strerror(status), status);
         return OPRT_COMMUNICATION_ERROR;
     }
 
@@ -525,7 +540,7 @@ int mqtt_client_subscribe(mqtt_client *client) {
                 return OPRT_COMMUNICATION_ERROR;
             }
         } else if (status != MQTTNeedMoreBytes) {
-            log_error("MQTT_ProcessLoop failed while waiting for SUBACK: %d", status);
+            log_error("MQTT_ProcessLoop failed while waiting for SUBACK: %s (%d)", MQTT_Status_strerror(status), status);
             return OPRT_COMMUNICATION_ERROR;
         }
         usleep(100000);
@@ -557,7 +572,7 @@ int mqtt_client_publish(mqtt_client *client, const char *topic,
                                       MQTT_GetPacketId(&client->mqtt_context));
 
     if (status != MQTTSuccess) {
-        log_error("MQTT_Publish failed: %d", status);
+        log_error("MQTT_Publish failed: %s (%d)", MQTT_Status_strerror(status), status);
         return OPRT_COMMUNICATION_ERROR;
     }
 
@@ -578,7 +593,8 @@ int mqtt_client_process(mqtt_client *client, uint32_t timeout_ms) {
     MQTTStatus_t status = MQTT_ProcessLoop(&client->mqtt_context);
 
     if (status != MQTTSuccess && status != MQTTNeedMoreBytes) {
-        log_error("MQTT_ProcessLoop failed: %d", status);
+        log_error("MQTT_ProcessLoop failed: %s (%d)", MQTT_Status_strerror(status), status);
+        client->link_dead = true;
         return OPRT_COMMUNICATION_ERROR;
     }
 
@@ -591,7 +607,14 @@ void mqtt_client_disconnect(mqtt_client *client) {
         return;
     }
 
-    MQTT_Disconnect(&client->mqtt_context);
+    /* A DISCONNECT on a link the process loop already found dead cannot arrive.
+     * It is not merely useless: coreMQTT reports the failed send at ERROR level,
+     * so an app reconnecting on a flaky network would log two errors per cycle
+     * for an ordinary teardown. Everything below still runs -- the socket and
+     * buffer must be released either way. */
+    if (!client->link_dead) {
+        MQTT_Disconnect(&client->mqtt_context);
+    }
 
     if (client->use_tls) {
         tls_cleanup(&client->network_context);

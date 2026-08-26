@@ -42,6 +42,52 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | -6 | `OPRT_MALLOC_FAILED` | 内存分配失败 |
 | -7 | `OPRT_TLS_HANDSHAKE_FAILED` | TLS 握手失败 |
 
+### MQTT 状态码（`MQTTStatus_t`）
+
+日志形如 `MQTT_Connect failed: MQTTServerRefused (6)` 中括号里的数字。**现在的日志会同时打出名字**，本表主要用于查阅早期日志和历史工单里只有裸数字的情况。
+
+| 值 | 名称 | 在本 SDK 场景下的含义 |
+|----|------|------|
+| 0 | `MQTTSuccess` | 成功 |
+| 1 | `MQTTBadParameter` | 参数非法（本地问题，不会到达网络）|
+| 2 | `MQTTNoMemory` | 缓冲区不足，收发包放不下 |
+| 3 | `MQTTSendFailed` | 底层发送失败——网络已断，或 TLS 会话失效 |
+| 4 | `MQTTRecvFailed` | 底层接收失败，同上 |
+| 5 | `MQTTBadResponse` | 收到了报文但格式非法（对端不是合法 MQTT broker，或链路串包）|
+| 6 | `MQTTServerRefused` | **broker 明确拒绝**了 CONNECT 或 SUBSCRIBE——网络完全正常，是业务层不允许。见下表 |
+| 7 | `MQTTNoDataAvailable` | 本次没有数据可读，正常轮询结果 |
+| 8 | `MQTTIllegalState` | 状态机非法状态 |
+| 9 | `MQTTStateCollision` | QoS 报文 ID 冲突 |
+| 10 | `MQTTKeepAliveTimeout` | 等待 PINGRESP 超时，链路已死但 socket 未报错 |
+| 11 | `MQTTNeedMoreBytes` | 报文不完整，需再次调用（非错误）|
+
+### CONNACK 拒绝原因
+
+`MQTTServerRefused (6)` 只说明「被拒了」，具体哪一种由 broker 在 CONNACK 里给出。一次被拒的连接实际会打出四行，**第一行**就是原因：
+
+```
+10:15:13 [E] [mqtt] Connection refused: bad user name or password.
+10:15:13 [E] [mqtt] CONNACK recv failed with status = MQTTServerRefused.
+10:15:13 [E] [mqtt] MQTT connection failed with status = MQTTServerRefused.
+10:15:13 [E] [iot] MQTT_Connect failed: MQTTServerRefused (6)
+```
+
+前三行来自 coreMQTT（`[mqtt]`），最后一行来自 SDK（`[iot]`）。时间戳前缀由默认日志处理器加上；若应用用 `log_set_handler()` 换了处理器，前缀形式取决于该实现。
+
+| CONNACK code | 文案 | 常见原因与处理 |
+|----|------|------|
+| 1 | unacceptable protocol version | broker 不支持 MQTT 3.1.1，基本不会出现 |
+| 2 | identifier rejected | clientId 不被接受——检查 devid 是否完整（正常为 20–22 字节）|
+| 3 | server unavailable | 云端临时不可用，退避重试即可，与凭据无关 |
+| 4 | bad user name or password | 凭据不被认可 |
+| 5 | not authorized | 未授权 |
+
+4 和 5 最常见，且**多数情况下不是密码算错**，而是**设备已在云端被解绑/删除**——凭据本身格式与算法都正确，只是服务端不再认这个 `devid`。快速确认方法：拿同一套凭据走 ATOP HTTP 打一个接口（如 `iot_atop_call` 调 `tuya.device.schema.newest.get`），ATOP 会原样带回云端的 `errorCode`，信息量远大于 CONNACK；若同样被拒，即可确认需要重新配网激活。
+
+:::note
+`[mqtt]` 前缀的行来自 coreMQTT 内部，由 `common/core_mqtt_config.h` 接入日志门面。若这些行没有出现，说明该构建仍带着 `MQTT_DO_NOT_USE_CUSTOM_CONFIG`，拒绝原因会被丢弃，只剩一个裸的 `6`。
+:::
+
 ## 枚举类型
 
 ### Region（`iot_region_t`）
