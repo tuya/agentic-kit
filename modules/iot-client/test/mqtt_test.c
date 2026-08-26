@@ -407,9 +407,14 @@ static void capture_log_handler(log_level_t level, const char *fmt, va_list args
     char line[512];
     int n = vsnprintf(line, sizeof(line), fmt, copy);
     va_end(copy);
-    if (n > 0 && log_capture_len + (size_t)n + 1 < sizeof(log_capture)) {
-        memcpy(log_capture + log_capture_len, line, (size_t)n);
-        log_capture_len += (size_t)n;
+        /* vsnprintf returns the length it WOULD have written, so it exceeds
+         * the buffer on a truncated message -- copying `n` reads past `line`.
+         * Routed lines do get long: one coreHTTP parse error interpolates up to
+         * a whole response buffer. */
+    size_t len = (n > 0 && (size_t)n < sizeof(line)) ? (size_t)n : sizeof(line) - 1;
+    if (n > 0 && log_capture_len + len + 1 < sizeof(log_capture)) {
+        memcpy(log_capture + log_capture_len, line, len);
+        log_capture_len += len;
         log_capture[log_capture_len++] = '\n';
         log_capture[log_capture_len] = '\0';
     }
@@ -464,9 +469,12 @@ static int test_connack_reason_is_logged(void)
         printf("  is MQTT_DO_NOT_USE_CUSTOM_CONFIG back, or common/ off coreMQTT's include path?\n");
         result = -1;
     }
-    /* And our own line still names the status symbolically. */
-    if (strstr(log_capture, "MQTTServerRefused") == NULL) {
-        printf("  expected the symbolic status name in the SDK log line\n");
+    /* And the SDK's own line names the status symbolically. This must match the
+     * message too, not just the enum name: coreMQTT itself logs "MQTT connection
+     * failed with status = MQTTServerRefused", captured by the same handler, so a
+     * bare search for the enum name passes even with mqtt.c back on a raw "%d". */
+    if (strstr(log_capture, "MQTT_Connect failed: MQTTServerRefused") == NULL) {
+        printf("  the SDK's own log line lost the symbolic status name\n");
         result = -1;
     }
 

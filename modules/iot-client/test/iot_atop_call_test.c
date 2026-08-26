@@ -492,9 +492,14 @@ static void http_capture_handler(log_level_t level, const char *fmt, va_list arg
     char line[1024];
     int n = vsnprintf(line, sizeof(line), fmt, copy);
     va_end(copy);
-    if (n > 0 && http_log_capture_len + (size_t)n + 1 < sizeof(http_log_capture)) {
-        memcpy(http_log_capture + http_log_capture_len, line, (size_t)n);
-        http_log_capture_len += (size_t)n;
+        /* vsnprintf returns the length it WOULD have written, so it exceeds
+         * the buffer on a truncated message -- copying `n` reads past `line`.
+         * Routed lines do get long: one coreHTTP parse error interpolates up to
+         * a whole response buffer. */
+    size_t len = (n > 0 && (size_t)n < sizeof(line)) ? (size_t)n : sizeof(line) - 1;
+    if (n > 0 && http_log_capture_len + len + 1 < sizeof(http_log_capture)) {
+        memcpy(http_log_capture + http_log_capture_len, line, len);
+        http_log_capture_len += len;
         http_log_capture[http_log_capture_len++] = '\n';
         http_log_capture[http_log_capture_len] = '\0';
     }

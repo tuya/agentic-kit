@@ -78,14 +78,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   straight through. Pinned by `test_closed_peer_is_reported`.
 
 - iot-client — tearing down an already-dead link no longer pushes a DISCONNECT
-  packet into a socket that cannot carry it. `mqtt_client_process()` now records
-  that the link died and `mqtt_client_disconnect()` skips only the packet, still
-  releasing the socket and buffer (clearing `connected` instead would have made
-  the teardown return early and leak both). This became worth fixing once
-  coreMQTT's errors were audible: the failed send is logged at ERROR level, so a
-  device reconnecting on a flaky link would report two errors per cycle for an
-  ordinary teardown. Not covered by a test — a just-killed peer usually absorbs
-  one more send, so the failure does not reliably reproduce against a mock.
+  packet into a socket that cannot carry it. Worth fixing once coreMQTT's errors
+  became audible: the failed send is logged at ERROR level, so a device
+  reconnecting on a flaky link reported two errors per cycle for an ordinary
+  teardown. `mqtt_client_disconnect()` skips only the packet, still releasing the
+  socket and buffer — clearing `connected` instead would have made the teardown
+  return early and leak both.
+  - Which statuses count is the whole difficulty. `MQTTBadResponse` (a malformed
+    packet) and `MQTTIllegalState` (QoS bookkeeping) are protocol faults on a
+    healthy socket; suppressing the DISCONNECT there would strand the session on
+    the broker until the 60 s keepalive expired, and since the clientId is the
+    devid, the next reconnect would race that stale session. Only
+    `MQTTRecvFailed` / `MQTTSendFailed` / `MQTTKeepAliveTimeout` qualify, and a
+    completed exchange clears the flag again — read at teardown, a latch-only
+    flag would let one transient error the caller retried past suppress the
+    DISCONNECT for the rest of a live session, reaching the same race from the
+    other end.
+  - All four coreMQTT call sites report their status: process, both subscribe
+    sites, and publish. Publish matters most — every DP report goes through it,
+    so it is the likeliest place an app discovers a dropped link.
+  - Not covered by a test — a just-killed peer usually absorbs one more send, so
+    the failing send does not reliably reproduce against a mock, and the
+    flag-clearing path needs a transient failure followed by a success that the
+    mocks cannot stage.
+
+- iot-client tests — the log-capture handlers read past the end of their stack
+  buffer. `vsnprintf` returns the length it *would* have written, so any routed
+  line longer than the local buffer made `memcpy` copy beyond it, corrupting the
+  capture with unrelated stack and able to fake or mask the very substring under
+  assertion. One coreHTTP parse error interpolates up to a whole response buffer,
+  so this was reachable. `test_connack_reason_is_logged` also asserted on the
+  bare string `MQTTServerRefused`, which coreMQTT's own routed line already
+  contains — it passed with `mqtt.c` reverted to a raw `%d`, protecting nothing.
+  It now matches the SDK's own message.
 
 - iot-client — generic ATOP call (`iot_atop_call`), for cloud interfaces the SDK
   does not wrap by name.
