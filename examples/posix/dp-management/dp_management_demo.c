@@ -9,13 +9,13 @@
  *
  * Lifecycle shown here:
  *   1. Read the schema (schema.json) and DP state (dp_state.json) from separate files.
- *   2. iot_client_init() with mqtt_auto_connect=false -> DP registry built from schema.
+ *   2. iot_client_init() with mqtt_disable_auto_connect=true -> DP registry built from schema.
  *      Then validate the DP state against the schema and restore it only if it
  *      fully conforms (iot_dp_validate_json), discarding a stale/mismatched file.
- *   3. Fetch the MQTT CA via IoT DNS, then iot_client_message_connect().
+ *   3. Fetch the MQTT CA via IoT DNS, then iot_client_connect().
  *   4. iot_dp_report_all() right after connect (the cloud only learns state from
  *      reports; "report on connect" is mandatory app behaviour — see the ADR).
- *   5. Loop: pump downlinks (iot_client_message_process), and on a dropped link
+ *   5. Loop: pump downlinks (iot_client_process), and on a dropped link
  *      reconnect + re-report. Periodically simulate a local change (iot_dp_set +
  *      iot_dp_report_all_dirty) and poll for a schema upgrade.
  *   6. Persist on every change via the save callback; persist a newer schema via
@@ -29,7 +29,6 @@
 #include "dp_management_demo.h"
 
 #include "iot_client.h"
-#include "iot_client_message.h"   /* manual connect/disconnect/process (app-owned loop) */
 #include "iot_dp.h"
 
 #include <stdio.h>
@@ -209,7 +208,7 @@ static void ensure_mqtt_ca(iot_client_t *client)
  * from device-initiated reports, so this runs after every (re)connect. */
 static int connect_and_report(iot_client_t *client)
 {
-    int ret = iot_client_message_connect(client);
+    int ret = iot_client_connect(client);
     if (ret != OPRT_OK) {
         fprintf(stderr, "[%s] MQTT connect failed: %d\n", TAG, ret);
         return ret;
@@ -309,7 +308,7 @@ int demo_dp_management_run(const char *devid,
         .region           = AY,      /* match your device's region/env */
         .env              = PROD,
         .mqtt_disable_tls = false,   /* mqtts */
-        .mqtt_auto_connect = false,  /* we own the connect/reconnect loop */
+        .mqtt_disable_auto_connect = true,  /* we own the connect/reconnect loop */
         .schema           = saved_schema ? saved_schema : DEFAULT_SCHEMA,
         .schema_id        = schema_id,
         .dp_state         = NULL,    /* don't auto-restore — we validate first (step 2b) */
@@ -363,11 +362,11 @@ int demo_dp_management_run(const char *devid,
     time_t last_schema = time(NULL);   /* don't poll schema immediately */
     while (g_running) {
         /* Pump the receive path; downlinks dispatch into on_dp_downlink. */
-        int rc = iot_client_message_process(client, 200);
+        int rc = iot_client_process(client, 200);
         if (rc != OPRT_OK) {
             /* No auto-reconnect in the SDK: the app reconnects, then re-reports. */
             fprintf(stderr, "[%s] link error %d; reconnecting...\n", TAG, rc);
-            iot_client_message_disconnect(client);
+            iot_client_disconnect(client);
             if (connect_and_report(client) != OPRT_OK) {
                 sleep(2);
                 continue;
@@ -400,7 +399,7 @@ int demo_dp_management_run(const char *devid,
         printf("[%s] wiping persisted state (device removed)\n", TAG);
         remove(DP_STATE_PATH);
         remove(SCHEMA_PATH);
-        iot_client_message_disconnect(client);
+        iot_client_disconnect(client);
         iot_client_deinit(client);
         printf("[%s] device reset complete — re-run pairing to activate\n", TAG);
         return 0;
@@ -416,7 +415,7 @@ int demo_dp_management_run(const char *devid,
     }
 
     /* 8. Tear down. */
-    iot_client_message_disconnect(client);
+    iot_client_disconnect(client);
     iot_client_deinit(client);
     return 0;
 }

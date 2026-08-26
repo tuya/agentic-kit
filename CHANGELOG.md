@@ -7,7 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING** iot-client — MQTT auto-connect is on by default. The
+  `mqtt_auto_connect` field is replaced by `mqtt_disable_auto_connect` on both
+  `iot_client_config_t` and `iot_on_boarding_config_t`.
+  - The rename is what makes the new default expressible: a zero-initialized
+    struct gives a `bool` `false`, so a field named `mqtt_auto_connect` can only
+    ever default to off. Reversing it follows `mqtt_disable_tls`, which already
+    reads "false (default) = TLS on" in the same structs.
+  - Existing code breaks at compile time rather than silently changing
+    behaviour, which is the point of the rename: `.mqtt_auto_connect = false`
+    becomes `.mqtt_disable_auto_connect = true`, and `.mqtt_auto_connect = true`
+    can simply be deleted.
+  - The failure path is deliberately unchanged: a failed auto-connect still
+    releases the client and returns `NULL` from `iot_client_init()`. That now
+    applies by default, so a device whose network may not be up at boot — or one
+    that only uses ATOP over HTTP with no broker, like `examples/posix/ota-demo`
+    — must set `mqtt_disable_auto_connect` and drive the link itself, or it will
+    fail to initialize instead of coming up and retrying.
+  - NOT covered by a test. Both existing auto-connect tests use an empty devid,
+    so `mqtt_url` stays empty and the branch short-circuits before the flag is
+    read — inverting the predicate leaves `iot_message_test` at 18/18. Proving
+    the default needs a DNS mock and a broker mock in the same suite, which none
+    of them currently has.
+
 ### Added
+
+- iot-client — MQTT connect/disconnect are now public API.
+  - New `iot_client_connect()` / `iot_client_disconnect()` in `iot_client.h`,
+    thin wrappers over the message layer in the same shape as the existing
+    `iot_client_process()` / `iot_client_publish()` pair.
+  - Publishing connect also exposed a latent leak, fixed here: connecting an
+    already-connected client built a second link and orphaned the first.
+    `iot_client_message_try_connect()` assigns `client->mqtt` unconditionally, so
+    the previous mqtt client, its packet buffer and its open socket were left
+    with nothing pointing at them. Reachable precisely because this API is now
+    public and documented as *the* way to bring the link up: an app that also
+    left `mqtt_auto_connect` true calls it on a live client. A second call is now
+    success without rebuilding — disconnect first to force a fresh link — and the
+    guard sits in the private entry point so every path is covered, including
+    init's auto-connect. Pinned by `test_connect_twice_keeps_one_link`.
+  - They close a real gap rather than adding a capability: `mqtt_auto_connect`
+    defaults to `false`, and the only way to bring the link up was
+    `iot_client_message_connect()` — declared in `src/iot_client_message.h`, a
+    header that is not installed. `iot_client.h`'s own config comment told
+    callers to invoke exactly that function, and four examples reached into the
+    private header to get it, which only compiled because they build from inside
+    the repo. An app built against the installed headers could neither connect
+    manually nor re-establish a dropped link.
+  - The default stays `false`. Flipping it would not have fixed this — a
+    reconnect loop needs `connect()` regardless of the default — and would have
+    changed behavior for every caller that zero-initializes its config,
+    including devices that deliberately use ATOP over HTTP with no broker
+    (`iot_client_init()` tears the client down and returns NULL when an
+    auto-connect fails).
+  - The four examples (`dp-management`, `ota-confirm`, `unbind-demo`,
+    `ai/rtc-tcp-client`) now use the public API and no longer include the
+    private header, so they compile the way an external consumer would.
+  - Docs corrected while making the promise public: both headers claimed a TLS
+    handshake failure "refreshes the MQTT CA certificate and retries once".
+    No such code exists — `iot_client_message_try_connect()` destroys the client
+    and returns `OPRT_TLS_HANDSHAKE_FAILED`. Cert recovery is the app's job
+    (`iot_get_ca_certificate()` + reassign `client->cacert`); a reconnect loop
+    written against the old wording retries the same doomed handshake forever
+    after a broker cert rotation.
 
 - common — coreMQTT's Error/Warn logs are routed into the SDK log facade
   (`common/core_mqtt_config.h`), so a broker's actual refusal reason is visible.

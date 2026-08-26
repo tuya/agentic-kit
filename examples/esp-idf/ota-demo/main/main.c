@@ -342,7 +342,7 @@ void app_main(void)
         .region           = DEFAULT_REGION,
         .env              = DEFAULT_ENV,
         .mqtt_disable_tls = false,
-        .mqtt_auto_connect = false,
+        .mqtt_disable_auto_connect = true,
         .cert_bundle_attach = (tls_cert_bundle_attach_fn)esp_crt_bundle_attach,
         .message_callback = NULL,
         .schema           = NULL,

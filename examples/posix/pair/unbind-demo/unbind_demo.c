@@ -17,7 +17,6 @@
 #include "unbind_demo.h"
 
 #include "iot_client.h"
-#include "iot_client_message.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -69,7 +68,7 @@ int demo_unbind_run(const char *devid, const char *secret_key,
         .region            = AY,
         .env               = PROD,
         .mqtt_disable_tls  = false,
-        .mqtt_auto_connect = false,
+        .mqtt_disable_auto_connect = true,
         .reset_callback    = on_reset,
         .message_callback  = on_message,
     };
@@ -84,7 +83,7 @@ int demo_unbind_run(const char *devid, const char *secret_key,
     }
     printf("[%s] client initialized (devid=%s)\n", TAG, client->devid);
 
-    int ret = iot_client_message_connect(client);
+    int ret = iot_client_connect(client);
     if (ret != OPRT_OK) {
         fprintf(stderr, "[%s] MQTT connect failed: %d\n", TAG, ret);
         iot_client_deinit(client);
@@ -95,12 +94,12 @@ int demo_unbind_run(const char *devid, const char *secret_key,
     printf("[%s] (Ctrl-C to quit without unbinding)\n\n", TAG);
 
     while (g_running) {
-        int rc = iot_client_message_process(client, 200);
+        int rc = iot_client_process(client, 200);
         if (rc != OPRT_OK && g_running) {
             fprintf(stderr, "[%s] link error %d; reconnecting...\n", TAG, rc);
-            iot_client_message_disconnect(client);
+            iot_client_disconnect(client);
             sleep(2);
-            ret = iot_client_message_connect(client);
+            ret = iot_client_connect(client);
             if (ret != OPRT_OK) {
                 fprintf(stderr, "[%s] reconnect failed: %d\n", TAG, ret);
                 continue;
@@ -110,7 +109,7 @@ int demo_unbind_run(const char *devid, const char *secret_key,
     }
 
     printf("\n[%s] shutting down\n", TAG);
-    iot_client_message_disconnect(client);
+    iot_client_disconnect(client);
     iot_client_deinit(client);
     return 0;
 }

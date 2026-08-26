@@ -442,16 +442,16 @@ static int test_encrypted_message(void)
     return result;
 }
 
-/* ---------- Test 5: iot_client_init with mqtt_auto_connect=true must short-circuit when no mqtt_url ---------- */
+/* ---------- Test 5: auto-connect (the default) must short-circuit when there is no mqtt_url ---------- */
 
 static int test_iot_client_init_autoconnect_no_url(void)
 {
     /* Empty devid skips DNS resolution, so mqtt_url stays NULL. The new
-     * auto-connect branch (`client->mqtt_url && config->mqtt_auto_connect`)
+     * auto-connect branch (`client->mqtt_url && !config->mqtt_disable_auto_connect`)
      * must safely short-circuit — returning a usable, disconnected client
      * instead of crashing or attempting a connect with NULL URL. */
     iot_client_config_t cfg = {0};
-    cfg.mqtt_auto_connect = true;
+    /* Nothing set: auto-connect is the default. */
 
     iot_client_t *client = iot_client_init(&cfg);
     if (!client) {
@@ -472,12 +472,12 @@ static int test_iot_client_init_autoconnect_no_url(void)
     return result;
 }
 
-/* ---------- Test 6: iot_client_init with mqtt_auto_connect=false also stays disconnected ---------- */
+/* ---------- Test 6: iot_client_init with auto-connect disabled also stays disconnected ---------- */
 
 static int test_iot_client_init_no_autoconnect(void)
 {
     iot_client_config_t cfg = {0};
-    cfg.mqtt_auto_connect = false;
+    cfg.mqtt_disable_auto_connect = true;
 
     iot_client_t *client = iot_client_init(&cfg);
     if (!client) {
@@ -518,6 +518,113 @@ static int test_iot_client_init_copies_ota_confirm_config(void)
         result = -1;
     }
     iot_client_deinit(client);
+    return result;
+}
+
+/* [8] the public connect/disconnect wrappers reach the message layer.
+ *
+ * They exist because iot_client_message_connect() lives in a src-private
+ * header: with mqtt_disable_auto_connect set, an app built against the
+ * installed headers had no way to bring the link up, and no way to
+ * re-establish a dropped one -- while iot_client.h's own config comment told
+ * it to call exactly that function. A NULL-client check alone would pass
+ * against an empty stub too, so the forwarding is pinned on a verdict only
+ * the callee reaches: the missing mqtt_url/devid rejection. */
+static int test_public_connect_wrappers_forward(void)
+{
+    int result = 0;
+
+    if (iot_client_connect(NULL) != OPRT_INVALID_PARAMETER) {
+        printf("  iot_client_connect(NULL) must return OPRT_INVALID_PARAMETER\n");
+        result = -1;
+    }
+    iot_client_disconnect(NULL);   /* must be a safe no-op, per the header */
+
+    /* Empty devid skips DNS, so mqtt_url stays unset. That state is rejected
+     * only inside iot_client_message_connect(), and without ever opening a
+     * socket -- so the verdict below proves the call was forwarded. */
+    iot_client_config_t cfg = {0};
+    cfg.mqtt_disable_auto_connect = true;
+    iot_client_t *client = iot_client_init(&cfg);
+    if (!client) {
+        printf("  iot_client_init returned NULL\n");
+        return -1;
+    }
+
+    if (iot_client_connect(client) != OPRT_INVALID_PARAMETER) {
+        printf("  connect on a client with no mqtt_url/devid should be rejected\n");
+        result = -1;
+    }
+    if (iot_client_connect(client) != iot_client_message_connect(client)) {
+        printf("  public wrapper disagrees with the private entry point\n");
+        result = -1;
+    }
+
+    /* Never-connected client, disconnected twice: no-op both times. */
+    iot_client_disconnect(client);
+    iot_client_disconnect(client);
+    if (client->mqtt != NULL) {
+        printf("  expected mqtt=NULL after disconnect on an unconnected client\n");
+        result = -1;
+    }
+
+    iot_client_deinit(client);
+    return result;
+}
+
+/* [9] connect on an already-connected client must not build a second link.
+ *
+ * iot_client_message_try_connect() assigns client->mqtt unconditionally, so a
+ * second pass overwrites the handle and leaks the previous mqtt client, its
+ * packet buffer and its open socket -- with nothing left pointing at them. Easy
+ * to reach now that iot_client_connect() is public and documented as the way to
+ * bring the link up: an app that also left auto-connect enabled calls it on a
+ * client that is already connected.
+ *
+ * Asserting the handle is unchanged is what pins it; the leak itself shows up
+ * under test/run_leaks_check.sh. */
+static int test_connect_twice_keeps_one_link(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *client = (iot_client_t *)pal->malloc(sizeof(iot_client_t));
+    if (!client) return -1;
+    memset(client, 0, sizeof(iot_client_t));
+    client->pal = pal;
+    strncpy((char *)client->devid, TEST_DEVID, sizeof(client->devid) - 1);
+    strncpy((char *)client->secret_key, TEST_SECRET_KEY, sizeof(client->secret_key) - 1);
+    strncpy((char *)client->local_key, TEST_LOCAL_KEY, sizeof(client->local_key) - 1);
+    snprintf(client->mqtt_url, sizeof(client->mqtt_url), "%s", TEST_MQTT_URL);
+    client->cacert = g_cacert;
+
+    int result = 0;
+    if (iot_client_connect(client) != OPRT_OK) {
+        printf("  first connect failed\n");
+        pal->free(client);
+        return -1;
+    }
+    void *first = client->mqtt;
+    if (first == NULL) {
+        printf("  connect reported success but left mqtt NULL\n");
+        result = -1;
+    }
+
+    /* Second call: success, and the same link. */
+    if (iot_client_connect(client) != OPRT_OK) {
+        printf("  second connect should report OPRT_OK (already connected)\n");
+        result = -1;
+    }
+    if (client->mqtt != first) {
+        printf("  second connect replaced the mqtt handle -- the first one leaked\n");
+        result = -1;
+    }
+
+    iot_client_disconnect(client);
+    if (client->mqtt != NULL) {
+        printf("  disconnect left mqtt non-NULL\n");
+        result = -1;
+    }
+    client->mqtt_url[0] = '\0';
+    pal->free(client);
     return result;
 }
 
@@ -814,10 +921,12 @@ int main(void)
     RUN_TEST(test_invalid_format_message);
     RUN_TEST(test_decrypt_fail_wrong_key);
 
-    /* iot_client_init + mqtt_auto_connect (no mocks needed: empty devid skips DNS) */
+    /* iot_client_init + auto-connect (no mocks needed: empty devid skips DNS) */
     RUN_TEST(test_iot_client_init_autoconnect_no_url);
     RUN_TEST(test_iot_client_init_no_autoconnect);
     RUN_TEST(test_iot_client_init_copies_ota_confirm_config);
+    RUN_TEST(test_public_connect_wrappers_forward);
+    RUN_TEST(test_connect_twice_keeps_one_link);
 
     /* Reset callback tests (network-free, no mocks needed) */
     RUN_TEST(test_reset_unbind);

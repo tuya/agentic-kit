@@ -288,8 +288,10 @@ ordinary changes.
 - **`iot_client_process(client, timeout_ms)` ignores `timeout_ms`.** The real blocking budget is
   the compile-time `MQTT_RECV_TIMEOUT_MS` (1000 ms), and the CONNECT sets a 60 s keepalive. Do
   not use the argument to pace the app loop.
-- **The "refreshes the CA and retries once" promise in `iot_client_message.h` and
-  `iot_client.h` is fiction** — no such code exists. The app owns cert recovery: call
-  `iot_get_ca_certificate()` and reassign `client->cacert` yourself (see
-  `examples/posix/dp-management/`). After a cloud cert rotation, a reconnect loop written
-  against that doc retries the same doomed handshake forever.
+- **`iot_client_connect()` never refreshes the CA and never retries.** The app owns cert
+  recovery: on `OPRT_TLS_HANDSHAKE_FAILED`, call `iot_get_ca_certificate()` and reassign
+  `client->cacert` yourself before reconnecting (see `examples/posix/dp-management/`).
+  A reconnect loop that skips this retries the same doomed handshake forever after a cloud
+  cert rotation. Both headers claimed the opposite until the API was made public; if that
+  "refreshes the CA and retries once" wording ever reappears, it is fiction — no such code
+  has ever existed in `iot_client_message_try_connect()`.

@@ -233,7 +233,7 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
         iot_client_dns_resolve(client);
     }
 
-    if (client->mqtt_url[0] != '\0' && config->mqtt_auto_connect) {
+    if (client->mqtt_url[0] != '\0' && !config->mqtt_disable_auto_connect) {
         int ret = iot_client_message_connect(client);
         if (ret != OPRT_OK) {
             log_error("MQTT connect failed: %d", ret);
@@ -369,7 +369,7 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
     client_config.region = ob_resp.region;
     client_config.env = ob_resp.env;
     client_config.mqtt_disable_tls = config->mqtt_disable_tls;
-    client_config.mqtt_auto_connect = config->mqtt_auto_connect;
+    client_config.mqtt_disable_auto_connect = config->mqtt_disable_auto_connect;
     client_config.cacert = config->cacert;
     client_config.cert_bundle_attach = config->cert_bundle_attach;
     client_config.message_callback = config->message_callback;
@@ -465,7 +465,7 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
     client_config.region = ob_resp.region;
     client_config.env = ob_resp.env;
     client_config.mqtt_disable_tls = config->mqtt_disable_tls;
-    client_config.mqtt_auto_connect = config->mqtt_auto_connect;
+    client_config.mqtt_disable_auto_connect = config->mqtt_disable_auto_connect;
     client_config.cacert = config->cacert;
     client_config.cert_bundle_attach = config->cert_bundle_attach;
     client_config.message_callback = config->message_callback;
@@ -532,6 +532,22 @@ IOT_API int iot_client_get_session_token(iot_client_t *client, const char *agent
     token[resp_token_len] = '\0';
     client->pal->free(resp.token);
     return OPRT_OK;
+}
+
+IOT_API int iot_client_connect(iot_client_t *client)
+{
+    /* No NULL guard, like its neighbour below: iot_client_message_connect()
+     * already rejects NULL (along with a missing url/devid) with the same
+     * OPRT_INVALID_PARAMETER, so a guard here could only duplicate it. */
+    return iot_client_message_connect(client);
+}
+
+IOT_API void iot_client_disconnect(iot_client_t *client)
+{
+    /* No NULL guard, unlike its neighbours: this one returns void, so the
+     * guard could only swallow the argument -- and the callee is already
+     * documented NULL-safe and no-op when not connected. */
+    iot_client_message_disconnect(client);
 }
 
 IOT_API int iot_client_process(iot_client_t *client, uint32_t timeout_ms)

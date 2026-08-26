@@ -110,7 +110,7 @@ if (rc == OPRT_OK && info.has_upgrade) {
 iot_ota_upgrade_info_free(client, &info);
 ```
 
-`ota_confirm_callback` 与 `message_callback` 一样运行在调用 `iot_client_process()` / `iot_client_message_process()` 的线程内，coreMQTT 回调返回后还要继续处理 ack 和网络缓冲。回调中只允许置位标志、释放信号量或投递工作项；不要调用 `iot_ota_check_upgrade()`、下载固件、写 flash，也不要断开或销毁 IoT client。未注册该回调时，protocol 15 会继续透传给 `message_callback`，兼容旧应用自行解析的用法。
+`ota_confirm_callback` 与 `message_callback` 一样运行在调用 `iot_client_process()` 的线程内，coreMQTT 回调返回后还要继续处理 ack 和网络缓冲。回调中只允许置位标志、释放信号量或投递工作项；不要调用 `iot_ota_check_upgrade()`、下载固件、写 flash，也不要断开或销毁 IoT client。未注册该回调时，protocol 15 会继续透传给 `message_callback`，兼容旧应用自行解析的用法。
 
 ### `iot_ota_check_upgrade` 返回的升级信息
 
@@ -233,8 +233,8 @@ iot_client_config_t iot_cfg = {
     .local_key  = DEFAULT_LOCAL_KEY,
     .region     = DEFAULT_REGION,
     .env        = DEFAULT_ENV,
-    /* mqtt_auto_connect = false: 只用 ATOP HTTP，不连 MQTT */
-    .mqtt_auto_connect = false,
+    /* 关闭自动连接：只用 ATOP HTTP，不连 MQTT */
+    .mqtt_disable_auto_connect = true,
     /* 应用固件版本：init 时自动上报，供云端 OTA 比较（NULL 用 SDK 默认） */
     .sw_ver     = desc->version,
     /* 公共 CA 证书包：ATOP HTTPS（版本上报/升级查询/状态回报）需要 */

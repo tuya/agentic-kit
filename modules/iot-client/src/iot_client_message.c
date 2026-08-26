@@ -207,6 +207,19 @@ int iot_client_message_connect(iot_client_t *client)
         return OPRT_INVALID_PARAMETER;
     }
 
+    /* Already connected is success, not a reason to build a second link.
+     * iot_client_message_try_connect() assigns client->mqtt unconditionally, so
+     * without this the previous mqtt client, its packet buffer and its open
+     * socket leak with no handle left to free them. Easy to hit now that
+     * iot_client_connect() is public and documented as *the* way to bring the
+     * link up: an app that also left mqtt_auto_connect true calls it on an
+     * already-connected client. To force a fresh link, disconnect first. */
+    if (client->mqtt) {
+        log_warn("iot_client_message_connect: already connected, ignoring "
+                 "(call iot_client_disconnect() first to reconnect)");
+        return OPRT_OK;
+    }
+
     return iot_client_message_try_connect(client);
 }
 
