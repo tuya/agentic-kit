@@ -396,8 +396,17 @@ static log_fn_t saved_log_fn;
 
 static void capture_log_handler(log_level_t level, const char *fmt, va_list args)
 {
+    /* va_copy is mandatory, not tidiness: vsnprintf() below consumes `args`, and
+     * handing a consumed va_list to log_default_handler() -- which vfprintf()s
+     * it again -- is undefined behaviour (C11 7.16.1). It happened to work on
+     * macOS/arm64 and produced parameter-shifted garbage on Linux/x86-64, where
+     * a bogus "host:port" sent a test off connecting to nowhere until the CI
+     * timeout killed it. */
+    va_list copy;
+    va_copy(copy, args);
     char line[512];
-    int n = vsnprintf(line, sizeof(line), fmt, args);
+    int n = vsnprintf(line, sizeof(line), fmt, copy);
+    va_end(copy);
     if (n > 0 && log_capture_len + (size_t)n + 1 < sizeof(log_capture)) {
         memcpy(log_capture + log_capture_len, line, (size_t)n);
         log_capture_len += (size_t)n;
