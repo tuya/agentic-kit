@@ -99,12 +99,29 @@ add_library(core_mqtt STATIC
     "${coremqtt_source_dir}/source/core_mqtt_serializer.c"
     "${coremqtt_source_dir}/source/core_mqtt_state.c"
 )
-target_compile_definitions(core_mqtt PUBLIC MQTT_DO_NOT_USE_CUSTOM_CONFIG)
-
-target_include_directories(core_mqtt PUBLIC
-    "${coremqtt_source_dir}/source/include"
-    "${coremqtt_source_dir}/source/interface"
+# No MQTT_DO_NOT_USE_CUSTOM_CONFIG: coreMQTT picks up common/core_mqtt_config.h,
+# which routes its Error/Warn logs into the SDK log facade. Without it a refused
+# CONNECT reaches the caller as a bare MQTTServerRefused, with the broker's
+# actual reason discarded inside coreMQTT.
+#
+# `common` is PRIVATE: only coreMQTT's own three .c files include
+# core_mqtt_config_defaults.h (and through it core_mqtt_config.h) -- core_mqtt.h
+# does not, so consumers need nothing. PUBLIC would put this repo's `common/` on
+# every consumer's include path, where generic names like log.h and tls.h can
+# shadow an integrator's own headers.
+target_include_directories(core_mqtt
+    PUBLIC
+        "${coremqtt_source_dir}/source/include"
+        "${coremqtt_source_dir}/source/interface"
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/common"
 )
+
+# coreMQTT's objects now reference log_emit(). Declare it: without this the link
+# only succeeds because some other archive happens to be scanned first and drags
+# log.o in -- a target that links core_mqtt alone would fail. agentic_kit_common
+# is defined further down; CMake resolves target names regardless of order.
+target_link_libraries(core_mqtt PRIVATE agentic_kit_common)
 
 # -----------------------------------------------------------------------------
 # Common library (process-wide log facade, shared TLS transport, etc.)

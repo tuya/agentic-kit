@@ -66,9 +66,12 @@ idf_component_register(
     REQUIRES mbedtls json freertos lwip esp_event esp_netif esp_timer esp_wifi
 )
 
+# No MQTT_DO_NOT_USE_CUSTOM_CONFIG: coreMQTT must pick up common/core_mqtt_config.h
+# here too, or a refused CONNECT logs only a bare MQTTServerRefused on exactly the
+# target this diagnostic exists for. ${AK_DIR}/common is already in INCLUDE_DIRS
+# above, so the header resolves with no further wiring.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     HTTP_DO_NOT_USE_CUSTOM_CONFIG
-    MQTT_DO_NOT_USE_CUSTOM_CONFIG
     IOT_DO_NOT_USE_CUSTOM_CONFIG
 )
 

@@ -55,9 +55,13 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
   to it is verifiable offline. The root CMakeLists declares `tuya_steam_client` only when the
   current platform's `libstm.a` exists (its if/elseif chain covers three of the five
   architectures on disk).
-- **The vendored libraries are built with their custom-config hooks disabled**
-  (`MQTT_DO_NOT_USE_CUSTOM_CONFIG`, `HTTP_DO_NOT_USE_CUSTOM_CONFIG`), so coreMQTT's thread-safety
-  hooks and coreHTTP's own error logging expand to nothing — expect no diagnostics from either.
+- **coreHTTP is built with its custom-config hook disabled** (`HTTP_DO_NOT_USE_CUSTOM_CONFIG`),
+  so its own error logging expands to nothing — expect no diagnostics from it. coreMQTT is the
+  exception and must stay that way: it picks up `common/core_mqtt_config.h`, which routes its
+  Error/Warn into the log facade so a broker's refusal reason survives (`Connection refused: bad
+  user name or password.`); without it a rejected CONNECT is a bare `MQTTServerRefused`. Both
+  build paths matter — the root `CMakeLists.txt` **and** `examples/esp-idf/components/agentic_kit`,
+  which had to be fixed separately. coreMQTT's thread-safety hooks are still unset.
 
 ## Conventions
 

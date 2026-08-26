@@ -5,10 +5,12 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <stdbool.h>
+#include <stdarg.h>   /* capture_log_handler takes a va_list */
 
 #include "mqtt.h"
 #include "iot_client.h"
 #include "iot_config_defaults.h"
+#include "log.h"
 
 #define TEST_CLIENT_ID   "mqtt_test_client"
 #define TEST_USERNAME    "test_user"
@@ -376,6 +378,160 @@ static int test_connect_auth_fail(void)
     return OPRT_OK;
 }
 
+/* ---------- Test: the broker's refusal reason reaches the log ---------- */
+
+/* coreMQTT knows which of the five MQTT 3.1.1 refusal reasons the broker sent,
+ * but only says so through its Log* macros. Those expand to nothing unless the
+ * build picks up common/core_mqtt_config.h, and nothing else in this suite
+ * notices if it stops doing so: test_connect_auth_fail passes either way, since
+ * it only asserts that connect failed.
+ *
+ * So assert the routing itself. Without it the caller is left with a bare
+ * MQTTServerRefused and no way to tell "wrong password" from "device unbound in
+ * the cloud" -- which is the whole reason the wiring exists. */
+
+static char log_capture[4096];
+static size_t log_capture_len;
+static log_fn_t saved_log_fn;
+
+static void capture_log_handler(log_level_t level, const char *fmt, va_list args)
+{
+    char line[512];
+    int n = vsnprintf(line, sizeof(line), fmt, args);
+    if (n > 0 && log_capture_len + (size_t)n + 1 < sizeof(log_capture)) {
+        memcpy(log_capture + log_capture_len, line, (size_t)n);
+        log_capture_len += (size_t)n;
+        log_capture[log_capture_len++] = '\n';
+        log_capture[log_capture_len] = '\0';
+    }
+    /* Keep the default output too, so a failing run is still readable. */
+    log_default_handler(level, fmt, args);
+}
+
+static void capture_start(void)
+{
+    log_capture[0] = '\0';
+    log_capture_len = 0;
+    saved_log_fn = capture_log_handler;
+    log_set_handler(capture_log_handler);
+}
+
+static void capture_stop(void)
+{
+    log_set_handler(NULL);
+    (void)saved_log_fn;
+}
+
+static int test_connack_reason_is_logged(void)
+{
+    const pal_t *pal = get_default_pal();
+    mqtt_client_config_t config = {
+        .broker_url      = MOCK_BROKER_URL,
+        .client_id       = TEST_CLIENT_ID,
+        .password        = "wrong_password",   /* mock answers CONNACK code 4 */
+        .subscribe_topic = TEST_TOPIC_SUB,
+        .callback        = test_message_callback,
+        .pal             = pal,
+    };
+    mqtt_client *c = mqtt_client_create_with_config(&config);
+    if (!c) {
+        printf("  create failed\n");
+        return -1;
+    }
+
+    capture_start();
+    int ret = mqtt_client_connect(c);
+    capture_stop();
+
+    int result = 0;
+    if (ret == 0) {
+        printf("  expected connect to fail with bad password\n");
+        result = -1;
+    }
+
+    /* coreMQTT's own words, routed through common/core_mqtt_config.h. */
+    if (strstr(log_capture, "bad user name or password") == NULL) {
+        printf("  the broker's refusal reason never reached the log --\n");
+        printf("  is MQTT_DO_NOT_USE_CUSTOM_CONFIG back, or common/ off coreMQTT's include path?\n");
+        result = -1;
+    }
+    /* And our own line still names the status symbolically. */
+    if (strstr(log_capture, "MQTTServerRefused") == NULL) {
+        printf("  expected the symbolic status name in the SDK log line\n");
+        result = -1;
+    }
+
+    mqtt_client_destroy(c);
+    return result;
+}
+
+/* ---------- Test: a closed peer is reported, not polled forever ---------- */
+
+/* transport_recv() must translate EOF into an error. The PAL contract (pal.h)
+ * defines a 0 from tcp_recv as EOF, but coreMQTT reads a 0 from the transport as
+ * "nothing to read right now" -- so handing it straight through means a dropped
+ * link goes unnoticed until the 60 s keepalive expires. The TLS branch always
+ * got this right and says so in a comment; the TCP branch (mqtt_disable_tls=true)
+ * did not, until this test was written.
+ *
+ * Killing the broker mid-session is what a dropped link looks like from here.
+ * The teardown that follows also walks mqtt_client_disconnect()'s dead-link
+ * path, which is worth exercising even though its DISCONNECT suppression cannot
+ * be asserted here: a just-killed peer usually still absorbs one send, so the
+ * failure coreMQTT would log does not reliably occur against a mock. */
+static int test_closed_peer_is_reported(void)
+{
+    const pal_t *pal = get_default_pal();
+    mqtt_client_config_t config = {
+        .broker_url      = MOCK_BROKER_URL,
+        .client_id       = TEST_CLIENT_ID,
+        .password        = TEST_PASSWORD,
+        .subscribe_topic = TEST_TOPIC_SUB,
+        .callback        = test_message_callback,
+        .pal             = pal,
+    };
+    mqtt_client *c = mqtt_client_create_with_config(&config);
+    if (!c) {
+        printf("  create failed\n");
+        return -1;
+    }
+    if (mqtt_client_connect(c) != 0) {
+        printf("  connect failed\n");
+        mqtt_client_destroy(c);
+        return -1;
+    }
+
+    stop_mock_server();          /* the link dies under us */
+
+    int result = 0;
+    /* Drive the loop until it notices. One call is usually enough; a few gives
+     * the socket time to report the peer going away. */
+    int rc = OPRT_OK;
+    for (int i = 0; i < 20 && rc == OPRT_OK; i++) {
+        rc = mqtt_client_process(c, 100);
+    }
+    if (rc == OPRT_OK) {
+        printf("  the process loop never noticed the peer had closed --\n");
+        printf("  does transport_recv() still hand coreMQTT a bare 0 on EOF?\n");
+        mqtt_client_destroy(c);
+        start_mock_server();
+        return -1;
+    }
+
+    /* The teardown an app's reconnect loop performs. Asserted only to not crash
+     * or hang; see the note above on why the DISCONNECT suppression itself is
+     * not observable against a mock. */
+    mqtt_client_disconnect(c);
+    if (mqtt_client_is_connected(c)) {
+        printf("  still reports connected after disconnect\n");
+        result = -1;
+    }
+
+    mqtt_client_destroy(c);
+    start_mock_server();         /* restore for the tests that follow */
+    return result;
+}
+
 /* ---------- Test: subscribe failure ---------- */
 
 static int test_subscribe_fail(void)
@@ -682,6 +838,8 @@ int main(void)
     RUN_TEST(test_subscribe);
     RUN_TEST(test_publish_receive);
     RUN_TEST(test_connect_auth_fail);
+    RUN_TEST(test_connack_reason_is_logged);
+    RUN_TEST(test_closed_peer_is_reported);
     RUN_TEST(test_subscribe_fail);
     RUN_TEST(test_connect_tls_cert_fail);
     RUN_TEST(test_connect_tls_auth_fail);
