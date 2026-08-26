@@ -387,6 +387,31 @@ static void release_mqtt_buffer(mqtt_client *client) {
     client->fixed_buffer.size = 0;
 }
 
+/* Record what an MQTTStatus says about the transport underneath, for the
+ * DISCONNECT-suppression check in mqtt_client_disconnect().
+ *
+ * Only these three mean the socket is gone. MQTTBadResponse (a malformed packet
+ * arrived) and MQTTIllegalState (QoS bookkeeping hit an impossible state) are
+ * protocol faults on a perfectly healthy socket -- suppressing the DISCONNECT
+ * for those strands the session on the broker until the 60 s keepalive expires,
+ * and since the clientId is the devid, the next reconnect races that stale
+ * session.
+ *
+ * A completed exchange clears the flag again, which matters just as much: the
+ * flag is read at teardown, possibly long after the failure, so latch-only
+ * would let one transient error the caller retried past suppress the DISCONNECT
+ * for the rest of a demonstrably live session -- the same race from the other
+ * end. Every call site reports its status, success included. */
+static void mqtt_note_transport_state(mqtt_client *client, MQTTStatus_t status)
+{
+    if (status == MQTTRecvFailed || status == MQTTSendFailed ||
+        status == MQTTKeepAliveTimeout) {
+        client->link_dead = true;
+    } else if (status == MQTTSuccess || status == MQTTNeedMoreBytes) {
+        client->link_dead = false;
+    }
+}
+
 /* Unwind a half-built connection: drop the transport, hand back the MQTT buffer.
  * Shared by the three failure points that sit between a live socket and a usable
  * MQTT session (Init, InitStatefulQoS, Connect), which were three byte-identical
@@ -515,6 +540,7 @@ int mqtt_client_subscribe(mqtt_client *client) {
 
     uint16_t packet_id = MQTT_GetPacketId(&client->mqtt_context);
     MQTTStatus_t status = MQTT_Subscribe(&client->mqtt_context, &subscribe_info, 1, packet_id);
+    mqtt_note_transport_state(client, status);
 
     if (status != MQTTSuccess) {
         log_error("MQTT_Subscribe failed: %s (%d)", MQTT_Status_strerror(status), status);
@@ -526,6 +552,7 @@ int mqtt_client_subscribe(mqtt_client *client) {
     int retries = 50;
     while (retries-- > 0) {
         status = MQTT_ProcessLoop(&client->mqtt_context);
+        mqtt_note_transport_state(client, status);
         if (status == MQTTSuccess) {
             if (client->suback_status == 0) {
                 log_info("Successfully subscribed to topic: %s", client->subscribe_topic);
@@ -566,6 +593,7 @@ int mqtt_client_publish(mqtt_client *client, const char *topic,
 
     MQTTStatus_t status = MQTT_Publish(&client->mqtt_context, &publish_info,
                                       MQTT_GetPacketId(&client->mqtt_context));
+    mqtt_note_transport_state(client, status);
 
     if (status != MQTTSuccess) {
         log_error("MQTT_Publish failed: %s (%d)", MQTT_Status_strerror(status), status);
@@ -588,9 +616,10 @@ int mqtt_client_process(mqtt_client *client, uint32_t timeout_ms) {
 
     MQTTStatus_t status = MQTT_ProcessLoop(&client->mqtt_context);
 
+    mqtt_note_transport_state(client, status);
+
     if (status != MQTTSuccess && status != MQTTNeedMoreBytes) {
         log_error("MQTT_ProcessLoop failed: %s (%d)", MQTT_Status_strerror(status), status);
-        client->link_dead = true;
         return OPRT_COMMUNICATION_ERROR;
     }
 
