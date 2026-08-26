@@ -28,6 +28,9 @@
 #include "iot_atop.h"
 #include "iot_client.h"
 #include "iot_config_defaults.h"
+#include "log.h"
+
+#include <stdarg.h>
 
 #define MOCK_HOST "127.0.0.1"
 #define MOCK_PORT 8443
@@ -459,6 +462,80 @@ static int test_unknown_api_reaches_the_cloud(void)
     return 0;
 }
 
+/* A response larger than RESPONSE_BUFFER_SIZE must fail loudly.
+ *
+ * This is the failure from CHANGELOG: a product whose schema came back at
+ * contentLength 6558 against a 4096 buffer, where coreHTTP returned
+ * HTTPInsufficientMemory and the caller reported a generic "communication
+ * error" — sending people to hunt the network for a buffer problem, after the
+ * server had already answered 200.
+ *
+ * Two things must hold now. The call still fails (the buffer really is too
+ * small), and coreHTTP says why, in its own words, through the log facade —
+ * which only happens while common/core_http_config.h is on its include path and
+ * HTTP_DO_NOT_USE_CUSTOM_CONFIG is not set. Nothing else in this suite notices
+ * if that wiring goes away, because every other case fits the buffer. */
+
+static char http_log_capture[8192];
+static size_t http_log_capture_len;
+
+static void http_capture_handler(log_level_t level, const char *fmt, va_list args)
+{
+    /* va_copy is mandatory, not tidiness: vsnprintf() below consumes `args`, and
+     * handing a consumed va_list to log_default_handler() -- which vfprintf()s
+     * it again -- is undefined behaviour (C11 7.16.1). It happened to work on
+     * macOS/arm64 and produced parameter-shifted garbage on Linux/x86-64, where
+     * a bogus "host:port" sent a test off connecting to nowhere until the CI
+     * timeout killed it. */
+    va_list copy;
+    va_copy(copy, args);
+    char line[1024];
+    int n = vsnprintf(line, sizeof(line), fmt, copy);
+    va_end(copy);
+    if (n > 0 && http_log_capture_len + (size_t)n + 1 < sizeof(http_log_capture)) {
+        memcpy(http_log_capture + http_log_capture_len, line, (size_t)n);
+        http_log_capture_len += (size_t)n;
+        http_log_capture[http_log_capture_len++] = '\n';
+        http_log_capture[http_log_capture_len] = '\0';
+    }
+    log_default_handler(level, fmt, args);
+}
+
+static int test_oversized_response_is_explained(void)
+{
+    char body[64];
+    snprintf(body, sizeof(body), "{\"t\":%u}", (unsigned)time(NULL));
+
+    iot_atop_request_t req = { .api = "tuya.test.huge.result",
+                               .version = "1.0",
+                               .data = body };
+    iot_atop_response_t resp = {0};
+
+    http_log_capture[0] = '\0';
+    http_log_capture_len = 0;
+    log_set_handler(http_capture_handler);
+    int rt = iot_atop_call(&g_client, &req, &resp);
+    log_set_handler(NULL);
+
+    int result = 0;
+    if (rt == OPRT_OK) {
+        printf("  expected the oversized response to fail, got OPRT_OK\n");
+        result = -1;
+    }
+    /* coreHTTP's own account, routed via common/core_http_config.h. */
+    if (strstr(http_log_capture, "insufficient space") == NULL) {
+        printf("  coreHTTP never explained the failure --\n");
+        printf("  is HTTP_DO_NOT_USE_CUSTOM_CONFIG back, or common/ off its include path?\n");
+        result = -1;
+    }
+    if (result == 0) {
+        printf("  oversized response rejected, and coreHTTP said why\n");
+    }
+
+    iot_atop_response_free(&g_client, &resp);
+    return result;
+}
+
 static int test_response_free_is_repeatable(void)
 {
     iot_atop_response_t resp = {0};
@@ -530,6 +607,7 @@ int main(void)
     RUN_TEST(test_null_result_stays_null);
     RUN_TEST(test_gateway_not_exists_is_business_error);
     RUN_TEST(test_response_zeroed_on_bad_request);
+    RUN_TEST(test_oversized_response_is_explained);
     RUN_TEST(test_response_free_is_repeatable);
 
     stop_mock_server();
