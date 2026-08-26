@@ -12,8 +12,10 @@
 /**
  * @brief Connect to the MQTT broker and subscribe to the device's inbound topic.
  *
- * On TLS handshake failure, automatically refreshes the MQTT CA certificate
- * and retries once.
+ * Connects once, with no retry and no CA refresh: a TLS failure is returned as
+ * OPRT_TLS_HANDSHAKE_FAILED for the caller to recover from. See
+ * iot_client_connect() in iot_client.h -- the public entry point -- for what
+ * that recovery has to do.
  *
  * @param client  IoT client (must have mqtt_url and devid set)
  * @return OPRT_OK on success, OPRT_INVALID_PARAMETER if client/url/devid is missing

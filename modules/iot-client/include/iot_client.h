@@ -102,7 +102,7 @@ typedef enum {
  * Must NOT block (it runs inside the MQTT process loop). The recommended
  * action is to set a flag and let the app loop tear down (disconnect → wipe
  * persisted credentials/schema/DP state → restart on-boarding). Do NOT call
- * iot_client_deinit() or iot_client_message_disconnect() from within this
+ * iot_client_deinit() or iot_client_disconnect() from within this
  * callback — both free the mqtt client that the coreMQTT receive loop is
  * still using on this very stack (it dereferences the context again to send
  * acks and compact the network buffer after the callback returns).
@@ -145,7 +145,7 @@ typedef struct {
     iot_region_t region;           // Region
     iot_env_t env;                 // Environment
     bool mqtt_disable_tls;         // false = mqtts (TLS, default), true = mqtt (TCP)
-    bool mqtt_auto_connect;        // true = connect MQTT after init/activation; false (default) = caller invokes iot_client_message_connect() manually
+    bool mqtt_disable_auto_connect; // false (default) = connect MQTT after init/activation; true = caller invokes iot_client_connect() manually
     const char *cacert;            // CA cert for all TLS (MQTT/HTTPS/IoT-DNS) (PEM, caller-owned, must outlive client)
     tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (NULL = none)
     iot_message_callback_t message_callback; // MQTT message callback
@@ -175,7 +175,7 @@ typedef struct {
     int timeout_ms;
     iot_env_t env;                 // PROD (default) or PRE
     bool mqtt_disable_tls;         // false = mqtts (TLS, default), true = mqtt (TCP)
-    bool mqtt_auto_connect;        // true = connect MQTT after init/activation; false (default) = caller invokes iot_client_message_connect() manually
+    bool mqtt_disable_auto_connect; // false (default) = connect MQTT after init/activation; true = caller invokes iot_client_connect() manually
     const char *cacert;            // CA cert for all TLS (MQTT/HTTPS/IoT-DNS) (PEM, caller-owned, must outlive client)
     tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (NULL = none)
     iot_message_callback_t message_callback; // MQTT message callback
@@ -274,6 +274,36 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
  * @param client Pointer to iot_client_t instance (NULL is safe)
  */
 IOT_API void iot_client_deinit(iot_client_t *client);
+
+/**
+ * @brief Connect to the MQTT broker and subscribe to the device's inbound topic.
+ *
+ * Needed on two paths: after an init/activation that set `mqtt_disable_auto_connect`
+ * false, and to re-establish a link that dropped (pair it with
+ * iot_client_disconnect() in the app's reconnect loop).
+ *
+ * There is no automatic retry and no automatic CA refresh: a TLS failure comes
+ * straight back as OPRT_TLS_HANDSHAKE_FAILED. Cert recovery belongs to the app
+ * -- on that error code, re-fetch the CA with iot_get_ca_certificate() and
+ * reassign client->cacert before reconnecting, or a reconnect loop will retry
+ * the same doomed handshake forever after a broker cert rotation. See
+ * examples/posix/dp-management/ for the shape of that loop.
+ *
+ * @param client Pointer to iot_client_t instance (must have mqtt_url and devid set)
+ * @return OPRT_OK on success, OPRT_INVALID_PARAMETER if client/url/devid is missing
+ */
+IOT_API int iot_client_connect(iot_client_t *client);
+
+/**
+ * @brief Disconnect from the MQTT broker and destroy the MQTT client.
+ *
+ * Safe to call with NULL or when not connected (no-op). Must NOT be called
+ * from inside a callback fired by iot_client_process() — see
+ * iot_reset_callback_t for why.
+ *
+ * @param client Pointer to iot_client_t instance (NULL is safe)
+ */
+IOT_API void iot_client_disconnect(iot_client_t *client);
 
 /**
  * @brief Process MQTT events (call this in a loop to receive messages)

@@ -22,7 +22,7 @@ sidebar_position: 1
 :::warning App 配网的成功判定：设备必须上线 MQTT
 对于依赖 App 的配网方式（设备扫码、App 扫码、BLE 配网），**App 只有在检测到设备成功连接涂鸦云 MQTT 通道（设备上线）后，才会判定配网成功**。仅完成激活、拿到 `devid` 等凭据但不连接 MQTT，App 端会显示配网失败/超时——即使设备侧的激活请求本身已经返回成功。
 
-因此，配网时务必将配置中的 `.mqtt_auto_connect` 设为 `true`（默认为 `false`），让设备在激活完成后自动连接 MQTT；或在激活成功后立即手动调用 `iot_client_message_connect()`。
+配网依赖这一点，而自动连接是默认行为，无需额外配置；若你显式设了 `.mqtt_disable_auto_connect = true`，则需在激活成功后立即手动调用 `iot_client_connect()`。
 :::
 
 注：以上说的 App，可以是以下任意一种：

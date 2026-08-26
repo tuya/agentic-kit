@@ -282,7 +282,7 @@ if (tai_link_up(ctx, &dc.reconn) != 0) goto cleanup;
 
 /* 上行通道：再连 MQTT，上报 DP */
 ensure_mqtt_ca(iot);
-mqtt_up(iot);                       /* iot_client_message_connect + iot_dp_report_all */
+mqtt_up(iot);                       /* iot_client_connect + iot_dp_report_all */
 report_state(iot, &o, o.battery, "trigger");
 ```
 

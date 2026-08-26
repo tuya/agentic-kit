@@ -150,7 +150,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | `region` | `iot_region_t` | 数据中心区域 |
 | `env` | `iot_env_t` | 环境 |
 | `mqtt_disable_tls` | `bool` | `false`（默认）使用 MQTTS，`true` 使用明文 MQTT |
-| `mqtt_auto_connect` | `bool` | `true` 初始化后自动连接 MQTT；`false`（默认）需手动调用 |
+| `mqtt_disable_auto_connect` | `bool` | `false`（默认）初始化后自动连接 MQTT；`true` 需手动调用 [`iot_client_connect()`](#iot_client_connect) |
 | `cacert` | `const char *` | CA 证书 PEM（用于 MQTT/HTTPS/IoT-DNS TLS，调用方持有，需在 client 生命周期内有效） |
 | `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | 平台证书包回调（如 ESP-IDF 的 `esp_crt_bundle_attach`），NULL 表示不使用。详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
 | `message_callback` | `iot_message_callback_t` | MQTT 消息回调，可为 NULL |
@@ -179,7 +179,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | `timeout_ms` | `int` | 激活超时时间（毫秒） |
 | `env` | `iot_env_t` | 环境：`PROD`（默认）或 `PRE` |
 | `mqtt_disable_tls` | `bool` | TLS 开关 |
-| `mqtt_auto_connect` | `bool` | `true` 激活后自动连接 MQTT；`false`（默认）需手动调用 |
+| `mqtt_disable_auto_connect` | `bool` | `false`（默认）激活后自动连接 MQTT；`true` 需手动调用 [`iot_client_connect()`](#iot_client_connect) |
 | `cacert` | `const char *` | CA 证书 PEM（用于 MQTT/HTTPS/IoT-DNS TLS，调用方持有） |
 | `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | 平台证书包回调（如 ESP-IDF 的 `esp_crt_bundle_attach`），NULL 表示不使用。详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
 | `message_callback` | `iot_message_callback_t` | MQTT 消息回调 |
@@ -222,7 +222,7 @@ int iot_init_default(void);
 iot_client_t *iot_client_init(const iot_client_config_t *config);
 ```
 
-使用已有设备凭据（devid, secret_key, local_key）初始化 IoT 客户端，解析 MQTT/HTTPS 端点。当 `mqtt_auto_connect` 为 `true` 时自动建立 MQTT 连接，否则需手动调用连接。
+使用已有设备凭据（devid, secret_key, local_key）初始化 IoT 客户端，解析 MQTT/HTTPS 端点。默认会自动建立 MQTT 连接；设 `mqtt_disable_auto_connect = true` 则需手动调用 [`iot_client_connect()`](#iot_client_connect)。**注意**：自动连接失败时 `iot_client_init()` 会释放 client 并返回 `NULL`，所以开机时网络可能未就绪的设备应显式关闭自动连接、自行重连。
 
 **返回值：** 成功返回 `iot_client_t *`；失败返回 `NULL`。
 
@@ -265,6 +265,41 @@ void iot_client_deinit(iot_client_t *client);
 ```
 
 反初始化 IoT 客户端，断开 MQTT 连接，释放所有资源。
+
+---
+
+### `iot_client_connect`
+
+```c
+int iot_client_connect(iot_client_t *client);
+```
+
+连接 MQTT broker 并订阅设备入站 topic。两种场景需要调用：
+
+1. 初始化/激活时设了 `mqtt_disable_auto_connect = true`，需要自行建链；
+2. 链路断开后重连——与 [`iot_client_disconnect()`](#iot_client_disconnect) 配对用在应用自己的重连循环里。
+
+**不会自动重试，也不会自动刷新 CA 证书**：TLS 握手失败会直接返回 `OPRT_TLS_HANDSHAKE_FAILED`。证书恢复由应用负责——收到该错误码后需先用 `iot_get_ca_certificate()` 重新获取并重新赋值 `client->cacert`，再发起重连；否则 broker 证书轮换后，重连循环会对同一个注定失败的握手无限重试。可参考 `examples/posix/dp-management/` 的写法。
+
+**参数：** `client` — IoT 客户端实例（需已设置 `mqtt_url` 和 `devid`）
+
+**返回值：** `OPRT_OK` 成功；`OPRT_INVALID_PARAMETER` 表示 client / URL / devid 缺失；其他为错误码。
+
+---
+
+### `iot_client_disconnect`
+
+```c
+void iot_client_disconnect(iot_client_t *client);
+```
+
+断开 MQTT 连接并销毁 MQTT 客户端。传 `NULL` 或未连接时是安全的空操作，可重复调用。
+
+:::warning
+不要在 `iot_client_process()` 触发的回调（`message_callback` / `reset_callback` / `ota_confirm_callback`）里调用本函数或 `iot_client_deinit()`——两者都会释放 coreMQTT 接收循环当前栈上仍在使用的 mqtt client：回调返回后它还要再次解引用该上下文去回 ack、整理网络缓冲区。正确做法是置标志位，让应用主循环去断开。
+:::
+
+**参数：** `client` — IoT 客户端实例（`NULL` 安全）
 
 ---
 

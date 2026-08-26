@@ -15,7 +15,6 @@
 #include "ota_demo.h"
 
 #include "iot_client.h"
-#include "iot_client_message.h"
 #include "iot_ota.h"
 
 #include <stdio.h>
@@ -59,7 +58,7 @@ static int reconnect_with_backoff(iot_client_t *client)
 
     for (int attempt = 1; attempt <= 5 && g_running; attempt++) {
         printf("[%s] reconnecting (attempt %d/5)...\n", TAG, attempt);
-        if (iot_client_message_connect(client) == OPRT_OK) {
+        if (iot_client_connect(client) == OPRT_OK) {
             printf("[%s] reconnected\n", TAG);
             return 0;
         }
@@ -165,7 +164,7 @@ int demo_ota_confirm_run(const char *devid, const char *secret_key,
         .region               = region,
         .env                  = PROD,
         .mqtt_disable_tls     = false,
-        .mqtt_auto_connect    = false,
+        .mqtt_disable_auto_connect = true,
         .message_callback     = on_message,
         .ota_confirm_callback = on_ota_confirm,
         .ota_confirm_user_data = &state,
@@ -183,7 +182,7 @@ int demo_ota_confirm_run(const char *devid, const char *secret_key,
 
     printf("[%s] client initialized (devid=%s, region=%s)\n",
            TAG, client->devid, region_name);
-    int rc = iot_client_message_connect(client);
+    int rc = iot_client_connect(client);
     if (rc != OPRT_OK) {
         fprintf(stderr, "[%s] MQTT connect failed: %d\n", TAG, rc);
         iot_client_deinit(client);
@@ -198,7 +197,7 @@ int demo_ota_confirm_run(const char *devid, const char *secret_key,
         rc = iot_client_process(client, 200);
         if (rc != OPRT_OK) {
             fprintf(stderr, "[%s] MQTT process failed: %d\n", TAG, rc);
-            iot_client_message_disconnect(client);
+            iot_client_disconnect(client);
             if (reconnect_with_backoff(client) != 0) {
                 fprintf(stderr, "[%s] give up after reconnect failures\n", TAG);
                 result = 1;
@@ -218,7 +217,7 @@ int demo_ota_confirm_run(const char *devid, const char *secret_key,
     }
 
 out:
-    iot_client_message_disconnect(client);
+    iot_client_disconnect(client);
     iot_client_deinit(client);
     return result;
 }

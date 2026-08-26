@@ -52,7 +52,6 @@
 
 #include "tuya_ai.h"
 #include "iot_client.h"
-#include "iot_client_message.h"   /* app-owned MQTT connect / process loop */
 #include "iot_dp.h"
 
 #include "demo_json.h"
@@ -645,7 +644,7 @@ static void ensure_mqtt_ca(iot_client_t *client)
  * from device-initiated reports, so this runs after every (re)connect. */
 static int mqtt_up(iot_client_t *client)
 {
-    int rc = iot_client_message_connect(client);
+    int rc = iot_client_connect(client);
     if (rc != OPRT_OK) {
         fprintf(stderr, "[iot] MQTT connect failed: %d\n", rc);
         return rc;
@@ -691,7 +690,7 @@ static int tai_link_up(tai_ctx_t *ctx, demo_reconnect_t *r)
 /* Wait `seconds` while still pumping the MQTT receive path.
  *
  * Deliberately deadline-driven rather than a fixed iteration count:
- * iot_client_message_process() DISCARDS its timeout argument (mqtt.c does
+ * iot_client_process() DISCARDS its timeout argument (mqtt.c does
  * `(void)timeout_ms;`) and blocks for up to the compile-time
  * MQTT_RECV_TIMEOUT_MS -- 1000 ms, five times the 200 we pass. Counting
  * iterations therefore overshoots by 5x on an idle link. Overshoot here is
@@ -700,7 +699,7 @@ static void pump_for(iot_client_t *iot, int seconds)
 {
     int64_t until = now_us() + (int64_t)seconds * 1000000LL;
     while (g_running && now_us() < until)
-        iot_client_message_process(iot, 200);
+        iot_client_process(iot, 200);
 }
 
 static int report_state(iot_client_t *iot, const opts_t *o,
@@ -832,7 +831,7 @@ int main(int argc, char **argv)
         .region            = DEFAULT_REGION,
         .env               = DEFAULT_ENV,
         .mqtt_disable_tls  = false,
-        .mqtt_auto_connect = false,   /* this demo owns the connect loop */
+        .mqtt_disable_auto_connect = true,   /* this demo owns the connect loop */
         .message_callback  = on_mqtt_message,
         .schema            = schema,
         .schema_id         = NULL,
@@ -987,7 +986,7 @@ int main(int argc, char **argv)
             break;
         }
 
-        int rc = iot_client_message_process(iot, 200);
+        int rc = iot_client_process(iot, 200);
         if (rc == OPRT_OK) {
             mqtt_fails = 0;
         } else {
@@ -997,7 +996,7 @@ int main(int argc, char **argv)
              * would otherwise spin here reconnecting many times a second. */
             fprintf(stderr, "[iot] MQTT link error %d; reconnecting (%d)\n",
                     rc, mqtt_fails + 1);
-            iot_client_message_disconnect(iot);
+            iot_client_disconnect(iot);
             if (++mqtt_fails >= MQTT_MAX_CONSECUTIVE_FAILS) {
                 fprintf(stderr, "[iot] giving up on the broker after %d "
                                 "consecutive failures\n", mqtt_fails);
@@ -1049,7 +1048,7 @@ cleanup:
     tai_ctx_deinit(ctx);
     pal->free(ctx_buf);
 
-    iot_client_message_disconnect(iot);
+    iot_client_disconnect(iot);
     iot_client_deinit(iot);
 
     if (dc.audio_fp) fclose(dc.audio_fp);

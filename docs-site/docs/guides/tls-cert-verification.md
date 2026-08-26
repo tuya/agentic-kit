@@ -87,7 +87,7 @@ if (rc == OPRT_OK) {
 }
 ```
 
-> **引导阶段的“先有鸡还是先有蛋”问题：** `iot_get_ca_certificate()` 本身要先建立一次到 IoT-DNS 的 TLS 连接；若此时 `client->cacert` 仍为空，这次查询以不校验方式进行——存在引导阶段 MITM 风险。同理，`iot_client_init()` 在返回前就已完成 DNS/ATOP 的**首批连接**（若 `mqtt_auto_connect = true`——默认为 false——还包括 MQTT 首连），因此**在 init 之后再设 `client->cacert` 只对后续请求生效，无法追溯保护 init 期间的连接**。
+> **引导阶段的“先有鸡还是先有蛋”问题：** `iot_get_ca_certificate()` 本身要先建立一次到 IoT-DNS 的 TLS 连接；若此时 `client->cacert` 仍为空，这次查询以不校验方式进行——存在引导阶段 MITM 风险。同理，`iot_client_init()` 在返回前就已完成 DNS/ATOP 的**首批连接**（默认启用自动连接，因此还包括 MQTT 首连），因此**在 init 之后再设 `client->cacert` 只对后续请求生效，无法追溯保护 init 期间的连接**。
 >
 > 所以运行时获取 CA 更适合用来**取回一份 CA 加以持久化**，下次启动前通过 `cfg.cacert` 在 `iot_client_init()` **之前**传入，从第一条连接起即校验；对安全要求严格的场景，建议直接硬编码根 CA 或改用 `.cert_bundle_attach`。
 

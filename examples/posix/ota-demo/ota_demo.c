@@ -142,7 +142,7 @@ int demo_ota_run(const char *devid, const char *secret_key, const char *local_ke
         .region            = AY,
         .env               = PROD,
         .mqtt_disable_tls  = false,
-        .mqtt_auto_connect = false,
+        .mqtt_disable_auto_connect = true,
         .sw_ver            = sw_ver,
     };
     strncpy(cfg.devid,      devid,      sizeof(cfg.devid) - 1);

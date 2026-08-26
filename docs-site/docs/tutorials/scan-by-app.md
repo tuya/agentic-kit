@@ -81,18 +81,17 @@ iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t *config
 **App 只有在检测到设备连接上涂鸦云 MQTT 通道（设备上线）后，才会判定配网成功。**
 仅完成激活、拿到 `devid` 等凭据但不连接 MQTT，App 端会显示配网失败/超时。
 
-因此务必将 `iot_on_boarding_config_t` 中的 `.mqtt_auto_connect` 设为 `true`
-（默认为 `false`），让设备在激活完成后自动连接 MQTT：
+因此这一点现在由默认行为保证——自动连接是默认开启的，无需额外配置；只要不设 `.mqtt_disable_auto_connect`，设备就会在激活完成后自动连接 MQTT：
 
 ```c
 iot_on_boarding_config_t ob_config = {
     // ...
-    .mqtt_auto_connect = true,   // 激活成功后自动连接 MQTT，App 才能判定配网成功
+    // 不设 .mqtt_disable_auto_connect：默认即自动连接 MQTT，App 才能判定配网成功
 };
 ```
 
 若选择保持 `false`，则必须在激活成功后立即手动调用
-`iot_client_message_connect()`。
+`iot_client_connect()`。
 :::
 
 **与 `iot_client_init_on_boarding_with_token()` 的区别：**
@@ -123,7 +122,7 @@ iot_on_boarding_config_t ob_config = {
 
 ## 注意事项
 
-- 此方式要求设备已具备网络连接能力（Wi-Fi 或以太网），且设备必须在激活后连接涂鸦平台的 MQTT 通道——**App 以设备 MQTT 上线作为配网成功的判定条件**（见上文警告，需 `.mqtt_auto_connect = true`）。
+- 此方式要求设备已具备网络连接能力（Wi-Fi 或以太网），且设备必须在激活后连接涂鸦平台的 MQTT 通道——**App 以设备 MQTT 上线作为配网成功的判定条件**（见上文警告，切勿设 `.mqtt_disable_auto_connect = true`）。
 - `iot_client_init_on_boarding()` 会阻塞直到 App 扫码完成或超时
   （`timeout_ms` 配置），实际产品中建议在单独线程中调用。
 - 本示例使用 `qrcodegen`（nayuki 库）生成二维码，实际产品可替换为任意
