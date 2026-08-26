@@ -71,7 +71,6 @@ idf_component_register(
 # target this diagnostic exists for. ${AK_DIR}/common is already in INCLUDE_DIRS
 # above, so the header resolves with no further wiring.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
-    HTTP_DO_NOT_USE_CUSTOM_CONFIG
     IOT_DO_NOT_USE_CUSTOM_CONFIG
 )
 

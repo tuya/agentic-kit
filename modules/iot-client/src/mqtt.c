@@ -387,6 +387,23 @@ static void release_mqtt_buffer(mqtt_client *client) {
     client->fixed_buffer.size = 0;
 }
 
+/* Unwind a half-built connection: drop the transport, hand back the MQTT buffer.
+ * Shared by the three failure points that sit between a live socket and a usable
+ * MQTT session (Init, InitStatefulQoS, Connect), which were three byte-identical
+ * copies -- a fix applied to one of them could silently miss the other two.
+ * Returns the error so each site stays a single `return`. */
+static int mqtt_abort_connect(mqtt_client *client)
+{
+    if (client->use_tls) {
+        tls_cleanup(&client->network_context);
+    } else {
+        client->pal->tcp_close(client->network_context.tcp_handle);
+        client->network_context.tcp_handle = NULL;
+    }
+    release_mqtt_buffer(client);
+    return OPRT_COMMUNICATION_ERROR;
+}
+
 // Connect to MQTT broker
 int mqtt_client_connect(mqtt_client *client) {
     if (!client) {
@@ -432,14 +449,7 @@ int mqtt_client_connect(mqtt_client *client) {
                                     mqtt_get_time_ms, mqtt_event_callback, &client->fixed_buffer);
     if (status != MQTTSuccess) {
         log_error("MQTT_Init failed: %s (%d)", MQTT_Status_strerror(status), status);
-        if (client->use_tls) {
-            tls_cleanup(&client->network_context);
-        } else {
-            client->pal->tcp_close(client->network_context.tcp_handle);
-            client->network_context.tcp_handle = NULL;
-        }
-        release_mqtt_buffer(client);
-        return OPRT_COMMUNICATION_ERROR;
+        return mqtt_abort_connect(client);
     }
 
     // Initialize QoS1 and QoS2 support
@@ -450,14 +460,7 @@ int mqtt_client_connect(mqtt_client *client) {
                                    MQTT_QOS_RECORD_COUNT);
     if (status != MQTTSuccess) {
         log_error("MQTT_InitStatefulQoS failed: %s (%d)", MQTT_Status_strerror(status), status);
-        if (client->use_tls) {
-            tls_cleanup(&client->network_context);
-        } else {
-            client->pal->tcp_close(client->network_context.tcp_handle);
-            client->network_context.tcp_handle = NULL;
-        }
-        release_mqtt_buffer(client);
-        return OPRT_COMMUNICATION_ERROR;
+        return mqtt_abort_connect(client);
     }
     log_info("QoS1 and QoS2 support initialized");
 
@@ -484,14 +487,7 @@ int mqtt_client_connect(mqtt_client *client) {
 
     if (status != MQTTSuccess) {
         log_error("MQTT_Connect failed: %s (%d)", MQTT_Status_strerror(status), status);
-        if (client->use_tls) {
-            tls_cleanup(&client->network_context);
-        } else {
-            client->pal->tcp_close(client->network_context.tcp_handle);
-            client->network_context.tcp_handle = NULL;
-        }
-        release_mqtt_buffer(client);
-        return OPRT_COMMUNICATION_ERROR;
+        return mqtt_abort_connect(client);
     }
 
     client->connected = true;

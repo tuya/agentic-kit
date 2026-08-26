@@ -86,13 +86,23 @@ add_library(core_http STATIC
     "${corehttp_source_dir}/source/dependency/3rdparty/llhttp/src/http.c"
     "${corehttp_source_dir}/source/dependency/3rdparty/llhttp/src/llhttp.c"
 )
-target_compile_definitions(core_http PUBLIC HTTP_DO_NOT_USE_CUSTOM_CONFIG)
-
+# No HTTP_DO_NOT_USE_CUSTOM_CONFIG: coreHTTP picks up common/core_http_config.h,
+# routing its Error/Warn into the log facade — the counterpart to coreMQTT above,
+# and the half that matters on the ATOP path the MQTT refusal docs send people to.
+#
+# `common` is PUBLIC here, unlike coreMQTT's PRIVATE: core_http_client.h itself
+# includes core_http_config_defaults.h (and through it core_http_config.h), so
+# every consumer of the header — http_client_interface.c — needs the path too.
 target_include_directories(core_http PUBLIC
     "${corehttp_source_dir}/source/include"
     "${corehttp_source_dir}/source/interface"
     "${corehttp_source_dir}/source/dependency/3rdparty/llhttp/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/common"
 )
+
+# coreHTTP's objects now reference log_emit(); declare it rather than relying on
+# archive scan order. Same reasoning as core_mqtt.
+target_link_libraries(core_http PRIVATE agentic_kit_common)
 
 add_library(core_mqtt STATIC
     "${coremqtt_source_dir}/source/core_mqtt.c"

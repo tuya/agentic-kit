@@ -607,6 +607,17 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
                 response_json = handle_version_update(decrypted_data, self.config)
             elif api == 'tuya.device.upgrade.status.update':
                 response_json = handle_upgrade_status_update(decrypted_data, self.config)
+            elif api == 'tuya.test.huge.result':
+                # Test-only: a response deliberately larger than the default
+                # 4096-byte RESPONSE_BUFFER_SIZE, reproducing the real failure
+                # recorded in CHANGELOG (a product whose schema came back at
+                # contentLength 6558). coreHTTP answers HTTPInsufficientMemory;
+                # the point of the test is that it now SAYS so.
+                response_json = json.dumps({
+                    "success": True,
+                    "t": int(time.time()),
+                    "result": {"blob": "x" * 6000}
+                }, separators=(',', ':'))
             elif api == 'tuya.test.result.null':
                 # Test-only: a success envelope whose result is JSON null --
                 # the generic entry must hand this back as NULL, not "null".

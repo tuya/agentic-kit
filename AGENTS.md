@@ -55,13 +55,17 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
   to it is verifiable offline. The root CMakeLists declares `tuya_steam_client` only when the
   current platform's `libstm.a` exists (its if/elseif chain covers three of the five
   architectures on disk).
-- **coreHTTP is built with its custom-config hook disabled** (`HTTP_DO_NOT_USE_CUSTOM_CONFIG`),
-  so its own error logging expands to nothing — expect no diagnostics from it. coreMQTT is the
-  exception and must stay that way: it picks up `common/core_mqtt_config.h`, which routes its
-  Error/Warn into the log facade so a broker's refusal reason survives (`Connection refused: bad
-  user name or password.`); without it a rejected CONNECT is a bare `MQTTServerRefused`. Both
-  build paths matter — the root `CMakeLists.txt` **and** `examples/esp-idf/components/agentic_kit`,
-  which had to be fixed separately. coreMQTT's thread-safety hooks are still unset.
+- **coreMQTT and coreHTTP route their Error/Warn logs into the log facade** via
+  `common/core_mqtt_config.h` and `common/core_http_config.h`, and must keep doing so. Setting
+  `MQTT_DO_NOT_USE_CUSTOM_CONFIG` / `HTTP_DO_NOT_USE_CUSTOM_CONFIG` again silently discards each
+  library's own account of a failure: a rejected CONNECT decays to a bare `MQTTServerRefused` with
+  no `Connection refused: bad user name or password.`, and an oversized response to a generic
+  communication error with no `insufficient space`. Both build paths must be kept in step — the
+  root `CMakeLists.txt` **and** `examples/esp-idf/components/agentic_kit`, which carries its own
+  `target_compile_definitions` and was for a while the path where none of this reached a device.
+  Pinned by `test_connack_reason_is_logged` and `test_oversized_response_is_explained`.
+  `LogInfo`/`LogDebug` stay compiled out on purpose (per-packet, costly on flash), and coreMQTT's
+  thread-safety hooks are still unset.
 
 ## Conventions
 

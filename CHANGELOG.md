@@ -47,6 +47,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     sample output is the verbatim four-line block the SDK emits, timestamps
     included — a paraphrase there defeats the page's only purpose.
 
+- common — coreHTTP's Error/Warn logs are routed into the log facade too
+  (`common/core_http_config.h`), completing the pair. This is the half that
+  matters when MQTT is already refusing: the docs send the reader to ATOP over
+  HTTP to ask whether the credentials are still valid, and that path had no
+  diagnostics of its own. An oversized response — the failure recorded below at
+  contentLength 6558 — now says `insufficient space: responseBufferLen=...`
+  instead of surfacing as a generic communication error.
+  - The include directory is PUBLIC here where coreMQTT's is PRIVATE, and the
+    asymmetry is real rather than an oversight: `core_http_client.h` includes
+    `core_http_config_defaults.h` itself, so every consumer of the header needs
+    the path, whereas only coreMQTT's own `.c` files do.
+  - Pinned by `test_oversized_response_is_explained`, with a mock API that
+    returns a deliberately over-sized envelope. Verified to bite: restoring
+    `HTTP_DO_NOT_USE_CUSTOM_CONFIG` drops `iot_atop_call_test` to 13/14.
+
+- iot-client — the three byte-identical cleanup blocks in `mqtt_client_connect()`
+  (after `MQTT_Init`, `MQTT_InitStatefulQoS` and `MQTT_Connect`) are now one
+  `mqtt_abort_connect()`. They were a standing hazard rather than just noise: a
+  fix to the teardown sequence applied to one copy could silently miss the other
+  two, and a nearby teardown fix had just landed on this branch.
+
 ### Fixed
 
 - iot-client — a peer that closed a non-TLS MQTT connection went unnoticed until
