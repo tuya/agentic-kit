@@ -323,9 +323,10 @@ IOT_API void iot_client_deinit(iot_client_t *client)
  * it comes back as a cloud rejection that reads like a network fault. The mock
  * verifies this exact value so a slip fails in iot_reset_test. */
 #define IOT_ATOP_API_DEVICE_RESET         "tuya.device.reset"
-#define IOT_ATOP_API_DEVICE_RESET_VERSION "3.0"
+#define IOT_ATOP_API_DEVICE_RESET_VERSION "5.0"
 
 IOT_API int iot_client_reset(iot_client_t *client,
+                             iot_reset_scope_t scope,
                              char *error_code, size_t error_code_len)
 {
     if (error_code != NULL && error_code_len > 0) {
@@ -341,8 +342,17 @@ IOT_API int iot_client_reset(iot_client_t *client,
      * unlike a result-less named wrapper, it hands back the cloud's errorCode,
      * which is the one thing a caller needs to tell a terminal rejection from a
      * retryable one. */
-    char body[32];
-    int sn = snprintf(body, sizeof(body), "{\"t\":%" PRIu32 "}",
+    /* resetFactory picks between the cloud's two meanings for removing a device
+     * -- the same pair the inbound protocol-11 notice carries as
+     * IOT_RESET_REMOTE_FACTORY vs IOT_RESET_REMOTE_UNBIND. false gives up the
+     * binding and leaves the device's cloud-side data alone; true also discards
+     * that data, irreversibly. The field is required either way: omitting it is
+     * rejected, and the mock asserts its presence so that fails in
+     * iot_reset_test rather than as an opaque rejection on a device. */
+    char body[64];
+    int sn = snprintf(body, sizeof(body),
+                      "{\"resetFactory\":%s,\"t\":%" PRIu32 "}",
+                      (scope == IOT_RESET_FACTORY) ? "true" : "false",
                       (uint32_t)time(NULL));
     if (sn < 0 || (size_t)sn >= sizeof(body)) {
         return OPRT_COMMUNICATION_ERROR;

@@ -102,7 +102,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the success path frees the struct; the mock answers a devId containing
     "busy" with the interface doc's own `REMOTE_API_RUN_UNKNOW_FAILED` so the
     failure path is reachable. Verified leak-free.
-  - The interface version is `"3.0"`, not the `"1.0"` most `tuya.device.*`
+  - The interface version is `"5.0"`, not the `"1.0"` most `tuya.device.*`
     interfaces here use — easy to "correct" by mistake, and a wrong version
     fails only at the cloud, as a rejection that reads like a network fault. The
     mock therefore verifies `v=3.0` and answers anything else with
@@ -222,6 +222,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   since a device the cloud has already unbound has its CONNECT refused
   (CONNACK 4/5). The reset path now runs before any connect, and branches on the
   returned `errorCode` to show the terminal-vs-retryable distinction.
+
+- iot-client — `iot_client_reset()` sends `resetFactory`, and the caller chooses
+  it. The request body was `{"t":…}` only, which the cloud rejects: this
+  interface requires the field.
+  - New `iot_reset_scope_t` picks the value, and the two options differ in
+    whether they can be undone. `IOT_RESET_UNBIND_ONLY` (`false`) gives up the
+    user-device binding and leaves the device's cloud-side data in place, so
+    re-pairing can pick it up again. `IOT_RESET_FACTORY` (`true`) additionally
+    discards that data, business-specific exclusions aside, and **cannot be
+    undone** — re-pairing yields a new binding, not the old state.
+  - Same pair of meanings as the inbound protocol-11 classification, in the
+    opposite direction, which is why it is a separate type: the existing
+    `IOT_RESET_REMOTE_*` constants are named for a push the cloud initiated and
+    read backwards on a call the device makes. An enum rather than a bool
+    because a bare `true` at the call site would not say which one it is, and
+    the wrong one is unrecoverable.
+  - The mock requires the field and pins the choice: a devId containing
+    "factory" must arrive with `resetFactory=true`, any other with `false`, so a
+    scope that does not reach the wire is rejected rather than passing silently.
+    Checked by inverting the mapping — `iot_reset_test` drops to 2/5. The
+    success envelope still returns an empty `result`, as the real interface
+    does.
+  - `api-activate --release` uses `IOT_RESET_UNBIND_ONLY` so the demo can be run
+    repeatedly; the comment there says what a real decommission would pass.
 
 ### Fixed
 

@@ -173,8 +173,8 @@ static iot_client_t *make_client(const char *devid)
 
 static int test_null_client(void)
 {
-    if (iot_client_reset(NULL, NULL, 0) != OPRT_INVALID_PARAMETER) {
-        printf("  iot_client_reset(NULL, NULL, 0) must return OPRT_INVALID_PARAMETER\n");
+    if (iot_client_reset(NULL, IOT_RESET_UNBIND_ONLY, NULL, 0) != OPRT_INVALID_PARAMETER) {
+        printf("  iot_client_reset(NULL, IOT_RESET_UNBIND_ONLY, NULL, 0) must return OPRT_INVALID_PARAMETER\n");
         return -1;
     }
     return 0;
@@ -188,7 +188,7 @@ static int test_requires_device_credentials(void)
 
     iot_client_t *no_devid = make_client("");
     if (!no_devid) return -1;
-    if (iot_client_reset(no_devid, NULL, 0) != OPRT_UNINITIALIZED) {
+    if (iot_client_reset(no_devid, IOT_RESET_UNBIND_ONLY, NULL, 0) != OPRT_UNINITIALIZED) {
         printf("  empty devid must return OPRT_UNINITIALIZED\n");
         result = -1;
     }
@@ -202,7 +202,7 @@ static int test_requires_device_credentials(void)
     iot_client_t *no_key = make_client(TEST_DEVID);
     if (!no_key) return -1;
     no_key->secret_key[0] = '\0';
-    if (iot_client_reset(no_key, NULL, 0) != OPRT_UNINITIALIZED) {
+    if (iot_client_reset(no_key, IOT_RESET_UNBIND_ONLY, NULL, 0) != OPRT_UNINITIALIZED) {
         printf("  empty secret_key must return OPRT_UNINITIALIZED\n");
         result = -1;
     }
@@ -218,9 +218,11 @@ static int test_requires_device_credentials(void)
  * populated result -- an insistence on one would turn every success into an
  * error.
  *
- * This also pins the interface version: the mock rejects anything but v=3.0,
- * so a slip in ATOP_DEVICE_RESET_VERSION fails here rather than showing up as
- * an opaque cloud rejection on a real device.
+ * This also pins the interface version: the mock rejects anything but v=5.0, so
+ * an edit to the constant fails here rather than showing up as an opaque cloud
+ * rejection. Note the limit of that guarantee -- the mock only knows the value
+ * this repo told it, so it catches a change, not a wrong value. The pair is
+ * confirmed against the real cloud, which is where 3.0 was found to be wrong.
  *
  * The client is deliberately not touched or freed afterwards: it is gone, and
  * the leak checkers are what verify that. */
@@ -230,7 +232,7 @@ static int test_reset_success_destroys_client(void)
     if (!client) return -1;
 
     char error_code[64] = "unset";
-    int rc = iot_client_reset(client, error_code, sizeof(error_code));
+    int rc = iot_client_reset(client, IOT_RESET_UNBIND_ONLY, error_code, sizeof(error_code));
     if (error_code[0] != '\0') {
         printf("  errorCode should be empty on success, got \"%s\"\n", error_code);
     }
@@ -253,7 +255,7 @@ static int test_reset_failure_keeps_client(void)
 
     int result = 0;
     char error_code[64] = {0};
-    int rc = iot_client_reset(client, error_code, sizeof(error_code));
+    int rc = iot_client_reset(client, IOT_RESET_UNBIND_ONLY, error_code, sizeof(error_code));
     if (rc != OPRT_ATOP_BUSINESS_ERROR) {
         printf("  returned %d, expected OPRT_ATOP_BUSINESS_ERROR\n", rc);
         result = -1;
@@ -273,13 +275,42 @@ static int test_reset_failure_keeps_client(void)
         result = -1;
     }
     /* And retryable -- the same call again reaches the cloud again. */
-    if (iot_client_reset(client, NULL, 0) != OPRT_ATOP_BUSINESS_ERROR) {
+    if (iot_client_reset(client, IOT_RESET_UNBIND_ONLY, NULL, 0) != OPRT_ATOP_BUSINESS_ERROR) {
         printf("  client was not retryable after a failed reset\n");
         result = -1;
     }
 
     iot_client_deinit(client);   /* failure means teardown is still the caller's */
     return result;
+}
+
+/* IOT_RESET_FACTORY must actually put resetFactory=true on the wire.
+ *
+ * Nothing in the response can show it -- the interface answers with an empty
+ * result either way -- so the mock keys off the devId instead: one containing
+ * "factory" is required to present resetFactory=true, any other false. Sending
+ * the wrong scope is rejected as ILLEGAL_PARAM, which is what makes this test
+ * able to fail. The two scopes are not interchangeable: FACTORY discards the
+ * device's cloud-side data irreversibly, UNBIND_ONLY leaves it. */
+static int test_factory_scope_reaches_the_wire(void)
+{
+    iot_client_t *client = make_client("factory_device_test_01");
+    if (!client) return -1;
+
+    char error_code[64] = "unset";
+    int rc = iot_client_reset(client, IOT_RESET_FACTORY,
+                              error_code, sizeof(error_code));
+    if (rc != OPRT_OK) {
+        printf("  returned %d (errorCode=%s), expected OPRT_OK\n", rc, error_code);
+        iot_client_deinit(client);
+        return -1;
+    }
+    if (error_code[0] != '\0') {
+        printf("  errorCode should be empty on success, got \"%s\"\n", error_code);
+        return -1;   /* client already destroyed by the successful reset */
+    }
+    printf("  factory scope accepted; client released\n");
+    return 0;
 }
 
 int main(void)
@@ -308,6 +339,7 @@ int main(void)
 
     /* Round trips */
     RUN_TEST(test_reset_success_destroys_client);
+    RUN_TEST(test_factory_scope_reaches_the_wire);
     RUN_TEST(test_reset_failure_keeps_client);
 
     stop_mock_server();

@@ -88,11 +88,35 @@ typedef void (*iot_message_callback_t)(const char *topic, size_t topic_len,
 
 /**
  * @brief Reset type classification (mirrors TuyaOpen TUYA_RESET_TYPE_REMOTE_*).
+ *
+ * Inbound only: how to read a device-remove the cloud pushed at us. The
+ * outbound choice -- what to ask the cloud for -- is iot_reset_scope_t.
  */
 typedef enum {
     IOT_RESET_REMOTE_UNBIND = 0,  // user removed the device (re-bind allowed)
     IOT_RESET_REMOTE_FACTORY,     // cloud-ordered factory reset
 } iot_reset_type_t;
+
+/**
+ * @brief How much to clear when this device resets itself (iot_client_reset).
+ *
+ * The outbound counterpart of iot_reset_type_t, and the same two meanings, but
+ * kept a separate type on purpose: those constants are named REMOTE_ because
+ * they describe a push the cloud initiated, which reads backwards on a call the
+ * device makes.
+ *
+ * An enum rather than a bool because the two differ in whether they can be
+ * undone, and a bare `true` at the call site would not say which one it is.
+ */
+typedef enum {
+    /* Drop the user-device binding only. The device's cloud-side data is kept,
+     * so re-pairing can pick it up again. Maps to resetFactory=false. */
+    IOT_RESET_UNBIND_ONLY = 0,
+    /* Factory reset: the cloud additionally discards the data it holds for this
+     * device (business-specific exclusions aside). NOT reversible -- re-pairing
+     * yields a new binding, not the old state. Maps to resetFactory=true. */
+    IOT_RESET_FACTORY,
+} iot_reset_scope_t;
 
 /**
  * @brief Callback fired when the cloud pushes a device-remove (protocol 11)
@@ -273,6 +297,17 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
  * iot_client_deinit() frees -- and @p client is invalid on return: do not use
  * or free it again.
  *
+ * @p scope decides how much the cloud clears, and the two options differ in
+ * whether they can be undone:
+ * - IOT_RESET_UNBIND_ONLY drops the user-device binding and leaves the device's
+ *   cloud-side data in place, so re-pairing can pick it up again.
+ * - IOT_RESET_FACTORY additionally discards everything the cloud holds for this
+ *   device, business-specific exclusions aside. THIS IS NOT REVERSIBLE:
+ *   re-pairing yields a new binding, not the old state.
+ *
+ * Either way this is not a way to "reconnect cleanly" or to recover from an
+ * error -- both give the binding up. For those, disconnect and connect again.
+ *
  * On failure NOTHING is destroyed: the client stays fully usable so the caller
  * can retry, or give up and call iot_client_deinit() itself. The return code is
  * therefore "does the cloud know", never "is the client still alive".
@@ -298,6 +333,9 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
  * alone cannot.
  *
  * @param client         Pointer to iot_client_t instance (must be activated)
+ * @param scope          How much to clear (see iot_reset_scope_t); pass
+ *                       IOT_RESET_UNBIND_ONLY unless the device is being
+ *                       decommissioned
  * @param error_code     Optional buffer receiving the cloud's errorCode; "" when
  *                       the cloud did not send one. NULL if not needed.
  *                       IOT_ATOP_ERROR_CODE_LEN bytes is always enough.
@@ -310,6 +348,7 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
  *         non-OPRT_OK case)
  */
 IOT_API int iot_client_reset(iot_client_t *client,
+                             iot_reset_scope_t scope,
                              char *error_code, size_t error_code_len);
 
 /**
