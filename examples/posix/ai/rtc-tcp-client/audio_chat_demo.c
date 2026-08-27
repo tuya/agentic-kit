@@ -8,10 +8,10 @@
  *
  * Build (requires libopus; the target is skipped if libopus is not found):
  *   cmake -S examples/posix -B build -DAGENTIC_KIT_BUILD_EXAMPLES=ON
- *   cmake --build build --target tai_audio_chat_demo
+ *   cmake --build build --target audio_chat_demo
  *
  * Usage:
- *   ./build/tai_audio_chat_demo <input.wav> [devid] [secret_key] [local_key]
+ *   ./build/audio_chat_demo <input.wav> [devid] [secret_key] [local_key]
  *
  * If no WAV file is given, falls back to a text greeting.
  * WAV must be mono 16-bit signed (any sample rate; auto-resampled to 16 kHz).

@@ -7,10 +7,10 @@
  *
  * Build:
  *   cmake -S examples/posix -B build -DAGENTIC_KIT_BUILD_EXAMPLES=ON
- *   cmake --build build --target tai_music_play_demo
+ *   cmake --build build --target music_play_demo
  *
  * Usage:
- *   ./build/tai_music_play_demo [query] [devid] [secret_key] [local_key]
+ *   ./build/music_play_demo [query] [devid] [secret_key] [local_key]
  *
  * Defaults:
  *   query      = "播放周杰伦的歌"
@@ -415,7 +415,7 @@ int main(int argc, char *argv[])
     const char *secret_key = (argc >= 4) ? argv[3] : DEFAULT_SECRET_KEY;
     const char *local_key  = (argc >= 5) ? argv[4] : DEFAULT_LOCAL_KEY;
 
-    printf("=== tai_music_play_demo ===\n");
+    printf("=== music_play_demo ===\n");
     printf("Device ID : %s\n", devid);
     printf("Query     : %s\n", query);
 

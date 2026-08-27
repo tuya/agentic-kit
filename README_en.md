@@ -53,7 +53,7 @@ Then run:
 
 ```sh
 # Voice/text chat (RTC TCP Client)
-./build-examples/tai_text_chat_demo
+./build-examples/text_chat_demo
 
 # Device scan QR pairing
 ./build-examples/scan_by_device_pair_demo

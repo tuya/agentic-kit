@@ -13,7 +13,7 @@
 #include "stm_errno.h"
 #include "stm_open.h"
 #include "stm_typedef.h"
-#include "edu_camera_demo.h"
+#include "udp_edu_camera_demo.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -16,10 +16,10 @@
  *
  * Build:
  *   cmake -S examples/posix -B build -DAGENTIC_KIT_BUILD_EXAMPLES=ON
- *   cmake --build build --target tai_edu_camera_demo
+ *   cmake --build build --target edu_camera_demo
  *
  * Usage:
- *   ./build/tai_edu_camera_demo [img_path] [prompt] [audio_path] [devid] [secret_key] [local_key]
+ *   ./build/edu_camera_demo [img_path] [prompt] [audio_path] [devid] [secret_key] [local_key]
  *
  * Defaults: test.jpg / "image_recognition" / output_tts.pcm / built-in device
  */
@@ -160,7 +160,7 @@ int main(int argc, char *argv[])
     const char *secret_key = (argc >= 6) ? argv[5] : DEFAULT_SECRET_KEY;
     const char *local_key  = (argc >= 7) ? argv[6] : DEFAULT_LOCAL_KEY;
 
-    printf("=== tai_edu_camera demo ===\n");
+    printf("=== edu_camera demo ===\n");
     printf("Device ID  : %s\n", devid);
     printf("Image Path : %s\n", img_path);
     printf("Prompt     : %s\n", prompt);

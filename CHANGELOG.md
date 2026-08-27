@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Examples — every POSIX example binary is now named after its source file.
+  - The rtc-client (prebuilt UDP lib) demos are renamed with a `udp_` prefix:
+    `chat_demo` / `edu_camera_demo` become `udp_chat_demo` /
+    `udp_edu_camera_demo` (sources renamed to match). The prefix is what
+    disambiguates them from the rtc-tcp-client demos of the same name, which
+    makes the `tai_` prefix on the TCP targets redundant — it was never part of
+    their source-file names.
+  - The rtc-tcp-client targets drop the prefix: `tai_text_chat_demo` →
+    `text_chat_demo`, and likewise `tai_audio_chat_demo`, `tai_edu_camera_demo`,
+    `tai_music_play_demo`, `tai_mcp_demo`, `tai_agent_trigger_demo` (sources
+    unchanged; the `tai_` lives on in the `tai_*` API they call). Scripts and
+    docs that invoke `./build/tai_*` must be updated.
+  - Every other example already followed the rule (`activate_demo`,
+    `dp_management_demo`, `ota_demo`, …) and is unchanged.
+
 - **BREAKING** iot-client — MQTT auto-connect is on by default. The
   `mqtt_auto_connect` field is replaced by `mqtt_disable_auto_connect` on both
   `iot_client_config_t` and `iot_on_boarding_config_t`.

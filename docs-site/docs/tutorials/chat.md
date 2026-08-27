@@ -52,10 +52,10 @@ sidebar_position: 2
 
 ```sh
 # 纯文本模式（不需要 PCM 文件）
-./build/chat_demo
+./build/udp_chat_demo
 
 # 语音模式（提供 PCM 文件）
-./build/chat_demo input.pcm
+./build/udp_chat_demo input.pcm
 ```
 
 ## 关键实现

@@ -121,45 +121,45 @@ target_link_libraries(ota_confirm_demo PRIVATE tuya_iot_client)
 
 # -- ai / rtc-client (prebuilt lib, optional) --------------------------------
 if(TARGET tuya_steam_client)
-    add_executable(chat_demo
-        "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-client/chat_demo.c"
-        "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-client/chat_demo_main.c"
+    add_executable(udp_chat_demo
+        "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-client/udp_chat_demo.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-client/udp_chat_demo_main.c"
     )
-    target_include_directories(chat_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-client")
-    target_link_libraries(chat_demo PRIVATE tuya_iot_client tuya_steam_client)
+    target_include_directories(udp_chat_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-client")
+    target_link_libraries(udp_chat_demo PRIVATE tuya_iot_client tuya_steam_client)
 
-    add_executable(edu_camera_demo
-        "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-client/edu_camera_demo.c"
-        "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-client/edu_camera_demo_main.c"
+    add_executable(udp_edu_camera_demo
+        "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-client/udp_edu_camera_demo.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-client/udp_edu_camera_demo_main.c"
     )
-    target_include_directories(edu_camera_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-client")
-    target_link_libraries(edu_camera_demo PRIVATE tuya_iot_client tuya_steam_client)
+    target_include_directories(udp_edu_camera_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-client")
+    target_link_libraries(udp_edu_camera_demo PRIVATE tuya_iot_client tuya_steam_client)
 else()
-    message(STATUS "rtc-client prebuilt lib not available; skipping chat_demo and edu_camera_demo")
+    message(STATUS "rtc-client prebuilt lib not available; skipping udp_chat_demo and udp_edu_camera_demo")
 endif()
 
 # -- ai / rtc-tcp-client ----------------------------------------------------
-add_executable(tai_text_chat_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/text_chat_demo.c")
-target_link_libraries(tai_text_chat_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
+add_executable(text_chat_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/text_chat_demo.c")
+target_link_libraries(text_chat_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
 
-add_executable(tai_edu_camera_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/edu_camera_demo.c")
-target_link_libraries(tai_edu_camera_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
+add_executable(edu_camera_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/edu_camera_demo.c")
+target_link_libraries(edu_camera_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
 
-add_executable(tai_music_play_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/music_play_demo.c")
-target_link_libraries(tai_music_play_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
+add_executable(music_play_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/music_play_demo.c")
+target_link_libraries(music_play_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
 
-add_executable(tai_mcp_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/mcp_demo.c")
-target_link_libraries(tai_mcp_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
+add_executable(mcp_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/mcp_demo.c")
+target_link_libraries(mcp_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
 
-add_executable(tai_agent_trigger_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/agent_trigger_demo.c")
-target_link_libraries(tai_agent_trigger_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
+add_executable(agent_trigger_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/agent_trigger_demo.c")
+target_link_libraries(agent_trigger_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
 
 find_library(OPUS_LIBRARY opus)
 find_path(OPUS_INCLUDE_DIR opus/opus.h)
 if(OPUS_LIBRARY AND OPUS_INCLUDE_DIR)
-    add_executable(tai_audio_chat_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/audio_chat_demo.c")
-    target_include_directories(tai_audio_chat_demo PRIVATE "${OPUS_INCLUDE_DIR}")
-    target_link_libraries(tai_audio_chat_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal "${OPUS_LIBRARY}")
+    add_executable(audio_chat_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/audio_chat_demo.c")
+    target_include_directories(audio_chat_demo PRIVATE "${OPUS_INCLUDE_DIR}")
+    target_link_libraries(audio_chat_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal "${OPUS_LIBRARY}")
 else()
-    message(STATUS "libopus not found; skipping tai_audio_chat_demo")
+    message(STATUS "libopus not found; skipping audio_chat_demo")
 endif()

@@ -34,10 +34,10 @@
  *
  * Build (from examples/posix):
  *   cmake -S . -B build
- *   cmake --build build --target tai_agent_trigger_demo
+ *   cmake --build build --target agent_trigger_demo
  *
  * Usage:
- *   ./build/tai_agent_trigger_demo --help
+ *   ./build/agent_trigger_demo --help
  */
 
 #include <signal.h>
@@ -749,7 +749,7 @@ int main(int argc, char **argv)
      * block-buffered stdout would interleave the two wrongly. */
     setvbuf(stdout, NULL, _IOLBF, 0);
 
-    printf("=== tai_agent_trigger_demo ===\n");
+    printf("=== agent_trigger_demo ===\n");
     printf("Device ID : %s\n", DEFAULT_DEVID);
     printf("Region    : %s / %s\n", region_name(DEFAULT_REGION), env_name(DEFAULT_ENV));
     printf("Mode      : %s\n", o.listen_only ? "listen only (reports nothing)"

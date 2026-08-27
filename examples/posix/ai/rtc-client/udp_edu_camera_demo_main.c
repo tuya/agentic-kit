@@ -13,7 +13,7 @@
 #include <unistd.h>
 
 #include "iot_client.h"
-#include "edu_camera_demo.h"
+#include "udp_edu_camera_demo.h"
 
 #define DEFAULT_DEVID      "6c287c33f24ff6a2b0jruc"
 #define DEFAULT_SECRET_KEY "-B+a]RSc2WB}&v4)"

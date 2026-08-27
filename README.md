@@ -55,7 +55,7 @@ cmake --build build-examples
 
 ```sh
 # 语音/文本聊天（RTC TCP Client）
-./build-examples/tai_text_chat_demo
+./build-examples/text_chat_demo
 
 # 设备扫码配网
 ./build-examples/scan_by_device_pair_demo

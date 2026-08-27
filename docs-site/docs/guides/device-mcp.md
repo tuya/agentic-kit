@@ -259,8 +259,8 @@ if (rc != TAI_OK) {
 
 ```bash
 cmake -S examples/posix -B build -DAGENTIC_KIT_BUILD_EXAMPLES=ON
-cmake --build build --target tai_mcp_demo
-./build/tai_mcp_demo [devid] [secret_key] [local_key]
+cmake --build build --target mcp_demo
+./build/mcp_demo [devid] [secret_key] [local_key]
 ```
 
 ## 添加自定义工具

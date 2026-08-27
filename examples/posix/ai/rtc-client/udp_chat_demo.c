@@ -14,7 +14,7 @@
  *  9. stm_open_session_close() + stm_open_deinit()
  */
 
-#include "chat_demo.h"
+#include "udp_chat_demo.h"
 #include "stm_open.h"
 #include "stm_typedef.h"
 #include "stm_errno.h"

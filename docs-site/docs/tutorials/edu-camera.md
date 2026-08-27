@@ -41,13 +41,13 @@ edu-camera 示例模拟了 **拍学机** 的典型场景：
 
 ```sh
 # 在 examples/posix 目录下运行（默认相对路径 res/test.jpg 生效）
-./build/edu_camera_demo
+./build/udp_edu_camera_demo
 
 # 在任意目录下运行时，传入图片绝对路径
-./build/edu_camera_demo /absolute/path/to/test.jpg "image_recognition"
+./build/udp_edu_camera_demo /absolute/path/to/test.jpg "image_recognition"
 
 # 完整参数
-./build/edu_camera_demo <img_path> <prompt> <audio_path> <devid> <secret_key> <local_key>
+./build/udp_edu_camera_demo <img_path> <prompt> <audio_path> <devid> <secret_key> <local_key>
 ```
 
 ## 关键实现

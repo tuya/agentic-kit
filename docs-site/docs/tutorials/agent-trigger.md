@@ -207,7 +207,7 @@ Prompt 里可以插入变量引用触发时的上下文，[Prompt 写法页](htt
 ```sh
 cd examples/posix
 cmake -S . -B build
-cmake --build build --target tai_agent_trigger_demo
+cmake --build build --target agent_trigger_demo
 ```
 
 ## 运行方式
@@ -216,13 +216,13 @@ cmake --build build --target tai_agent_trigger_demo
 
 ```sh
 # 默认：先上报正常值，再上报低电量，然后等待推送
-./build/tai_agent_trigger_demo
+./build/agent_trigger_demo
 
 # 只监听，不上报任何 DP（配合平台的虚拟设备调试使用）
-./build/tai_agent_trigger_demo --listen --timeout 300
+./build/agent_trigger_demo --listen --timeout 300
 
 # 持续监听，收到 3 次推送后退出
-./build/tai_agent_trigger_demo --repeat 3 --timeout 600
+./build/agent_trigger_demo --repeat 3 --timeout 600
 ```
 
 完整参数：
@@ -244,7 +244,7 @@ cmake --build build --target tai_agent_trigger_demo
 运行成功后，控制台输出示例：
 
 ```
-=== tai_agent_trigger_demo ===
+=== agent_trigger_demo ===
 Device ID : 6cd37025…8vwoe
 Region    : AY / prod
 Mode      : report DPs, then wait for a push

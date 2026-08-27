@@ -10,10 +10,10 @@
  *
  * Build:
  *   cmake -S examples/posix -B build -DAGENTIC_KIT_BUILD_EXAMPLES=ON
- *   cmake --build build --target tai_text_chat_demo
+ *   cmake --build build --target text_chat_demo
  *
  * Usage:
- *   ./build/tai_text_chat_demo [devid] [secret_key] [local_key]
+ *   ./build/text_chat_demo [devid] [secret_key] [local_key]
  */
 
 #include <stdio.h>
@@ -100,7 +100,7 @@ int main(int argc, char *argv[])
     const char *secret_key = (argc >= 3) ? argv[2] : DEFAULT_SECRET_KEY;
     const char *local_key  = (argc >= 4) ? argv[3] : DEFAULT_LOCAL_KEY;
 
-    printf("=== tai_text_chat_demo ===\n");
+    printf("=== text_chat_demo ===\n");
     printf("Device ID : %s\n", devid);
 
     /* ---- 1. iot-sdk init ------------------------------------------------ */

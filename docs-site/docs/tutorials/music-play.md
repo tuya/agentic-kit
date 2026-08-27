@@ -36,7 +36,7 @@ sidebar_position: 3
 ```sh
 cd examples/posix
 cmake -S . -B build
-cmake --build build --target tai_music_play_demo
+cmake --build build --target music_play_demo
 ```
 
 也可编译全部 POSIX 示例：
@@ -51,13 +51,13 @@ cmake --build build
 
 ```sh
 # 默认查询（"播放周杰伦的歌"），使用内置测试凭据
-./build/tai_music_play_demo
+./build/music_play_demo
 
 # 自定义查询
-./build/tai_music_play_demo "播放流行音乐"
+./build/music_play_demo "播放流行音乐"
 
 # 完整参数
-./build/tai_music_play_demo [query] [devid] [secret_key] [local_key]
+./build/music_play_demo [query] [devid] [secret_key] [local_key]
 ```
 
 | 参数 | 说明 | 默认值 |
@@ -70,7 +70,7 @@ cmake --build build
 运行成功后，控制台输出示例：
 
 ```
-=== tai_music_play_demo ===
+=== music_play_demo ===
 Device ID : 6cd370251e8be96de8vwoe
 Query     : 播放周杰伦的歌
 [main] Connecting to TAI server...

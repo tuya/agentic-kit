@@ -20,7 +20,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "iot_client.h"
-#include "chat_demo.h"
+#include "udp_chat_demo.h"
 
 /* ── Default credentials (override via argv) ─────────────────────────────── */
 #define DEFAULT_DEVID      "6c7cfcabf3cfb30bc1edww"
