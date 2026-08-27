@@ -50,7 +50,7 @@
 #ifndef IOT_SDK_BV
 #define IOT_SDK_BV      "2.0"
 #endif
-#define SDK_VERSION "agentic-kit_0.1.0"
+#define SDK_VERSION "agentic-kit_0.4.0"
 
 /**
  * @brief Get the built-in default PAL adapter (POSIX or FreeRTOS).
