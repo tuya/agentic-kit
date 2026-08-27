@@ -9,7 +9,7 @@ sidebar_position: 1
 本文档介绍如何在涂鸦开发者平台创建云项目并获取 OpenAPI 配网所需的 `client-id`、`client-secret` 和 App `schema` 参数。
 
 :::tip
-更多详细信息请参考涂鸦官方文档：[配置云项目](https://developer.tuya.com/cn/docs/iot/config-ify-cloud-project?id=Ka4czp6p5fh3c)
+更多详细信息请参考涂鸦官方文档：[配置云项目](https://developer.tuya.com/cn/docs/iot/config-cloud-project?id=Kat2eytbffx3v)
 :::
 
 ## 1. 进入云项目管理
