@@ -543,6 +543,14 @@ int atop_ai_token_get(const pal_t *pal, const ai_token_request_t *request, ai_to
     pal->free(post_data);
 
     if (rt != OPRT_OK) {
+        /* Carry the cloud's verdict out. Without this the caller sees only
+         * OPRT_ATOP_BUSINESS_ERROR, and "device removed from the cloud",
+         * "privacy agreement unsigned" and "no agent configured" become the
+         * same number — they need opposite handling. */
+        snprintf(response->rejection.code, sizeof(response->rejection.code), "%s",
+                 atop_response.error_code);
+        snprintf(response->rejection.msg, sizeof(response->rejection.msg), "%s",
+                 atop_response.error_msg);
         log_error("http post err, rt:%d", rt);
         atop_base_response_free(pal,&atop_response);
         return rt;

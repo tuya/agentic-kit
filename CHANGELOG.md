@@ -44,6 +44,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- iot-client — `iot_client_get_session_token_ex()`, which reports *why* the
+  cloud refused to issue an agent token.
+  - The refusals a device actually meets in the field all arrive on this one
+    path and need opposite handling: `GATEWAY_NOT_EXISTS` (removed from the
+    cloud — re-provision), `CHILD_PRIVACY_AGREEMENT_REQUIRED` (agreement not
+    signed yet — wait and retry, the user is expected to act in the app),
+    `ISSUE_TOKEN_FAILED` (no agent configured for the product — retrying is
+    pointless). `iot_client_get_session_token()` collapsed all three into
+    `OPRT_ATOP_BUSINESS_ERROR`, so a device could only retry blindly.
+  - `atop_base_response_t` already parsed `errorCode`/`errorMsg`, but
+    `atop_ai_token_get()` dropped them on the floor. They now reach the caller
+    through a new `iot_atop_rejection_t` out-parameter.
+  - Additive: `iot_client_get_session_token()` keeps its signature and
+    behaviour, and is now a wrapper passing `NULL`. Passing `NULL` for
+    `rejection` is supported and means "don't care".
+
 - iot-client — device-initiated reset (`iot_client_reset`), for a device that
   unbinds itself rather than waiting to be removed from the app.
   - New public `iot_client_reset()` in `iot_client.h` over a new

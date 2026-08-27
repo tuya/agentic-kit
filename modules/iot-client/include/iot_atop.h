@@ -69,9 +69,9 @@
 extern "C" {
 #endif
 
-/** Buffer sizes for the cloud's error strings (see iot_atop_response_t). */
-#define IOT_ATOP_ERROR_CODE_LEN  48
-#define IOT_ATOP_ERROR_MSG_LEN   128
+/* IOT_ATOP_ERROR_CODE_LEN / IOT_ATOP_ERROR_MSG_LEN live in iot_client.h, next to
+ * iot_atop_rejection_t: the typed wrappers there report rejections too, and a
+ * header cannot include this one back (iot_atop.h includes iot_client.h). */
 
 /**
  * @brief What to call.

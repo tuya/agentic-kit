@@ -569,6 +569,17 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
 
 IOT_API int iot_client_get_session_token(iot_client_t *client, const char *agent_code, char *token, size_t token_len)
 {
+    return iot_client_get_session_token_ex(client, agent_code, token, token_len, NULL);
+}
+
+IOT_API int iot_client_get_session_token_ex(iot_client_t *client, const char *agent_code,
+                                            char *token, size_t token_len,
+                                            iot_atop_rejection_t *rejection)
+{
+    if (rejection != NULL) {
+        memset(rejection, 0, sizeof(*rejection));
+    }
+
     if (client == NULL || token == NULL || token_len == 0) {
         log_error("iot_client_get_session_token: invalid parameters");
         return OPRT_INVALID_PARAMETER;
@@ -591,6 +602,9 @@ IOT_API int iot_client_get_session_token(iot_client_t *client, const char *agent
     ai_token_response_t resp = {0};
     int ret = atop_ai_token_get(client->pal, &req, &resp);
     if (ret != OPRT_OK) {
+        if (rejection != NULL) {
+            *rejection = resp.rejection;
+        }
         log_error("atop_ai_token_get failed: %d", ret);
         return ret;
     }
