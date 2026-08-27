@@ -52,6 +52,27 @@ typedef enum {
     TEST,
 } iot_env_t;
 
+/** Buffer sizes for the cloud's rejection strings (see iot_atop_rejection_t). */
+#define IOT_ATOP_ERROR_CODE_LEN  48
+#define IOT_ATOP_ERROR_MSG_LEN   128
+
+/**
+ * @brief Why the cloud rejected a call.
+ *
+ * A rejection is the cloud reaching a verdict and saying no: the envelope is
+ * well-formed, `errorCode` takes the place of `result`. The code is the
+ * discriminator the caller acts on — the same rejection surfaces as
+ * OPRT_ATOP_BUSINESS_ERROR no matter *why* the cloud refused, and those whys
+ * need opposite responses (a device removed from the cloud should re-provision;
+ * a product whose privacy agreement is unsigned must NOT).
+ *
+ * `code` is "" unless the call came back OPRT_ATOP_BUSINESS_ERROR.
+ */
+typedef struct {
+    char code[IOT_ATOP_ERROR_CODE_LEN]; /**< cloud errorCode, e.g. "GATEWAY_NOT_EXISTS" */
+    char msg[IOT_ATOP_ERROR_MSG_LEN];   /**< cloud errorMsg, human-readable */
+} iot_atop_rejection_t;
+
 /**
  * @brief Initialize IoT SDK with the built-in default PAL adapter (POSIX / FreeRTOS).
  *
@@ -425,6 +446,29 @@ IOT_API int iot_client_publish(iot_client_t *client, const uint8_t *data, size_t
  * @return OPRT_OK on success, OPRT_INVALID_PARAMETER if client or token is NULL
  */
 IOT_API int iot_client_get_session_token(iot_client_t *client, const char *agent_code, char *token, size_t token_len);
+
+/**
+ * @brief Get an AI agent session token, and learn why the cloud said no.
+ *
+ * Same as iot_client_get_session_token(), except that a rejection is reported
+ * instead of being flattened into a bare OPRT_ATOP_BUSINESS_ERROR. Three
+ * different causes reach this call in practice — the device removed from the
+ * cloud, a product whose privacy agreement is unsigned, and a product with no
+ * AI agent configured — and they need opposite handling, so the code has to
+ * reach the caller that knows the product.
+ *
+ * @param client     Pointer to iot_client_t instance
+ * @param agent_code Agent code string (NULL for default)
+ * @param token      Output buffer for the token
+ * @param token_len  Size of the output buffer in bytes
+ * @param rejection  Optional; zeroed on entry and filled when the return code
+ *                   is OPRT_ATOP_BUSINESS_ERROR. NULL to ignore.
+ * @return OPRT_OK on success, OPRT_INVALID_PARAMETER if client or token is NULL,
+ *         OPRT_ATOP_BUSINESS_ERROR when the cloud refused (see @p rejection).
+ */
+IOT_API int iot_client_get_session_token_ex(iot_client_t *client, const char *agent_code,
+                                            char *token, size_t token_len,
+                                            iot_atop_rejection_t *rejection);
 
 /**
  * @brief Get CA certificate for a target host via IoT DNS service.

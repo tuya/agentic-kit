@@ -67,6 +67,7 @@ void atop_activate_response_free(const pal_t *pal, activite_response_t *response
  */
 typedef struct {
     char *token;                     // JSON string (caller must free)
+    iot_atop_rejection_t rejection;  // filled when the cloud refused; code "" otherwise
 } ai_token_response_t;
 
 /**

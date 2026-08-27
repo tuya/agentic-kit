@@ -271,6 +271,18 @@ def handle_ai_token_request(request_data, config):
 
         agent_code = request_json.get('agentCode', '')
 
+        # Test-only: an agentCode of "reject:<CODE>" makes the cloud reject the
+        # request with that errorCode, so the caller's handling of the real
+        # rejections (unbound device, unsigned privacy agreement, no agent
+        # configured) can be tested. Real agent codes never contain a colon.
+        if agent_code.startswith('reject:'):
+            return json.dumps({
+                "success": False,
+                "t": int(time.time()),
+                "errorCode": agent_code[len('reject:'):],
+                "errorMsg": "mock rejection"
+            }, separators=(',', ':'))
+
         device_id = config.get('device_id', 'device')
         response = {
             "success": True,
