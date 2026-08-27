@@ -36,3 +36,8 @@ docs-site/node_modules/
 docs-site/.docusaurus/
 docs-site/build/
 docs-site/yarn-error.log
+
+.auto-memory.yaml
+.vimspector.json
+Testing
+spec
