@@ -61,8 +61,8 @@ sidebar_position: 1
 | `TAI_EVT_PAYLOADS_END` | 1 | 负载结束 |
 | `TAI_EVT_END` | 2 | 会话结束 |
 | `TAI_EVT_ONE_SHOT` | 3 | 单次事件 |
-| `TAI_EVT_CHAT_BREAK` | 4 | 聊天打断（用户中途说话）；只需清除下行 TTS 缓存/播放队列，不要结束上行 Event |
-| `TAI_EVT_SERVER_VAD` | 5 | 云端 VAD 检测到用户停止说话 |
+| `TAI_EVT_CHAT_BREAK` | 4 | 聊天打断/云端 VAD 回合结束（用户停止说话或中途插话）；当前云端以此作为回合边界信号；只需清除下行 TTS 缓存/播放队列，不要结束上行 Event |
+| `TAI_EVT_SERVER_VAD` | 5 | 云端 VAD 检测到用户停止说话（旧服务端信号，**当前云端不再下发**，常量仅为协议兼容保留） |
 | `TAI_EVT_MCP_CMD` | 1000 | MCP 命令（设备侧执行） |
 | `TAI_EVT_SERVER_TIMEOVER` | 1001 | 服务端超时 |
 | `TAI_EVT_UPDATE_CONTEXT` | 1002 | 上下文更新 |
@@ -467,7 +467,7 @@ int tai_send_audio_end(tai_ctx_t *ctx);
 结束音频流。通知服务端本次音频输入完毕，开始处理。
 
 :::warning 云端 VAD 模式下不要调用
-启用云端 VAD（`asr.enableVad`）时**不应**调用本函数——收到 `TAI_EVT_SERVER_VAD` 也不要调用。它仅用于手动按键对讲或设备端本地 VAD 判停。错误调用会主动结束当前上行 Event，导致云端截断用户语音。详见 [VAD 与打断](../guides/vad-and-interrupt)。
+启用云端 VAD（`asr.enableVad`）时**不应**调用本函数。当前云端的回合结束信号是 `TAI_EVT_CHAT_BREAK`（`TAI_EVT_SERVER_VAD` 已不再下发），收到它也不要调用本函数。它仅用于手动按键对讲或设备端本地 VAD 判停。错误调用会主动结束当前上行 Event，导致云端截断用户语音。详见 [VAD 与打断](../guides/vad-and-interrupt)。
 :::
 
 ---

@@ -32,6 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the default needs a DNS mock and a broker mock in the same suite, which none
     of them currently has.
 
+- **Docs — the cloud-VAD turn boundary is `TAI_EVT_CHAT_BREAK`, not
+  `TAI_EVT_SERVER_VAD`.** The current Tuya AI cloud no longer sends
+  `TAI_EVT_SERVER_VAD` (type 5) in cloud-VAD mode; it signals the end of a
+  user turn with an inbound `TAI_EVT_CHAT_BREAK` (type 4) — the same event
+  type used for "user spoke over the reply". The VAD guide, the
+  rtc-tcp-client reference (event table, `tai_send_audio_end` warning), the
+  FAQ and the module CONTEXT now teach the turn handling at
+  `TAI_EVT_CHAT_BREAK`, and mark `TAI_EVT_SERVER_VAD` as legacy (constant
+  kept for protocol compatibility; `tuya_ai.h` documents both).
+
 ### Added
 
 - iot-client — device-initiated reset (`iot_client_reset`), for a device that

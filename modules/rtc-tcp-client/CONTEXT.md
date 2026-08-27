@@ -82,12 +82,18 @@ _Avoid_: heartbeat, poll.
 
 **Chat break**:
 A client-sent Event (`TAI_EVT_CHAT_BREAK`) that interrupts the server's in-progress
-response. Sent standalone, not part of an Event's normal lifecycle.
+response. Sent standalone, not part of an Event's normal lifecycle. The server also sends
+the same event type *down* — as the cloud-VAD turn boundary (user stopped speaking, or
+spoke over the reply): the device clears the interrupted turn's downlink and keeps the
+uplink open. The current cloud no longer sends `TAI_EVT_SERVER_VAD`; a device must treat
+an inbound ChatBreak as the turn boundary.
 _Avoid_: cancel, stop, abort.
 
 **Server VAD**:
 A server-sent Event (`TAI_EVT_SERVER_VAD`) signalling that voice-activity detection found
-the end of the user's speech in audio mode.
+the end of the user's speech in audio mode. **Legacy**: the current cloud signals the
+turn boundary with an inbound ChatBreak instead and never sends this event; the constant
+stays for protocol compatibility. Do not build new handling on it.
 _Avoid_: silence detection, endpointing.
 
 **MCP command**:
@@ -205,7 +211,8 @@ the media header, parses `audio-params` once per stream (sample rate, frame size
 START), splits concatenated constant-bitrate Opus by frame size, and delivers each frame to
 `on_audio`; **Text** strips the text header and delivers to `on_text` with its Stream flag;
 **Event** unpacks the Event type and data (EventEnd clears the open Event) and delivers to
-`on_event` — where ServerVAD, MCP commands, etc. surface; **ConnectionClose / SessionClose**
+`on_event` — where the inbound ChatBreak (the cloud-VAD turn boundary), MCP commands, etc.
+surface; **ConnectionClose / SessionClose**
 clear state and fire `on_disconnect`. An **unknown Packet type or Event type** (framing and HMAC
 valid, but the type is not enumerated) is *tolerated*: it is logged and skipped so the link stays
 up — a server that introduces a forward-compatible new type must not knock existing clients
@@ -264,8 +271,8 @@ must not block — captured in the callback-contract block in `tuya_ai.h`.
 > wrapped in a Frame with a sequence number and an HMAC signature at your sign level.
 > **Dev:** The reply comes back on `on_text`?
 > **Expert:** Right — server text arrives on `on_text` with a stream flag (START…END for a
-> streamed answer), audio on `on_audio`, and everything else on `on_event`: ServerVAD,
-> EventEnd, and MCP commands.
+> streamed answer), audio on `on_audio`, and everything else on `on_event`: the inbound
+> ChatBreak (cloud-VAD turn boundary), EventEnd, and MCP commands.
 > **Dev:** When the server asks me to run a tool?
 > **Expert:** That's an `on_event` with event type MCPCmd (1000) carrying JSON-RPC. You run
 > it and reply with `tai_send_mcp_response`. To cut the model off mid-answer, send a chat

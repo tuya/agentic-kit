@@ -556,7 +556,8 @@ static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *ud)
         break;                  /* payload stream done; EVT_END closes the turn */
 
     default:
-        /* CHAT_BREAK / SERVER_VAD / UPDATE_CONTEXT and anything the SDK tolerates
+        /* CHAT_BREAK (the cloud-VAD turn boundary; the cloud no longer sends
+         * SERVER_VAD) / UPDATE_CONTEXT and anything the SDK tolerates
          * for forward compatibility: named, not swallowed, so an unexpected
          * server behaviour is visible while debugging a trigger. */
         fprintf(stderr, "[tai] event %u\n", (unsigned)msg->event_type);

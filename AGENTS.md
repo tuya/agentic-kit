@@ -234,9 +234,12 @@ ordinary changes.
   sounds clipped, with no error anywhere.
 - **Audio turn lifecycle — every wrong call still returns `TAI_OK`.** Under server VAD, the
   default (the built-in `chatAttributes` set `asr.enableVad: true`, so the cloud owns
-  segmentation), never call `tai_send_audio_end()`, not even on `TAI_EVT_SERVER_VAD`: it sends
-  Audio END + EventPayloadsEnd + EventEnd and closes the turn, cutting the user off mid-sentence.
-  Only device-side VAD / push-to-talk ends a stream per utterance. And `tai_send_audio_end()` does
+  segmentation), never call `tai_send_audio_end()`, not even on the turn-boundary event: it
+  sends Audio END + EventPayloadsEnd + EventEnd and closes the turn, cutting the user off
+  mid-sentence. The current cloud signals that boundary with an inbound `TAI_EVT_CHAT_BREAK`
+  and no longer sends `TAI_EVT_SERVER_VAD` — handle the break there (clear the interrupted
+  turn's downlink; the uplink stays open). Only device-side VAD / push-to-talk ends a stream
+  per utterance. And `tai_send_audio_end()` does
   not reset `audio_started`, so a `tai_send_audio_chunk()` after an `_end` without a fresh
   `_start` goes out with stream flag MIDDLE and no `audio-params` attribute — accepted by the
   transport, and ASR produces nothing. Begin every utterance with `tai_send_audio_start()`.
