@@ -357,7 +357,7 @@ def handle_device_reset(request_data, config, url_params=None):
     test only has to vary the devid string.
     """
     try:
-        json.loads(request_data)
+        body = json.loads(request_data)
     except Exception as e:
         print(f"\u274c device reset: unparsable body: {e}", file=sys.stderr)
         return json.dumps({
@@ -367,18 +367,53 @@ def handle_device_reset(request_data, config, url_params=None):
             "errorMsg": str(e)
         }, separators=(',', ':'))
 
+    # resetFactory is required, and both values are legal: false unbinds, true
+    # also wipes the device's cloud-side data. Pin its PRESENCE (omitting it
+    # would come back from the real cloud as an opaque rejection -- the same
+    # class of late failure as a wrong version below) and echo it back, so a
+    # test can prove the caller's choice actually reached the wire.
+    reset_factory = body.get('resetFactory')
+    if not isinstance(reset_factory, bool):
+        print(f"\u274c device reset: resetFactory missing or not a bool: {body!r}",
+              file=sys.stderr)
+        return json.dumps({
+            "success": False,
+            "t": int(time.time()),
+            "errorCode": "ILLEGAL_PARAM",
+            "errorMsg": "tuya.device.reset expects a boolean resetFactory"
+        }, separators=(',', ':'))
+    print(f"   resetFactory: {reset_factory}")
+
+    # The caller's scope has to reach the wire, and an empty-result response
+    # cannot show which one arrived. Encode the expectation in the devId
+    # instead: a devId containing 'factory' must present resetFactory=true, any
+    # other must present false. A test that sends the wrong scope is then
+    # rejected here rather than passing silently -- and the success response
+    # keeps the empty result the real interface returns.
+    devid_for_scope = (url_params or {}).get('devId', '')
+    expect_factory = 'factory' in devid_for_scope
+    if reset_factory is not expect_factory:
+        print(f"\u274c device reset: devId {devid_for_scope!r} expects "
+              f"resetFactory={expect_factory}, got {reset_factory}", file=sys.stderr)
+        return json.dumps({
+            "success": False,
+            "t": int(time.time()),
+            "errorCode": "ILLEGAL_PARAM",
+            "errorMsg": f"expected resetFactory={str(expect_factory).lower()}"
+        }, separators=(',', ':'))
+
     # Pin the interface version. It is the one thing about this call that a
     # local test cannot otherwise check: on a real device a wrong version comes
     # back as an opaque cloud rejection, which reads like a network fault.
     version = (url_params or {}).get('v', '')
-    if version != '3.0':
-        print(f"\u274c device reset: wrong interface version {version!r} (expected '3.0')",
+    if version != '5.0':
+        print(f"\u274c device reset: wrong interface version {version!r} (expected '5.0')",
               file=sys.stderr)
         return json.dumps({
             "success": False,
             "t": int(time.time()),
             "errorCode": "UNKNOWN_API_VERSION",
-            "errorMsg": f"tuya.device.reset expects v=3.0, got {version!r}"
+            "errorMsg": f"tuya.device.reset expects v=5.0, got {version!r}"
         }, separators=(',', ':'))
 
     devid = (url_params or {}).get('devId', '')

@@ -261,10 +261,34 @@ iot_client_t *iot_client_init_on_boarding_with_token(
 ### `iot_client_reset`
 
 ```c
-int iot_client_reset(iot_client_t *client, char *error_code, size_t error_code_len);
+int iot_client_reset(iot_client_t *client, iot_reset_scope_t scope,
+                     char *error_code, size_t error_code_len);
 ```
 
-告知云端本设备正在重置（解绑），调用的是 ATOP 接口 `tuya.device.reset`（version `3.0`）。
+告知云端本设备正在重置，调用的是 ATOP 接口 `tuya.device.reset`（version `5.0`），请求体固定为：
+
+```json
+{"resetFactory":true,"t":1756108800}
+```
+
+`resetFactory` 由 `scope` 参数决定，两者**能否撤销完全不同**：
+
+| `scope` | `resetFactory` | 云端行为 | 可逆性 |
+|---|---|---|---|
+| `IOT_RESET_UNBIND_ONLY` | `false` | 仅解除「用户—设备」绑定，设备的云端数据保留 | 重新配网可以接回原数据 |
+| `IOT_RESET_FACTORY` | `true` | 在解绑之外，**清理该设备的全部相关数据**（特殊业务另有约定的除外） | **不可逆** |
+
+这与云端下行 protocol 11 里 `IOT_RESET_REMOTE_UNBIND` / `IOT_RESET_REMOTE_FACTORY` 的区分是同一对语义，只是方向相反（那是云端推给设备的分类，这是设备向云端提出的选择）。
+
+:::danger IOT_RESET_FACTORY 不可逆
+`IOT_RESET_FACTORY` 会让云端删除该设备**所有相关数据**，没有任何恢复手段：重新配网得到的是一个新的绑定，不是原来的状态。只在**设备退役 / 交付新用户**时使用。
+
+日常场景（用户在 App 里解绑后设备自清理、或设备换绑）用 `IOT_RESET_UNBIND_ONLY`。
+:::
+
+:::caution 两者都不是「重连」
+无论哪个 scope 都会交出绑定关系。想干净地重连，用 [`iot_client_disconnect()`](#iot_client_disconnect) + [`iot_client_connect()`](#iot_client_connect)。
+:::
 
 **成败决定 client 的归属**——这是使用本接口最重要的一点：
 
@@ -297,7 +321,8 @@ int iot_client_reset(iot_client_t *client, char *error_code, size_t error_code_l
 
 ```c
 char err[64] = {0};
-int rc = iot_client_reset(client, err, sizeof(err));
+/* 退役设备用 IOT_RESET_FACTORY；日常解绑用 IOT_RESET_UNBIND_ONLY */
+int rc = iot_client_reset(client, IOT_RESET_UNBIND_ONLY, err, sizeof(err));
 if (rc == OPRT_OK) {
     /* client 已销毁；擦除自己保存的凭据即可 */
 } else if (strcmp(err, "GATEWAY_NOT_EXISTS") == 0) {
@@ -310,6 +335,7 @@ if (rc == OPRT_OK) {
 
 **参数：**
 - `client` — 已激活的 IoT 客户端实例
+- `scope` — 清理范围，见上表；除设备退役外一律用 `IOT_RESET_UNBIND_ONLY`
 - `error_code` — 可选，接收云端 errorCode；云端未给时为 `""`。不需要可传 `NULL`。`IOT_ATOP_ERROR_CODE_LEN`（48）字节足够
 - `error_code_len` — `error_code` 缓冲区大小（传 NULL 时忽略）
 

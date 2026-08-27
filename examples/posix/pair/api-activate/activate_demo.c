@@ -7,7 +7,8 @@
  *  1. Receive the pairing token from the caller (originally from OpenAPI).
  *  2. iot_client_init_on_boarding_with_token() -- activate device with token.
  *  3. iot_client_get_session_token() -- verify cloud connectivity.
- *  4. With --release: iot_client_reset() -- hand the binding back.
+ *  4. With --release: iot_client_reset(IOT_RESET_UNBIND_ONLY) -- hand the
+ *     binding back, keeping the cloud-side data.
  *
  * Step 4 is the other end of step 2. Activation and release are one lifecycle,
  * so they live in one demo: a device that binds itself must be able to unbind
@@ -123,7 +124,13 @@ int demo_activate_run(const char *token,
     if (release) {
         char error_code[64] = {0};
         printf("[%s] releasing the binding (device-initiated reset)...\n", TAG);
-        int rc = iot_client_reset(client, error_code, sizeof(error_code));
+        /* IOT_RESET_UNBIND_ONLY, not IOT_RESET_FACTORY: this demo gives the
+         * binding back and leaves the device's cloud-side data alone, so it can
+         * be run repeatedly. A real decommission -- device discarded or handed
+         * to a new owner -- passes IOT_RESET_FACTORY instead, which also
+         * discards that data and cannot be undone. */
+        int rc = iot_client_reset(client, IOT_RESET_UNBIND_ONLY,
+                                  error_code, sizeof(error_code));
         if (rc == OPRT_OK) {
             /* `client` is gone from here on. A real device would now wipe the
              * credentials and schema it persisted and re-enter pairing; this
