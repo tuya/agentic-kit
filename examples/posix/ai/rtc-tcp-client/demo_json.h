@@ -434,13 +434,16 @@ static inline char *json_array_first_object(const char *arr)
 
 static inline char *b64_decode(const char *encoded, size_t *out_len)
 {
+    /* Size from the RFC 4648 4:3 ratio instead of the NULL-buffer probe:
+     * its "buffer too small" return is MBEDTLS_ERR_BASE64_* in mbedtls 3.x
+     * but a PSA status in 4.x, and the header a target compiles against may
+     * not be the library it links (a Homebrew /opt/homebrew/include on the
+     * include path — e.g. via find_path(opus) — shadows the vendored copy,
+     * and the constant then never matches the vendored library's return). */
     size_t elen = strlen(encoded);
-    size_t dlen = 0;
-    if (mbedtls_base64_decode(NULL, 0, &dlen,
-                              (const unsigned char *)encoded, elen)
-            != MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL)
-        return NULL;
-    char *out = (char *)malloc(dlen + 1);
+    if (elen == 0 || elen % 4 != 0) return NULL;
+    size_t dlen = elen / 4 * 3 + 1;
+    char *out = (char *)malloc(dlen);
     if (!out) return NULL;
     if (mbedtls_base64_decode((unsigned char *)out, dlen, &dlen,
                               (const unsigned char *)encoded, elen) != 0) {

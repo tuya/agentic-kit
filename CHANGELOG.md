@@ -210,6 +210,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Examples — `audio_chat_demo` died with `[parse_token] 'connect_conf' not
+  found` on hosts whose `/opt/homebrew/include` holds mbedtls 4.x headers.
+  That directory lands first on this one target's include path (via
+  `find_path(opus)` for libopus), shadowing the vendored 3.6.6 headers, and
+  mbedtls 4.x redefines `MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL` to a PSA
+  status — so the NULL-buffer size probe in `b64_decode()` compared the
+  vendored library's `-0x002A` return against `-138` and failed on every
+  session token, which `parse_token()` then scanned as raw JSON. The buffer
+  is now sized from the RFC 4648 4:3 ratio; the constant no longer
+  participates. `text_chat_demo` and siblings never saw it because they
+  carry no opus include path.
+
 - iot-client — a peer that closed a non-TLS MQTT connection went unnoticed until
   the 60 s keepalive expired. `pal.h` defines a 0 from `tcp_recv` as EOF, but
   coreMQTT reads a 0 from the transport as "no data yet", so `transport_recv()`
