@@ -94,6 +94,14 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
    `printf` is a porting bug even where it links on the host. The one deliberate gap: `pal_t` has
    only a monotonic `time_ms`, so ATOP signing reads libc `time(NULL)` — a port needs a real-time
    clock the C library can see, or every signed request carries a `t` the cloud rejects.
+6. **CHANGELOG entries are terse, and carry a PR number.** One line per change —
+   `- <module> — <what changed>(#<PR>).` — with indented sub-bullets only for specifics a reader
+   acts on (a new symbol, a changed default, a migration step). `## [0.3.0]` is the reference for
+   length and shape; put the entry under the right `Added` / `Changed` / `Fixed` heading, since
+   release notes are generated from those. Motivation, rejected alternatives, verification detail
+   and anything else answering *why* belong in the commit body — that is where a reader who wants
+   them will look, and repeating them here produces release notes nobody finishes reading. The PR
+   number is what links the one line back to all of it, so an entry without one is incomplete.
 
 ## Invariants
 
