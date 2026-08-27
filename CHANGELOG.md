@@ -237,6 +237,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   participates. `text_chat_demo` and siblings never saw it because they
   carry no opus include path.
 
+- Examples — `audio_chat_demo` now sends its one-shot file audio under the
+  device-VAD contract it actually implements: `asr.enableVad` and
+  `processing.interrupt` are `false` in the event user data, matching the
+  `tai_send_audio_end()` the demo already sends after the file. The old
+  attributes declared cloud VAD, under which that call is contractually
+  wrong (it closes a turn the cloud owns) — a one-shot file turn is
+  device-driven end to end (`docs/guides/vad-and-interrupt.md`).
+
 - iot-client — a peer that closed a non-TLS MQTT connection went unnoticed until
   the 60 s keepalive expired. `pal.h` defines a 0 from `tcp_recv` as EOF, but
   coreMQTT reads a 0 from the transport as "no data yet", so `transport_recv()`

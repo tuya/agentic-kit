@@ -444,13 +444,11 @@ int main(int argc, char *argv[])
         "\"tts.order.supports\":[{\"format\":\"opus\","
         "\"sampleRate\":16000,\"bitDepth\":\"16\",\"channels\":1}]}";
 
-    /* Event user data: use JSON boolean true, not string "true"
-     * (matches xiaozhi-esp32-cc SendStartListening) */
     static const char OPUS_EVENT_USER_DATA[] =
         "{\"sys.workflow\":\"asr-llm-tts\","
-        "\"asr.enableVad\":true,"
+        "\"asr.enableVad\":false,"
         "\"tts.alternate\":true,"
-        "\"processing.interrupt\":true}";
+        "\"processing.interrupt\":false}";
 
     tai_config_t tai_cfg = {
         .host              = cp.host,
@@ -532,6 +530,8 @@ int main(int argc, char *argv[])
                                            opus.pkt_lens[i]);
                 if (srv == TAI_OK) usleep(OPUS_FRAME_MS * 1000);
             }
+            //important: only invoke tai_send_audio_end when in device VAD mode
+            //check docs-site/docs/guides/vad-and-interrupt.md for detail
             if (srv == TAI_OK) srv = tai_send_audio_end(ctx);
             if (srv == TAI_OK) printf("[main] All Opus audio sent.\n");
         } else {
