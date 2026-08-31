@@ -25,7 +25,7 @@
 #define IOT_CN_PRE_HOST "a1-cn.wgine.com"
 #define IOT_AZ_HOST "a1.tuyaus.com"
 #define IOT_AZ_PRE_HOST "a1-us.wgine.com"
-#define IOT_UEAZ_HOST "a1-ueaz.tuyaeu.com"
+#define IOT_UEAZ_HOST "a1-ueaz.tuyaus.com"
 #define IOT_UEAZ_PRE_HOST "a1-ueaz.wgine.com"
 #define IOT_EU_HOST "a1.tuyaeu.com"
 #define IOT_EU_PRE_HOST "a1-eu.wgine.com"

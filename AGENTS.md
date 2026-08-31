@@ -192,8 +192,9 @@ ordinary changes.
   switches end in `default:`, so `-Wswitch` never fires and a miss succeeds at the HTTP layer
   against a real, wrong data center; `dns_test.c` asserts only the PROD arm. Measured facts no
   file in the repo records (probed 2026-08-14): `SG` is absent from the PRE arm because it does
-  not exist in pre; `IOT_UEAZ_HOST` (`a1-ueaz.tuyaeu.com`) is **NXDOMAIN** — UE lives under
-  `tuyaus.com`, so the UE ATOP fallback path is dead; and on prod West-Europe's `httpsUrl` *flaps*
+  not exist in pre; `IOT_UEAZ_HOST` shipped as `a1-ueaz.tuyaeu.com`, which is **NXDOMAIN** — UE
+  lives under `tuyaus.com`, so the UE ATOP fallback was dead until it was repointed at
+  `a1-ueaz.tuyaus.com` (2026-08-31); and on prod West-Europe's `httpsUrl` *flaps*
   rather than being absent, so the device alternates between the DNS answer and the compile-time
   fallback across reboots.
 - **`OPRT_OK` from `atop_base_request()` means `success == true`, nothing more.**

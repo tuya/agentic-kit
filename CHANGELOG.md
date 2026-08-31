@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- iot-client — US-East (`UEAZ`) fell back to an ATOP host that does not resolve(#32).
+  `IOT_UEAZ_HOST` is now `a1-ueaz.tuyaus.com`.
+
 ## [0.4.0] - 2026-08-27
 
 ### Added
