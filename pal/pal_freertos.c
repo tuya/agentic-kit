@@ -71,8 +71,10 @@
 #define PAL_FR_TASK_PRIORITY     (tskIDLE_PRIORITY + 5)
 #endif
 #ifndef PAL_FR_TASK_NAME
-#define PAL_FR_TASK_NAME         "tai_worker"
+#define PAL_FR_TASK_NAME         "sdk_worker"
 #endif
+
+static unsigned g_thread_sequence;
 
 /* lwIP doesn't have signals; MSG_NOSIGNAL is a no-op. */
 #ifndef MSG_NOSIGNAL
@@ -200,6 +202,19 @@ static int pal_tcp_send(void *handle, const uint8_t *buf, size_t len,
     int n;
     do {
         n = send(h->fd, buf, len, flags);
+        if (n < 0 && errno != EINTR) {
+            /* Rate-limited TX failure trace: errno distinguishes lwIP
+             * send-buffer full (EAGAIN) from real socket errors (ENOBUFS/
+             * ENOMEM = pbuf exhaustion, ECONNRESET, ...). */
+            static uint32_t last_err_log_ms = 0;
+            uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+            if (now - last_err_log_ms > 1000) {
+                last_err_log_ms = now;
+                printf("[PAL-TX] fd=%d len=%u n=%d errno=%d(%s) try=%u tmo=%u\n",
+                       h->fd, (unsigned)len, n, errno, strerror(errno),
+                       (unsigned)0, timeout_ms);
+            }
+        }
     } while (n < 0 && errno == EINTR);
 
     if (n > 0) return n;
@@ -325,6 +340,32 @@ static void pal_mutex_destroy(void *m)
 }
 
 /* -------------------------------------------------------------------------
+ * Semaphore (FreeRTOS counting semaphore)
+ * ------------------------------------------------------------------------- */
+static void *pal_sem_create(unsigned initial_count)
+{
+    unsigned max_count = initial_count > 0 ? initial_count : 1;
+    return (void *)xSemaphoreCreateCounting(max_count, initial_count);
+}
+
+static int pal_sem_take(void *sem, uint32_t timeout_ms)
+{
+    TickType_t ticks = timeout_ms == UINT32_MAX
+                     ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
+    return xSemaphoreTake((SemaphoreHandle_t)sem, ticks) == pdTRUE ? 0 : -1;
+}
+
+static void pal_sem_give(void *sem)
+{
+    xSemaphoreGive((SemaphoreHandle_t)sem);
+}
+
+static void pal_sem_destroy(void *sem)
+{
+    vSemaphoreDelete((SemaphoreHandle_t)sem);
+}
+
+/* -------------------------------------------------------------------------
  * Thread (FreeRTOS task with semaphore-based join)
  *
  * FreeRTOS has no native join primitive.  We give the task a "done"
@@ -359,8 +400,11 @@ static int pal_thread_create(void **handle, void *(*func)(void *), void *arg)
     t->done = xSemaphoreCreateBinary();
     if (!t->done) { pal_free(t); return -1; }
 
+    char task_name[configMAX_TASK_NAME_LEN];
+    unsigned seq = g_thread_sequence++;
+    snprintf(task_name, sizeof(task_name), "%s%u", PAL_FR_TASK_NAME, seq);
     BaseType_t rc = xTaskCreate(thread_shim,
-                                 PAL_FR_TASK_NAME,
+                                 task_name,
                                  PAL_FR_TASK_STACK_WORDS,
                                  t,
                                  PAL_FR_TASK_PRIORITY,
@@ -401,6 +445,10 @@ static const pal_t g_freertos_pal = {
     .mutex_lock       = pal_mutex_lock,
     .mutex_unlock     = pal_mutex_unlock,
     .mutex_destroy    = pal_mutex_destroy,
+    .sem_create       = pal_sem_create,
+    .sem_take         = pal_sem_take,
+    .sem_give         = pal_sem_give,
+    .sem_destroy      = pal_sem_destroy,
     .thread_create    = pal_thread_create,
     .thread_join      = pal_thread_join,
 };

@@ -270,6 +270,68 @@ static void pal_mutex_unlock(void *m)  { pthread_mutex_unlock((pthread_mutex_t *
 static void pal_mutex_destroy(void *m) { pthread_mutex_destroy((pthread_mutex_t *)m); free(m); }
 
 /* -------------------------------------------------------------------------
+ * Semaphore (condition variable)
+ * ------------------------------------------------------------------------- */
+typedef struct {
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    unsigned count;
+} posix_sem_t;
+
+static void *pal_sem_create(unsigned initial_count)
+{
+    posix_sem_t *s = (posix_sem_t *)malloc(sizeof(*s));
+    if (!s) return NULL;
+    pthread_mutex_init(&s->mutex, NULL);
+    pthread_cond_init(&s->cond, NULL);
+    s->count = initial_count;
+    return s;
+}
+
+static int pal_sem_take(void *sem, uint32_t timeout_ms)
+{
+    posix_sem_t *s = (posix_sem_t *)sem;
+    int rc = 0;
+    pthread_mutex_lock(&s->mutex);
+    if (timeout_ms == UINT32_MAX) {
+        while (s->count == 0 && rc == 0) rc = pthread_cond_wait(&s->cond, &s->mutex);
+    } else if (timeout_ms == 0) {
+        if (s->count == 0) rc = ETIMEDOUT;
+    } else {
+        struct timespec deadline;
+        clock_gettime(CLOCK_REALTIME, &deadline);
+        deadline.tv_sec += timeout_ms / 1000;
+        deadline.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+        if (deadline.tv_nsec >= 1000000000L) {
+            deadline.tv_sec++;
+            deadline.tv_nsec -= 1000000000L;
+        }
+        while (s->count == 0 && rc == 0)
+            rc = pthread_cond_timedwait(&s->cond, &s->mutex, &deadline);
+    }
+    if (rc == 0 && s->count > 0) s->count--;
+    pthread_mutex_unlock(&s->mutex);
+    return rc == 0 ? 0 : -1;
+}
+
+static void pal_sem_give(void *sem)
+{
+    posix_sem_t *s = (posix_sem_t *)sem;
+    pthread_mutex_lock(&s->mutex);
+    s->count++;
+    pthread_cond_signal(&s->cond);
+    pthread_mutex_unlock(&s->mutex);
+}
+
+static void pal_sem_destroy(void *sem)
+{
+    posix_sem_t *s = (posix_sem_t *)sem;
+    pthread_cond_destroy(&s->cond);
+    pthread_mutex_destroy(&s->mutex);
+    free(s);
+}
+
+/* -------------------------------------------------------------------------
  * Thread (pthreads)
  * ------------------------------------------------------------------------- */
 static int pal_thread_create(void **handle, void *(*func)(void *), void *arg)
@@ -306,6 +368,10 @@ static const pal_t g_posix_pal = {
     .mutex_lock       = pal_mutex_lock,
     .mutex_unlock     = pal_mutex_unlock,
     .mutex_destroy    = pal_mutex_destroy,
+    .sem_create       = pal_sem_create,
+    .sem_take         = pal_sem_take,
+    .sem_give         = pal_sem_give,
+    .sem_destroy      = pal_sem_destroy,
     .thread_create    = pal_thread_create,
     .thread_join      = pal_thread_join,
 };

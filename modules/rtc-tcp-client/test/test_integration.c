@@ -1609,10 +1609,10 @@ static void test_sg_send_failure(void)
         sleep_ms(5);
         (void)tai_loopback_pop_sent(tx, sizeof(tx));
 
-        /* Header write (call 0) ok, payload write (call 1) fails: mid-frame, bytes
-         * already committed -> TAI_ERR_NET, but the SDK must NOT tear down. */
+        /* Keep this frame above TAI_SG_SMALL_FRAME so it exercises the large
+         * scatter-gather path: header write succeeds, payload write fails. */
         tai_loopback_fail_send_after(1);
-        uint8_t pcm[320]; memset(pcm, 0x42, sizeof(pcm));
+        uint8_t pcm[600]; memset(pcm, 0x42, sizeof(pcm));
         CHECK_EQ_INT(tai_send_audio_chunk(ctx, pcm, sizeof(pcm)), TAI_ERR_NET);
 
         tai_loopback_fail_send_after(-1);
