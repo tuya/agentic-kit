@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- iot-client — US-East (`UEAZ`) fell back to an ATOP host that does not resolve(#32).
+- iot-client — US-East (`UEAZ`) fell back to an ATOP host that does not resolve(#31).
   `IOT_UEAZ_HOST` is now `a1-ueaz.tuyaus.com`.
 
 ## [0.4.0] - 2026-08-27
