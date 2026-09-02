@@ -713,7 +713,8 @@ int tai_proto_dispatch(tai_ctx_t *ctx,
 
     case TAI_PKT_PONG:
         ctx->last_pong_ms = ctx->pal->time_ms();
-        TAI_LOGD(ctx->pal, TAG, "PONG received");
+        TAI_LOGI(ctx->pal, TAG, "PONG received (RTT=%llums)",
+                 (unsigned long long)(ctx->last_pong_ms - ctx->last_ping_ms));
         break;
 
     case TAI_PKT_AUDIO:

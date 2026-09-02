@@ -9,6 +9,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <time.h>
+#include <errno.h>
 
 #include "log.h"
 #include "../src/tai_internal.h"   /* frame/packet codec + key derivation for the handshake mock */
@@ -478,6 +479,65 @@ static void lb_mutex_lock   (void *m) { pthread_mutex_lock   ((pthread_mutex_t *
 static void lb_mutex_unlock (void *m) { pthread_mutex_unlock ((pthread_mutex_t *)m); }
 static void lb_mutex_destroy(void *m) { pthread_mutex_destroy((pthread_mutex_t *)m); free(m); }
 
+typedef struct {
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    unsigned count;
+} lb_sem_t;
+
+static void *lb_sem_create(unsigned initial_count)
+{
+    lb_sem_t *s = (lb_sem_t *)malloc(sizeof(*s));
+    if (!s) return NULL;
+    pthread_mutex_init(&s->mutex, NULL);
+    pthread_cond_init(&s->cond, NULL);
+    s->count = initial_count;
+    return s;
+}
+
+static int lb_sem_take(void *sem, uint32_t timeout_ms)
+{
+    lb_sem_t *s = (lb_sem_t *)sem;
+    int rc = 0;
+    pthread_mutex_lock(&s->mutex);
+    if (timeout_ms == UINT32_MAX) {
+        while (s->count == 0 && rc == 0) rc = pthread_cond_wait(&s->cond, &s->mutex);
+    } else if (timeout_ms == 0) {
+        if (s->count == 0) rc = ETIMEDOUT;
+    } else {
+        struct timespec deadline;
+        clock_gettime(CLOCK_REALTIME, &deadline);
+        deadline.tv_sec += timeout_ms / 1000;
+        deadline.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+        if (deadline.tv_nsec >= 1000000000L) {
+            deadline.tv_sec++;
+            deadline.tv_nsec -= 1000000000L;
+        }
+        while (s->count == 0 && rc == 0)
+            rc = pthread_cond_timedwait(&s->cond, &s->mutex, &deadline);
+    }
+    if (rc == 0 && s->count > 0) s->count--;
+    pthread_mutex_unlock(&s->mutex);
+    return rc == 0 ? 0 : -1;
+}
+
+static void lb_sem_give(void *sem)
+{
+    lb_sem_t *s = (lb_sem_t *)sem;
+    pthread_mutex_lock(&s->mutex);
+    s->count++;
+    pthread_cond_signal(&s->cond);
+    pthread_mutex_unlock(&s->mutex);
+}
+
+static void lb_sem_destroy(void *sem)
+{
+    lb_sem_t *s = (lb_sem_t *)sem;
+    pthread_cond_destroy(&s->cond);
+    pthread_mutex_destroy(&s->mutex);
+    free(s);
+}
+
 static int lb_thread_create(void **handle, void *(*func)(void *), void *arg)
 {
     pthread_t *t = (pthread_t *)malloc(sizeof(*t));
@@ -530,6 +590,10 @@ static const pal_t g_loopback_pal = {
     .mutex_lock       = lb_mutex_lock,
     .mutex_unlock     = lb_mutex_unlock,
     .mutex_destroy    = lb_mutex_destroy,
+    .sem_create       = lb_sem_create,
+    .sem_take         = lb_sem_take,
+    .sem_give         = lb_sem_give,
+    .sem_destroy      = lb_sem_destroy,
     .thread_create    = lb_thread_create,
     .thread_join      = lb_thread_join,
 };

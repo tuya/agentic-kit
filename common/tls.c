@@ -21,14 +21,55 @@
 /* =========================================================================
  * tls_t -- per-connection state
  * ========================================================================= */
+typedef enum {
+    TLS_REQ_READ,
+    TLS_REQ_WRITE,
+} tls_req_type_t;
+
+typedef struct {
+    tls_req_type_t type;
+    uint8_t       *read_buf;
+    const uint8_t *write_buf;
+    size_t         len;
+    size_t         written;
+    uint64_t       deadline_ms;
+    uint32_t       timeout_ms;
+    int            wait_events;
+    int            result;
+} tls_io_req_t;
+
 struct tls_conn {
     mbedtls_ssl_context  ssl;
     mbedtls_ssl_config   conf;
     mbedtls_x509_crt     ca_chain;
     void                *tcp_handle;
     const pal_t         *pal;
-    void                *yield_mutex;  /* serialises ssl_read/ssl_write       */
+
+    void *owner_thread;
+    void *state_mutex;
+    void *read_mutex;
+    void *write_mutex;
+    void *wake_sem;
+    void *read_done_sem;
+    void *write_done_sem;
+    tls_io_req_t *read_req;
+    tls_io_req_t *write_req;
+    tls_io_req_t *active_req;
+    uint8_t *rx_staging;
+    size_t rx_staging_off;
+    size_t rx_staging_len;
+    volatile int owner_running;
+    volatile int closing;
+    volatile int broken;
+    int peer_eof;
 };
+
+#ifndef TLS_OWNER_POLL_SLICE_MS
+#define TLS_OWNER_POLL_SLICE_MS 20U
+#endif
+#ifndef TLS_OWNER_RX_STAGING_SIZE
+#define TLS_OWNER_RX_STAGING_SIZE 4096U
+#endif
 
 /* =========================================================================
  * RNG callback for the TLS handshake.
@@ -82,9 +123,19 @@ static int tls_bio_send(void *ctx, const unsigned char *buf, size_t len)
 static int tls_bio_recv(void *ctx, unsigned char *buf, size_t len)
 {
     tls_t *t = (tls_t *)ctx;
+    if (t->rx_staging_len > 0) {
+        size_t n = len < t->rx_staging_len ? len : t->rx_staging_len;
+        memcpy(buf, t->rx_staging + t->rx_staging_off, n);
+        t->rx_staging_off += n;
+        t->rx_staging_len -= n;
+        if (t->rx_staging_len == 0) t->rx_staging_off = 0;
+        return (int)n;
+    }
+    if (t->peer_eof) return 0;
+
     int rc = t->pal->tcp_recv(t->tcp_handle, buf, len, 0);
     if (rc > 0) return rc;
-    if (rc == 0) return 0;
+    if (rc == 0) { t->peer_eof = 1; return 0; }
     if (rc == PAL_ERR_AGAIN) return MBEDTLS_ERR_SSL_WANT_READ;
     return MBEDTLS_ERR_NET_RECV_FAILED;
 }
@@ -93,11 +144,151 @@ static int tls_bio_recv_timeout(void *ctx, unsigned char *buf,
                                 size_t len, uint32_t timeout)
 {
     tls_t *t = (tls_t *)ctx;
+    if (t->rx_staging_len > 0 || t->peer_eof)
+        return tls_bio_recv(ctx, buf, len);
+
     int rc = t->pal->tcp_recv(t->tcp_handle, buf, len, timeout);
     if (rc > 0) return rc;
-    if (rc == 0) return 0;
+    if (rc == 0) { t->peer_eof = 1; return 0; }
     if (rc == PAL_ERR_AGAIN) return MBEDTLS_ERR_SSL_WANT_READ;
     return MBEDTLS_ERR_NET_RECV_FAILED;
+}
+
+static void tls_complete_request(tls_t *t, tls_io_req_t *req, int result)
+{
+    const pal_t *pal = t->pal;
+    pal->mutex_lock(t->state_mutex);
+    if (req->type == TLS_REQ_READ) {
+        if (t->read_req == req) t->read_req = NULL;
+    } else {
+        if (t->write_req == req) t->write_req = NULL;
+    }
+    req->result = result;
+    pal->mutex_unlock(t->state_mutex);
+    pal->sem_give(req->type == TLS_REQ_READ ? t->read_done_sem
+                                             : t->write_done_sem);
+}
+
+static int tls_request_expired(tls_t *t, const tls_io_req_t *req)
+{
+    return req->timeout_ms == 0 || t->pal->time_ms() >= req->deadline_ms;
+}
+
+static int tls_drive_write(tls_t *t, tls_io_req_t *req)
+{
+    int n = mbedtls_ssl_write(&t->ssl,
+                              req->write_buf + req->written,
+                              req->len - req->written);
+    if (n > 0) {
+        req->written += (size_t)n;
+        /* Partial write: more bytes remain. The socket was just writable, so
+         * poll for writable (not "no events") and retry immediately. Setting
+         * wait_events to 0 here made the owner poll only for readability and
+         * stall each remaining fragment by a full poll slice. */
+        req->wait_events = 2;
+        return req->written == req->len ? TLS_OK : TLS_ERR_AGAIN;
+    }
+    if (n == MBEDTLS_ERR_SSL_WANT_WRITE || n == MBEDTLS_ERR_SSL_WANT_READ) {
+        if (tls_request_expired(t, req)) return TLS_ERR_NET;
+        req->wait_events = n == MBEDTLS_ERR_SSL_WANT_READ ? 1 : 2;
+        return TLS_ERR_AGAIN;
+    }
+    return TLS_ERR_NET;
+}
+
+static int tls_drive_read(tls_t *t, tls_io_req_t *req)
+{
+    int n = mbedtls_ssl_read(&t->ssl, req->read_buf, req->len);
+    if (n > 0) return n;
+    if (n == 0 || n == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) return 0;
+    if (n == MBEDTLS_ERR_SSL_WANT_READ ||
+        n == MBEDTLS_ERR_SSL_WANT_WRITE ||
+        n == MBEDTLS_ERR_SSL_TIMEOUT) {
+        if (tls_request_expired(t, req)) return TLS_ERR_AGAIN;
+        req->wait_events = n == MBEDTLS_ERR_SSL_WANT_WRITE ? 2 : 1;
+        return TLS_ERR_AGAIN;
+    }
+    return TLS_ERR_NET;
+}
+
+static int tls_stage_socket_input(tls_t *t)
+{
+    if (t->peer_eof || t->rx_staging_len != 0) return 0;
+    int n = t->pal->tcp_recv(t->tcp_handle, t->rx_staging,
+                             TLS_OWNER_RX_STAGING_SIZE, 0);
+    if (n > 0) {
+        t->rx_staging_off = 0;
+        t->rx_staging_len = (size_t)n;
+        return 1;
+    }
+    if (n == 0) t->peer_eof = 1;
+    return 0;
+}
+
+static void *tls_owner_thread(void *arg)
+{
+    tls_t *t = (tls_t *)arg;
+    const pal_t *pal = t->pal;
+
+    for (;;) {
+        pal->mutex_lock(t->state_mutex);
+        tls_io_req_t *read_req = t->read_req;
+        tls_io_req_t *write_req = t->write_req;
+        int closing = t->closing;
+        if (!t->active_req && write_req)
+            t->active_req = write_req;
+        tls_io_req_t *active_write = t->active_req;
+        pal->mutex_unlock(t->state_mutex);
+
+        if (closing) {
+            if (!t->broken) (void)mbedtls_ssl_close_notify(&t->ssl);
+            if (read_req) tls_complete_request(t, read_req, TLS_ERR_NET);
+            if (write_req) tls_complete_request(t, write_req, TLS_ERR_NET);
+            break;
+        }
+
+        if (active_write) {
+            int rc = tls_drive_write(t, active_write);
+            int complete = rc != TLS_ERR_AGAIN ||
+                           tls_request_expired(t, active_write);
+            if (complete) {
+                if (rc == TLS_ERR_AGAIN) rc = TLS_ERR_NET;
+                if (rc == TLS_ERR_NET) t->broken = 1;
+                pal->mutex_lock(t->state_mutex);
+                t->active_req = NULL;
+                pal->mutex_unlock(t->state_mutex);
+                tls_complete_request(t, active_write, rc);
+                continue;
+            }
+
+            /* While a write owns the mbedTLS context we cannot run a read, so
+             * drain any inbound bytes into the staging buffer. Without this the
+             * ESP receive window fills during a blocked write and the peer
+             * stalls, which is the exact full-duplex deadlock being fixed. */
+            tls_stage_socket_input(t);
+
+            int events = active_write->wait_events;
+            if (t->rx_staging_len == 0) events |= 1;
+            pal->tcp_poll(t->tcp_handle, events, TLS_OWNER_POLL_SLICE_MS);
+            continue;
+        }
+
+        if (read_req) {
+            int rc = tls_drive_read(t, read_req);
+            if (rc != TLS_ERR_AGAIN || tls_request_expired(t, read_req)) {
+                tls_complete_request(t, read_req, rc);
+                continue;
+            }
+            pal->tcp_poll(t->tcp_handle, read_req->wait_events,
+                          TLS_OWNER_POLL_SLICE_MS);
+            continue;
+        }
+
+        pal->sem_take(t->wake_sem, UINT32_MAX);
+    }
+
+    t->owner_running = 0;
+    return NULL;
 }
 
 /* =========================================================================
@@ -112,8 +303,18 @@ tls_t *tls_connect(const tls_config_t *cfg)
     if (!t) return NULL;
     memset(t, 0, sizeof(*t));
     t->pal = pal;
-    t->yield_mutex = pal->mutex_create();
-    if (!t->yield_mutex) { pal->free(t); return NULL; }
+    t->state_mutex = pal->mutex_create();
+    t->read_mutex = pal->mutex_create();
+    t->write_mutex = pal->mutex_create();
+    t->wake_sem = pal->sem_create(0);
+    t->read_done_sem = pal->sem_create(0);
+    t->write_done_sem = pal->sem_create(0);
+    t->rx_staging = (uint8_t *)pal->malloc(TLS_OWNER_RX_STAGING_SIZE);
+    if (!t->state_mutex || !t->read_mutex || !t->write_mutex ||
+        !t->wake_sem || !t->read_done_sem || !t->write_done_sem ||
+        !t->rx_staging) {
+        goto fail;
+    }
 
     mbedtls_ssl_init(&t->ssl);
     mbedtls_ssl_config_init(&t->conf);
@@ -274,6 +475,12 @@ tls_t *tls_connect(const tls_config_t *cfg)
              cfg->host, (unsigned)cfg->port,
              mbedtls_ssl_get_version(&t->ssl),
              mbedtls_ssl_get_ciphersuite(&t->ssl));
+    t->owner_running = 1;
+    if (pal->thread_create(&t->owner_thread, tls_owner_thread, t) != 0) {
+        t->owner_running = 0;
+        log_emit(LOG_ERROR, "[tls] failed to create TLS owner thread");
+        goto fail;
+    }
     return t;
 
 fail:
@@ -281,72 +488,77 @@ fail:
     mbedtls_ssl_free(&t->ssl);
     mbedtls_ssl_config_free(&t->conf);
     mbedtls_x509_crt_free(&t->ca_chain);
-    pal->mutex_destroy(t->yield_mutex);
+    if (t->rx_staging) pal->free(t->rx_staging);
+    if (t->read_done_sem) pal->sem_destroy(t->read_done_sem);
+    if (t->write_done_sem) pal->sem_destroy(t->write_done_sem);
+    if (t->wake_sem) pal->sem_destroy(t->wake_sem);
+    if (t->read_mutex) pal->mutex_destroy(t->read_mutex);
+    if (t->write_mutex) pal->mutex_destroy(t->write_mutex);
+    if (t->state_mutex) pal->mutex_destroy(t->state_mutex);
     pal->free(t);
     return NULL;
 }
 
 /* =========================================================================
- * tls_write -- write ALL bytes within timeout_ms, polling between writes
+ * Synchronous request submission
  * ========================================================================= */
-int tls_write(tls_t *t, const uint8_t *buf, size_t len, uint32_t timeout_ms)
+static int tls_submit_request(tls_t *t, tls_io_req_t *req)
 {
-    if (!t) return TLS_ERR_ARGS;
-    size_t written = 0;
-    uint64_t start = t->pal->time_ms();
+    const pal_t *pal = t->pal;
+    void *direction_mutex = req->type == TLS_REQ_READ ? t->read_mutex
+                                                       : t->write_mutex;
+    void *done_sem = req->type == TLS_REQ_READ ? t->read_done_sem
+                                                : t->write_done_sem;
 
-    while (written < len) {
-        t->pal->mutex_lock(t->yield_mutex);
-        int n = mbedtls_ssl_write(&t->ssl, buf + written, len - written);
-        t->pal->mutex_unlock(t->yield_mutex);
-
-        if (n > 0) { written += (size_t)n; continue; }
-        if (n == MBEDTLS_ERR_SSL_WANT_WRITE || n == MBEDTLS_ERR_SSL_WANT_READ) {
-            uint64_t elapsed = t->pal->time_ms() - start;
-            if (elapsed >= timeout_ms) return TLS_ERR_NET;
-            uint32_t remaining = (uint32_t)(timeout_ms - elapsed);
-            int ev = (n == MBEDTLS_ERR_SSL_WANT_READ) ? 1 : 2;
-            t->pal->tcp_poll(t->tcp_handle, ev, remaining);
-            continue;
-        }
+    pal->mutex_lock(direction_mutex);
+    pal->mutex_lock(t->state_mutex);
+    if (t->closing || t->broken || !t->owner_running) {
+        pal->mutex_unlock(t->state_mutex);
+        pal->mutex_unlock(direction_mutex);
         return TLS_ERR_NET;
     }
-    return TLS_OK;
+    if (req->type == TLS_REQ_READ) t->read_req = req;
+    else                           t->write_req = req;
+    pal->mutex_unlock(t->state_mutex);
+
+    pal->sem_give(t->wake_sem);
+    pal->sem_take(done_sem, UINT32_MAX);
+    int result = req->result;
+    pal->mutex_unlock(direction_mutex);
+    return result;
 }
 
-/* =========================================================================
- * tls_read -- read up to len bytes, blocking at most timeout_ms (0 = peek)
- * ========================================================================= */
+int tls_write(tls_t *t, const uint8_t *buf, size_t len, uint32_t timeout_ms)
+{
+    if (!t || (!buf && len > 0)) return TLS_ERR_ARGS;
+    if (len == 0) return TLS_OK;
+
+    tls_io_req_t req = {
+        .type = TLS_REQ_WRITE,
+        .write_buf = buf,
+        .len = len,
+        .deadline_ms = t->pal->time_ms() + timeout_ms,
+        .timeout_ms = timeout_ms,
+        .result = TLS_ERR_NET,
+    };
+    return tls_submit_request(t, &req);
+}
+
 int tls_read(tls_t *t, uint8_t *buf, size_t len, uint32_t timeout_ms)
 {
-    if (!t) return TLS_ERR_ARGS;
-    uint64_t start = t->pal->time_ms();
+    if (!t || !buf || len == 0) return TLS_ERR_ARGS;
 
-    for (;;) {
-        t->pal->mutex_lock(t->yield_mutex);
-        int n = mbedtls_ssl_read(&t->ssl, buf, len);
-        t->pal->mutex_unlock(t->yield_mutex);
-
-        if (n > 0) return n;
-        if (n == 0 || n == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) return 0;
-        if (n != MBEDTLS_ERR_SSL_WANT_READ &&
-            n != MBEDTLS_ERR_SSL_WANT_WRITE &&
-            n != MBEDTLS_ERR_SSL_TIMEOUT) {
-            return TLS_ERR_NET;
-        }
-
-        uint64_t elapsed = t->pal->time_ms() - start;
-        if (elapsed >= timeout_ms) return TLS_ERR_AGAIN;
-
-        uint32_t remaining = timeout_ms - (uint32_t)elapsed;
-        int ev = (n == MBEDTLS_ERR_SSL_WANT_WRITE) ? 2 : 1;
-        t->pal->tcp_poll(t->tcp_handle, ev, remaining);
-    }
+    tls_io_req_t req = {
+        .type = TLS_REQ_READ,
+        .read_buf = buf,
+        .len = len,
+        .deadline_ms = t->pal->time_ms() + timeout_ms,
+        .timeout_ms = timeout_ms,
+        .result = TLS_ERR_NET,
+    };
+    return tls_submit_request(t, &req);
 }
 
-/* =========================================================================
- * tls_get_tcp_handle / tls_close
- * ========================================================================= */
 void *tls_get_tcp_handle(tls_t *t)
 {
     return t ? t->tcp_handle : NULL;
@@ -355,12 +567,28 @@ void *tls_get_tcp_handle(tls_t *t)
 void tls_close(tls_t *t)
 {
     if (!t) return;
-    mbedtls_ssl_close_notify(&t->ssl);
+    const pal_t *pal = t->pal;
+
+    pal->mutex_lock(t->state_mutex);
+    t->closing = 1;
+    pal->mutex_unlock(t->state_mutex);
+    pal->sem_give(t->wake_sem);
+    if (t->owner_thread) {
+        pal->thread_join(t->owner_thread);
+        t->owner_thread = NULL;
+    }
+
     if (t->tcp_handle)
-        t->pal->tcp_close(t->tcp_handle);
+        pal->tcp_close(t->tcp_handle);
     mbedtls_ssl_free(&t->ssl);
     mbedtls_ssl_config_free(&t->conf);
     mbedtls_x509_crt_free(&t->ca_chain);
-    t->pal->mutex_destroy(t->yield_mutex);
-    t->pal->free(t);
+    pal->free(t->rx_staging);
+    pal->sem_destroy(t->read_done_sem);
+    pal->sem_destroy(t->write_done_sem);
+    pal->sem_destroy(t->wake_sem);
+    pal->mutex_destroy(t->read_mutex);
+    pal->mutex_destroy(t->write_mutex);
+    pal->mutex_destroy(t->state_mutex);
+    pal->free(t);
 }

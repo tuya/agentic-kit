@@ -105,6 +105,16 @@ typedef struct pal {
     void  (*mutex_unlock)(void *mutex);
     void  (*mutex_destroy)(void *mutex);
 
+    /* --- Semaphore -------------------------------------------------------
+     * Counting semaphore used for cross-thread request/completion signaling.
+     * sem_take returns 0 on success and -1 on timeout/error. UINT32_MAX means
+     * wait indefinitely; 0 means try once without blocking.
+     */
+    void *(*sem_create)(unsigned initial_count);
+    int   (*sem_take)(void *sem, uint32_t timeout_ms);
+    void  (*sem_give)(void *sem);
+    void  (*sem_destroy)(void *sem);
+
     /* --- Thread ----------------------------------------------------------
      * thread_create: spawn a new thread running func(arg).
      *   Store an opaque handle in *handle.  Return 0 on success.
@@ -127,7 +137,9 @@ static inline bool pal_is_valid(const pal_t *p)
     return p && p->tcp_connect && p->tcp_send && p->tcp_recv && p->tcp_close
              && p->tcp_poll && p->time_ms && p->malloc && p->free
              && p->mutex_create && p->mutex_lock && p->mutex_unlock
-             && p->mutex_destroy && p->thread_create && p->thread_join;
+             && p->mutex_destroy && p->sem_create && p->sem_take
+             && p->sem_give && p->sem_destroy
+             && p->thread_create && p->thread_join;
 }
 
 #ifdef __cplusplus

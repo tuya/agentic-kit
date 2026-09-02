@@ -68,7 +68,14 @@ void tai_emit_disconnect(tai_ctx_t *ctx, uint8_t reason,
 static inline int ctx_io_send(tai_ctx_t *ctx, const uint8_t *buf, size_t len)
 {
     if (!ctx->disable_tls) {
+        uint64_t t0 = ctx->pal->time_ms();
         int r = tls_write(ctx->tls, buf, len, 10000);
+        uint64_t dt = ctx->pal->time_ms() - t0;
+        if (dt > 500) {
+            TAI_LOGW(ctx->pal, TAG,
+                     "tls_write SLOW: %llu ms for %u bytes (tx stalled?)",
+                     (unsigned long long)dt, (unsigned)len);
+        }
         return (r == TLS_OK) ? TAI_OK : TAI_ERR_NET;
     }
 
@@ -153,6 +160,15 @@ static void log_send_packet(tai_ctx_t *ctx,
  * ========================================================================= */
 #define TAI_FRAME_HDR_LEN 5
 
+/* Small frames (audio chunks, pings, control packets) are assembled into one
+ * contiguous buffer and emitted as a SINGLE TLS write. Emitting them as the
+ * 2-3 scatter-gather writes below multiplies TLS records ~3x (~75 tiny
+ * ssl_write calls/sec during full-duplex chat), which starves the receive
+ * worker on constrained targets (ESP32/lwIP) and eventually wedges the
+ * downstream stream. Large frames (images, big JSON) keep the zero-copy
+ * scatter-gather path — the copy cost only matters when it is small. */
+#define TAI_SG_SMALL_FRAME 512
+
 /* Emit one frame. The application-header bytes (hdr_len of them) are already at
  * ctx->tx_hdr_buf + 5; hdr_len is 0 for non-first fragments. pay/pay_len is the
  * payload slice for this frame (zero-copy, from the caller's buffer). */
@@ -174,6 +190,16 @@ static int send_one_frame_sg(tai_ctx_t *ctx, uint8_t frag_flag, uint16_t seq,
         tai_seg_t segs[2] = { { head, head_len }, { pay, pay_len } };
         int rc = tai_frame_hmac_sg(segs, 2, ctx->sign_key, ctx->sig_len, ctx->tx_sig);
         if (rc != TAI_OK) return rc;                 /* pre-wire: recoverable */
+    }
+
+    /* Small frame: one contiguous write (one TLS record on the wire). */
+    size_t total = head_len + pay_len + ctx->sig_len;
+    if (total <= TAI_SG_SMALL_FRAME) {
+        uint8_t buf[TAI_SG_SMALL_FRAME];
+        memcpy(buf, head, head_len);
+        if (pay_len) memcpy(buf + head_len, pay, pay_len);
+        if (ctx->sig_len) memcpy(buf + head_len + pay_len, ctx->tx_sig, ctx->sig_len);
+        return (ctx_io_send(ctx, buf, total) == TAI_OK) ? TAI_OK : TAI_ERR_NET;
     }
 
     /* From here on, any failure has committed bytes to the wire and desyncs the
@@ -1129,10 +1155,10 @@ int tai_send_mcp_response(tai_ctx_t *ctx, const char *json_rpc_response)
  * Drives recv + dispatch in a loop, sends periodic pings, detects pong
  * timeouts.  Auto-started by tai_connect(), stopped by tai_disconnect().
  *
- * Locking: the mbedTLS read/write mutex now lives inside the shared TLS module
- * (tls_write / tls_read, granularity = a single ssl_* call), so the worker no
- * longer needs to wrap recv+dispatch in ctx_lock.  rx_buf / frag_buf are touched
- * only from this thread, and dispatch state mutated by callbacks
+ * Locking: the shared TLS layer owns the mbedTLS context on a dedicated task;
+ * tls_read/tls_write submit synchronous requests to that owner. The worker does
+ * not hold ctx_lock while receiving or dispatching. rx_buf / frag_buf are
+ * touched only from this thread, and dispatch state mutated by callbacks
  * (event_open, session_open, connected) is single-int / advisory.
  * ========================================================================= */
 

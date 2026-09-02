@@ -12,10 +12,13 @@
  *   tls_write  -- blocking "write all" within timeout_ms.
  *   tls_read   -- blocking read up to timeout_ms (0 = single peek).
  *
- * Thread-safety.  Each tls_t serialises its mbedTLS read/write with an internal
- * recursive mutex, releasing it during tcp_poll waits, so a worker thread and a
- * sender thread may interleave freely (the rtc model).  The handshake DRBG is a
- * process-wide, lazily-seeded singleton shared by all connections.
+ * Thread-safety.  Each connection starts one owner task. That task is the only
+ * code allowed to enter its mbedtls_ssl_context; tls_read/tls_write submit
+ * synchronous requests and wait for completion. A pending mbedTLS write keeps
+ * exclusive ownership across all WANT_READ/WANT_WRITE retries; encrypted input
+ * arriving meanwhile is drained into a bounded staging buffer and consumed by
+ * the next read request. The handshake DRBG is a process-wide, lazily-seeded
+ * singleton shared by all connections.
  *
  * mbedTLS configuration is the integrator's responsibility.  This SDK does NOT
  * touch mbedTLS's process-global configuration -- the allocator
