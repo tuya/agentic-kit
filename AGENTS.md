@@ -91,9 +91,12 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
    `pal_freertos.c` IDF-only — so never blind-sync them.
 5. **Module code goes through the PAL**: `pal->malloc`/`pal->free` for memory, `log_emit` for
    output (via each module's prefixed `log_info`/`log_warn`/`log_error`). A direct `malloc` or
-   `printf` is a porting bug even where it links on the host. The one deliberate gap: `pal_t` has
+   `printf` is a porting bug even where it links on the host. Two deliberate gaps: `pal_t` has
    only a monotonic `time_ms`, so ATOP signing reads libc `time(NULL)` — a port needs a real-time
-   clock the C library can see, or every signed request carries a `t` the cloud rejects.
+   clock the C library can see, or every signed request carries a `t` the cloud rejects; and
+   `pal_t` has no file interface, so the TLS key-log file sink in `common/tls.c` uses libc
+   `fopen`/`fputs`, compiled in only where `TLS_KEYLOG_FILE_SINK` is 1 (POSIX and ESP-IDF by
+   default) so a bare newlib port without `_open`/`_close` stubs still links `tls.o`.
 6. **CHANGELOG entries are terse, and carry a PR number.** One line per change —
    `- <module> — <what changed>(#<PR>).` — with indented sub-bullets only for specifics a reader
    acts on (a new symbol, a changed default, a migration step). `## [0.3.0]` is the reference for

@@ -145,41 +145,59 @@ void tls_close(tls_t *t);
  *
  * THE EXPORTED LINES ARE THE SESSION KEYS.  Anyone holding them can decrypt
  * that device's traffic, including its MQTT password and session tokens.  Turn
- * this on for a debug build against a test account, write the file somewhere
- * that is not shipped or uploaded, and delete it afterwards.  Nothing here is
- * reachable unless the application calls one of the two functions below.
+ * this on for debugging only, against a test account; write the file somewhere
+ * that is not shipped or uploaded, and delete it afterwards.  Nothing is
+ * exported unless the application calls one of the two functions below -- but
+ * note this is a runtime switch, not a build-time one: the functions are linked
+ * into every build, and the only sign that a debug switch shipped is the
+ * "[tls] key logging ENABLED" LOG_WARN they emit.
  *
  * Scope is process-wide (like the handshake DRBG), so one call covers every
- * connection -- MQTT, ATOP/HTTPS and the RTC/TAI channel alike.  Enable it once
- * at startup, single-threaded, before the first tls_connect(); the setting is
- * read at handshake time, and connections already open are unaffected.
+ * connection -- MQTT, ATOP/HTTPS and the RTC/TAI channel alike.  Install or
+ * change the sink only while no tls_connect() is in flight -- in practice once
+ * at startup, single-threaded, before the first one.  tls_connect() snapshots
+ * the sink; a connection uses whatever was installed when it was opened, and
+ * connections already open are unaffected.  There is no lock: a swap racing a
+ * handshake on another thread is undefined behaviour, not a late line.
  *
  * Which lines appear depends on the negotiated version: TLS 1.2 (what
- * iot-client pins) emits one `CLIENT_RANDOM` line per connection, TLS 1.3 (the
- * RTC/TAI channel) emits the handshake and application traffic secrets.
+ * iot-client pins) emits one `CLIENT_RANDOM` line per connection, TLS 1.3 (what
+ * the RTC/TAI server may negotiate) emits the handshake and application traffic
+ * secrets.  Exporting needs mbedTLS 3.x; on 2.x the sink installs but nothing is
+ * written.
  * ========================================================================= */
 
 /* Sink for one complete key-log line: NUL-terminated, newline included, safe to
- * pass straight to fputs/write.  Called from the handshake, on whichever thread
- * called tls_connect(), so it must be reentrant if several connections may be
- * established concurrently. */
+ * pass straight to fputs/write.  Called during the handshake, on whichever
+ * thread called tls_connect() -- the thread running iot_client_init() /
+ * iot_client_process() for iot-client, the thread calling tai_connect() for
+ * RTC/TAI.  If two such threads may handshake at the same time the sink must be
+ * thread-safe (write each line atomically, e.g. under a mutex), or the two
+ * lines interleave and Wireshark discards both. */
 typedef void (*tls_keylog_fn)(void *ctx, const char *line);
 
 /* Route key-log lines to your own sink (a UART, a log server, a ring buffer).
- * fn == NULL disables key logging.  Replaces any previous handler, including the
- * file sink installed by tls_keylog_open_file(). */
+ * fn == NULL disables key logging.  Replaces any previous sink; if the file sink
+ * from tls_keylog_open_file() is active it is closed first.  Like every change
+ * of sink, call it while no tls_connect() is in flight. */
 void tls_set_keylog_handler(tls_keylog_fn fn, void *ctx);
 
 /* Convenience sink: append key-log lines to `path`, creating it if needed, and
- * install it as the handler.  Requires a C library with a writable filesystem
- * (a host, or an RTOS target with a VFS mounted).  The stream is unbuffered, so
- * a line is on disk before the handshake completes.
+ * install it as the sink.  Compiled in only where TLS_KEYLOG_FILE_SINK is 1 --
+ * by default on POSIX hosts and ESP-IDF (its VFS); elsewhere it returns
+ * TLS_ERR_ARGS and tls_set_keylog_handler() is the way in.  Define
+ * TLS_KEYLOG_FILE_SINK=1 to opt a port with a writable filesystem in.
+ * On POSIX the file is created 0600, symlinks are not followed, and every line
+ * is written and fsync'ed before the handshake continues, so a capture stays
+ * decryptable if the device resets mid-session; elsewhere the stream is
+ * unbuffered but durability is whatever the VFS gives an unflushed write.
+ * A failed write is logged once (LOG_ERROR) and later lines are lost.
  * Returns TLS_OK, or TLS_ERR_ARGS if `path` is empty, cannot be opened, or a
  * key-log file is already open (close it first). */
 int  tls_keylog_open_file(const char *path);
 
-/* Uninstall the file sink (if it is the active handler) and close the file.
- * NULL-safe / idempotent.  Call it while no tls_connect() is in flight. */
+/* Uninstall the file sink (if it is the active sink) and close the file.
+ * Idempotent.  Call it while no tls_connect() is in flight. */
 void tls_keylog_close_file(void);
 
 #ifdef __cplusplus

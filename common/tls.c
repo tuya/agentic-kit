@@ -11,6 +11,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <errno.h>
 
 #include "mbedtls/ssl.h"
 #include "mbedtls/x509_crt.h"
@@ -19,9 +20,27 @@
 #include "mbedtls/version.h"
 #include "mbedtls/platform_util.h"   /* mbedtls_platform_zeroize for the key log */
 
-#if defined(__unix__) || defined(__APPLE__)
-#include <sys/stat.h>                /* fchmod: keep the key-log file owner-only */
-#include <unistd.h>
+/* The key-log file sink is the only libc file I/O in library code. It is
+ * compiled in where a writable filesystem is the norm (hosts, ESP-IDF's VFS)
+ * and out elsewhere, so a bare newlib port without _open/_close/_lseek stubs
+ * still links tls.o. Override with -DTLS_KEYLOG_FILE_SINK=0/1. */
+#ifndef TLS_KEYLOG_FILE_SINK
+#  if defined(__unix__) || defined(__APPLE__) || defined(ESP_PLATFORM)
+#    define TLS_KEYLOG_FILE_SINK 1
+#  else
+#    define TLS_KEYLOG_FILE_SINK 0
+#  endif
+#endif
+
+/* On POSIX the file is created with open(2) -- mode from creation, no symlink
+ * following, no inheritance across exec -- and fsync'ed per line. */
+#if TLS_KEYLOG_FILE_SINK && (defined(__unix__) || defined(__APPLE__))
+#  define TLS_KEYLOG_POSIX_FILE 1
+#  include <fcntl.h>
+#  include <sys/stat.h>
+#  include <unistd.h>
+#else
+#  define TLS_KEYLOG_POSIX_FILE 0
 #endif
 
 /* =========================================================================
@@ -34,6 +53,8 @@ struct tls_conn {
     void                *tcp_handle;
     const pal_t         *pal;
     void                *yield_mutex;  /* serialises ssl_read/ssl_write       */
+    tls_keylog_fn        keylog_fn;    /* key-log sink, snapshotted by tls_connect */
+    void                *keylog_ctx;
 };
 
 /* =========================================================================
@@ -72,81 +93,135 @@ static int tls_map_verify(tls_verify_t v)
 /* =========================================================================
  * TLS key log (NSS SSLKEYLOGFILE format) -- opt-in, off by default.
  *
- * Process-wide like the DRBG above: one sink covers every connection. The
- * handler is read inside the mbedTLS key-export callback, i.e. during the
- * handshake, so a connection picks up whatever was installed by then. See
- * tls.h for the contract and the warning about what these lines are.
+ * Process-wide like the DRBG above: one sink covers every connection. The app
+ * installs it once at startup, single-threaded, before the first tls_connect()
+ * (tls.h); tls_connect() then snapshots the pair into the tls_t on the
+ * connecting thread, and mbedTLS's export callback reads only its own
+ * connection's copy. Thread creation orders that install before any later
+ * handshake, so the globals need neither volatile nor a lock -- and neither
+ * would make a *swap* during a handshake safe, which is why tls.h forbids one.
  * ========================================================================= */
 
-/* volatile: installed on the app's startup thread, read from whichever thread
- * runs a handshake (the rtc worker as well as the app loop). */
-static tls_keylog_fn volatile g_keylog_fn  = NULL;
-static void *volatile         g_keylog_ctx = NULL;
+static tls_keylog_fn g_keylog_fn  = NULL;
+static void         *g_keylog_ctx = NULL;
 
-/* File sink state, owned by tls_keylog_open_file / _close_file. */
-static FILE *g_keylog_file = NULL;
+#if TLS_KEYLOG_FILE_SINK
+/* Set once a write has failed, so the failure is logged once rather than on
+ * every handshake. Reset when the file sink is (re)installed. */
+static bool g_keylog_file_failed = false;
 
 static void tls_keylog_file_write(void *ctx, const char *line)
 {
     FILE *f = (FILE *)ctx;
-    if (!f) return;
-    /* Unbuffered (see below), so this reaches the file before we return -- a
-     * capture is usable even if the device is reset mid-session. */
-    fputs(line, f);
+    /* Unbuffered stream (see open_file): fputs() is one write(2). A failed write
+     * -- ENOSPC, a VFS gone read-only -- would otherwise drop the line silently
+     * and leave a capture that will not decrypt, with nothing in the log to say
+     * why. */
+    if (fputs(line, f) == EOF) {
+        if (!g_keylog_file_failed) {
+            g_keylog_file_failed = true;
+            log_emit(LOG_ERROR, "[tls] key log write failed (%s); later lines are lost",
+                     strerror(errno));
+        }
+        return;
+    }
+#if TLS_KEYLOG_POSIX_FILE
+    /* write(2) alone leaves the line in the page cache; tls.h promises it
+     * survives a reset mid-session, so push it through. */
+    (void)fsync(fileno(f));
+#endif
+}
+#endif /* TLS_KEYLOG_FILE_SINK */
+
+/* The one place the (fn, ctx) pair changes. Detaches the outgoing sink before
+ * releasing anything it owns, publishes the new pair, and emits the single
+ * "key logging ENABLED" line the docs tell operators to grep production logs
+ * for. `where` names the sink for that line. */
+static void keylog_install(tls_keylog_fn fn, void *ctx, const char *where)
+{
+    tls_keylog_fn old_fn  = g_keylog_fn;
+    void         *old_ctx = g_keylog_ctx;
+    g_keylog_fn  = NULL;
+    g_keylog_ctx = NULL;
+#if TLS_KEYLOG_FILE_SINK
+    if (old_fn == tls_keylog_file_write) {
+        fclose((FILE *)old_ctx);
+        g_keylog_file_failed = false;
+    }
+#else
+    (void)old_fn;
+    (void)old_ctx;
+#endif
+    g_keylog_ctx = ctx;
+    g_keylog_fn  = fn;
+    if (fn)
+        log_emit(LOG_WARN, "[tls] key logging ENABLED -- session secrets are "
+                           "being exported to %s; do not use in production", where);
 }
 
 void tls_set_keylog_handler(tls_keylog_fn fn, void *ctx)
 {
-    /* Installing a different sink while the file sink is active would leave the
-     * FILE* open with nothing writing to it; close it so _close_file stays
-     * idempotent and the fd is not leaked. */
-    if (g_keylog_file && fn != tls_keylog_file_write) {
-        fclose(g_keylog_file);
-        g_keylog_file = NULL;
-    }
-    g_keylog_ctx = ctx;
-    g_keylog_fn  = fn;   /* last: ctx must be visible before the fn is callable */
-    if (fn)
-        log_emit(LOG_WARN, "[tls] key logging ENABLED -- session secrets are "
-                           "being exported; do not use in production");
+    keylog_install(fn, ctx, "a custom sink");
 }
 
 int tls_keylog_open_file(const char *path)
 {
     if (!path || path[0] == '\0') return TLS_ERR_ARGS;
-    if (g_keylog_file) {
+#if TLS_KEYLOG_FILE_SINK
+    if (g_keylog_fn == tls_keylog_file_write) {
         log_emit(LOG_ERROR, "[tls] key log file already open");
         return TLS_ERR_ARGS;
     }
-    FILE *f = fopen(path, "a");
+    FILE *f = NULL;
+#if TLS_KEYLOG_POSIX_FILE
+    /* The file IS the secret: 0600 from the moment it exists (fopen("a") +
+     * fchmod would leave it at 0666 & ~umask in between), never through a
+     * symlink someone planted at the documented path, never inherited by a
+     * child the app execs. */
+    int fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_CLOEXEC,
+                  S_IRUSR | S_IWUSR);
+    if (fd >= 0) {
+        f = fdopen(fd, "a");
+        if (!f) close(fd);
+    }
+#else
+    f = fopen(path, "a");
+#endif
     if (!f) {
-        log_emit(LOG_ERROR, "[tls] cannot open key log file '%s'", path);
+        log_emit(LOG_ERROR, "[tls] cannot open key log file '%s': %s",
+                 path, strerror(errno));
         return TLS_ERR_ARGS;
     }
-#if defined(__unix__) || defined(__APPLE__)
-    /* The file IS the secret; the default 0666 & ~umask is too generous for it. */
-    (void)fchmod(fileno(f), S_IRUSR | S_IWUSR);
-#endif
     /* No stdio buffering: a buffer holding secrets cannot be wiped, and an
-     * unflushed line is a capture that will not decrypt. */
-    setvbuf(f, NULL, _IONBF, 0);
-    g_keylog_file = f;
-    tls_set_keylog_handler(tls_keylog_file_write, f);
-    log_emit(LOG_WARN, "[tls] key log file: %s", path);
+     * unflushed line is a capture that will not decrypt. A stream that cannot be
+     * made unbuffered is refused rather than silently buffered. */
+    if (setvbuf(f, NULL, _IONBF, 0) != 0) {
+        log_emit(LOG_ERROR, "[tls] cannot make key log file '%s' unbuffered", path);
+        fclose(f);
+        return TLS_ERR_ARGS;
+    }
+    keylog_install(tls_keylog_file_write, f, path);
     return TLS_OK;
+#else
+    log_emit(LOG_ERROR, "[tls] key log file sink not compiled in "
+                        "(TLS_KEYLOG_FILE_SINK=0); use tls_set_keylog_handler()");
+    return TLS_ERR_ARGS;
+#endif
 }
 
 void tls_keylog_close_file(void)
 {
-    if (g_keylog_fn == tls_keylog_file_write) {
-        g_keylog_fn  = NULL;   /* stop the handshake path before closing the FILE* */
-        g_keylog_ctx = NULL;
-    }
-    if (g_keylog_file) {
-        fclose(g_keylog_file);
-        g_keylog_file = NULL;
-    }
+#if TLS_KEYLOG_FILE_SINK
+    if (g_keylog_fn == tls_keylog_file_write)
+        keylog_install(NULL, NULL, NULL);
+#endif
 }
+
+/* The export side needs mbedTLS 3.x (mbedtls_ssl_set_export_keys_cb and the
+ * mbedtls_ssl_key_export_type enum replaced the 2.x conf_export_keys_cb API);
+ * against 2.x the sink can be installed but nothing is exported, and
+ * tls_connect() says so. */
+#if MBEDTLS_VERSION_MAJOR >= 3
 
 /* NSS label for one mbedTLS export type, or NULL for a type Wireshark has no
  * label for (nothing is written then, rather than a line it would ignore). */
@@ -174,17 +249,21 @@ static const char *tls_keylog_label(mbedtls_ssl_key_export_type type)
     }
 }
 
-/* Longest secret any export type carries here: the TLS 1.2 master secret is 48
- * bytes and a TLS 1.3 traffic secret is one hash (SHA-384 -> 48). Anything
- * larger is not a line Wireshark expects, so it is dropped rather than truncated
- * into a silently undecryptable log. */
+/* Longest secret any export type carries: the TLS 1.2 master secret is 48
+ * bytes; a TLS 1.3 traffic secret is one hash, 64 bytes with SHA-512 enabled --
+ * the same bound mbedTLS uses (MBEDTLS_TLS1_3_MD_MAX_SIZE). Anything longer is
+ * not a line Wireshark expects and is dropped rather than truncated into a
+ * silently undecryptable log. */
 #define TLS_KEYLOG_MAX_SECRET 64
-/* Longest label above is 31 chars (CLIENT_HANDSHAKE_TRAFFIC_SECRET). */
 #define TLS_KEYLOG_MAX_LABEL  40
+_Static_assert(sizeof("CLIENT_HANDSHAKE_TRAFFIC_SECRET") - 1 <= TLS_KEYLOG_MAX_LABEL,
+               "longest NSS key-log label must fit TLS_KEYLOG_MAX_LABEL");
 /* label + ' ' + 32-byte client random in hex + ' ' + secret in hex + "\n\0" */
 #define TLS_KEYLOG_LINE_SIZE  (TLS_KEYLOG_MAX_LABEL + 1 + 64 + 1 + \
                                TLS_KEYLOG_MAX_SECRET * 2 + 2)
 
+/* Same loop as iot_ota_verify.c's bytes_to_hex_lower; duplicated on purpose,
+ * common/ has no hex helper and a module's static is not reachable from here. */
 static void tls_hex(char *out, const unsigned char *in, size_t len)
 {
     static const char hexdig[] = "0123456789abcdef";
@@ -194,8 +273,9 @@ static void tls_hex(char *out, const unsigned char *in, size_t len)
     }
 }
 
-/* mbedTLS key-export callback: format one NSS key-log line and hand it to the
- * active sink. Runs on the handshaking thread. */
+/* mbedTLS key-export callback: format one NSS key-log line and hand it to this
+ * connection's sink. Runs on the handshaking thread; registered by tls_connect()
+ * only when a sink was installed, so p_expkey is always a tls_t with one. */
 static void tls_keylog_export(void *p_expkey,
                               mbedtls_ssl_key_export_type type,
                               const unsigned char *secret,
@@ -204,23 +284,17 @@ static void tls_keylog_export(void *p_expkey,
                               const unsigned char server_random[32],
                               mbedtls_tls_prf_types tls_prf_type)
 {
-    (void)p_expkey;
+    tls_t *t = (tls_t *)p_expkey;
     (void)server_random;
     (void)tls_prf_type;
 
-    /* Read the handler once: the app may swap it concurrently, and a NULL check
-     * against one value followed by a call through another would fault. */
-    tls_keylog_fn fn = g_keylog_fn;
-    if (!fn) return;
-
     const char *label = tls_keylog_label(type);
-    if (!label || secret_len == 0 || secret_len > TLS_KEYLOG_MAX_SECRET) return;
+    if (!label || secret_len == 0) return;
 
     char line[TLS_KEYLOG_LINE_SIZE];
     size_t label_len = strlen(label);
-    /* A future label longer than the budget would overrun `line`; drop the line
-     * rather than write past it (no -Wall here, so nothing else would say so). */
-    if (label_len > TLS_KEYLOG_MAX_LABEL) return;
+    /* One bound, checked against the real buffer so it cannot drift from it. */
+    if (label_len + 1 + 64 + 1 + secret_len * 2 + 2 > sizeof(line)) return;
     size_t n = 0;
 
     memcpy(line + n, label, label_len);      n += label_len;
@@ -231,11 +305,13 @@ static void tls_keylog_export(void *p_expkey,
     line[n++] = '\n';
     line[n]   = '\0';
 
-    fn(g_keylog_ctx, line);
+    t->keylog_fn(t->keylog_ctx, line);
 
     /* The line is a copy of the secret; do not leave it on the stack. */
     mbedtls_platform_zeroize(line, sizeof(line));
 }
+
+#endif /* MBEDTLS_VERSION_MAJOR >= 3 */
 
 /* =========================================================================
  * BIO callbacks -- adapt PAL tcp_send/recv to mbedTLS f_send/f_recv.
@@ -381,10 +457,20 @@ tls_t *tls_connect(const tls_config_t *cfg)
 
     if (mbedtls_ssl_setup(&t->ssl, &t->conf) != 0) goto fail;
 
-    /* Key export is attached unconditionally -- the callback returns immediately
-     * unless a sink is installed, so this costs one pointer and keeps the
-     * "enabled at handshake time" semantics tls.h documents. */
-    mbedtls_ssl_set_export_keys_cb(&t->ssl, tls_keylog_export, NULL);
+    /* Snapshot the key-log sink on the connecting thread and register the export
+     * callback only when one is installed: a connection with key logging off
+     * carries no callback and pays nothing at the bottom of the handshake. Every
+     * export call site is inside the handshake and tls.c never enables
+     * renegotiation, so this is the "read at handshake time" tls.h documents. */
+    t->keylog_fn  = g_keylog_fn;
+    t->keylog_ctx = g_keylog_ctx;
+    if (t->keylog_fn) {
+#if MBEDTLS_VERSION_MAJOR >= 3
+        mbedtls_ssl_set_export_keys_cb(&t->ssl, tls_keylog_export, t);
+#else
+        log_emit(LOG_WARN, "[tls] key logging needs mbedTLS 3.x; nothing is exported");
+#endif
+    }
 
     if (mbedtls_ssl_set_hostname(&t->ssl, cfg->sni ? cfg->sni : cfg->host) != 0)
         goto fail;
