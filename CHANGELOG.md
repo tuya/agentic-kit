@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- common — opt-in TLS key log, for decrypting a capture of the SDK's cloud
+  traffic in Wireshark(#32).
+  - `tls_keylog_open_file()` / `tls_keylog_close_file()` write NSS
+    `SSLKEYLOGFILE` lines to a file; `tls_set_keylog_handler()` routes them to
+    your own sink on targets with no filesystem.
+  - Process-wide and off by default: enable it once before the first TLS
+    connection and every channel (MQTT, ATOP, IoT-DNS, RTC/TAI) exports.
+  - Debug builds only — the exported lines are the session keys. Enabling it
+    logs a `LOG_WARN`.
+  - `docs-site/docs/guides/tls-keylog.md` covers the Wireshark setup.
+
 ### Fixed
 
 - iot-client — US-East (`UEAZ`) fell back to an ATOP host that does not resolve(#31).

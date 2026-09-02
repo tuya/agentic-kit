@@ -11,6 +11,7 @@
 #include "iot_client.h"
 #include "iot_config_defaults.h"
 #include "log.h"
+#include "tls.h"   /* TLS key log */
 
 #define TEST_CLIENT_ID   "mqtt_test_client"
 #define TEST_USERNAME    "test_user"
@@ -761,6 +762,175 @@ static int test_connect_tls_unreachable(void)
     return OPRT_OK;
 }
 
+/* ---------- Tests: TLS key log ---------- */
+
+/* Open a TLS connection to the TLS mock and tear it down again, so exactly one
+ * handshake happens.  Returns 0 if the handshake completed. */
+static int keylog_do_one_tls_handshake(void)
+{
+    const pal_t *pal = get_default_pal();
+    mqtt_tls_config_t tls_config = { .cacert = g_cacert };
+    mqtt_client_config_t config = {
+        .broker_url      = MOCK_BROKER_URL_TLS,
+        .client_id       = TEST_CLIENT_ID,
+        .username        = TEST_USERNAME,
+        .password        = TEST_PASSWORD,
+        .subscribe_topic = TEST_TOPIC_SUB,
+        .callback        = test_message_callback,
+        .tls_config      = &tls_config,
+        .pal             = pal,
+    };
+    mqtt_client *c = mqtt_client_create_with_config(&config);
+    if (!c) return -1;
+    int ret = mqtt_client_connect(c);
+    mqtt_client_destroy(c);
+    return ret;
+}
+
+static int  g_keylog_lines = 0;
+static char g_keylog_last[512];
+
+static void keylog_capture(void *ctx, const char *line)
+{
+    (void)ctx;
+    g_keylog_lines++;
+    snprintf(g_keylog_last, sizeof(g_keylog_last), "%s", line);
+}
+
+static bool keylog_line_is_well_formed(const char *line, const char *label,
+                                       size_t secret_hex_len)
+{
+    size_t label_len = strlen(label);
+    if (strncmp(line, label, label_len) != 0) return false;
+    if (line[label_len] != ' ') return false;
+    const char *p = line + label_len + 1;
+    /* client random: exactly 32 bytes of lowercase hex, then a space */
+    for (size_t i = 0; i < 64; i++)
+        if (!strchr("0123456789abcdef", p[i]) || p[i] == '\0') return false;
+    if (p[64] != ' ') return false;
+    p += 65;
+    size_t n = 0;
+    while (strchr("0123456789abcdef", p[n]) && p[n] != '\0') n++;
+    if (n != secret_hex_len) return false;
+    /* Wireshark wants one line, newline-terminated and nothing after it. */
+    return p[n] == '\n' && p[n + 1] == '\0';
+}
+
+/* Nothing is exported unless the application asks for it: the export callback is
+ * always attached, so this pins that it stays a no-op with no sink installed. */
+static int test_keylog_off_by_default(void)
+{
+    if (!g_cacert) {
+        printf("  skipped (no CA certificate loaded)\n");
+        return OPRT_OK;
+    }
+    g_keylog_lines = 0;
+    if (keylog_do_one_tls_handshake() != 0) {
+        printf("  TLS connect failed\n");
+        return -1;
+    }
+    if (g_keylog_lines != 0) {
+        printf("  expected no key-log lines with no handler, got %d\n", g_keylog_lines);
+        return -1;
+    }
+    return OPRT_OK;
+}
+
+/* iot-client pins TLS 1.2, so one handshake yields exactly one CLIENT_RANDOM
+ * line carrying the 48-byte master secret. */
+static int test_keylog_handler_captures_client_random(void)
+{
+    if (!g_cacert) {
+        printf("  skipped (no CA certificate loaded)\n");
+        return OPRT_OK;
+    }
+    g_keylog_lines = 0;
+    g_keylog_last[0] = '\0';
+    tls_set_keylog_handler(keylog_capture, NULL);
+    int ret = keylog_do_one_tls_handshake();
+    tls_set_keylog_handler(NULL, NULL);
+
+    if (ret != 0) {
+        printf("  TLS connect failed\n");
+        return -1;
+    }
+    if (g_keylog_lines != 1) {
+        printf("  expected 1 key-log line, got %d\n", g_keylog_lines);
+        return -1;
+    }
+    if (!keylog_line_is_well_formed(g_keylog_last, "CLIENT_RANDOM", 96)) {
+        printf("  malformed key-log line: %s", g_keylog_last);
+        return -1;
+    }
+
+    /* Disabling must actually disable: no further lines after the handler is
+     * cleared, or a debug session would keep leaking secrets. */
+    g_keylog_lines = 0;
+    if (keylog_do_one_tls_handshake() != 0) {
+        printf("  second TLS connect failed\n");
+        return -1;
+    }
+    if (g_keylog_lines != 0) {
+        printf("  handler still called after being cleared (%d lines)\n", g_keylog_lines);
+        return -1;
+    }
+    return OPRT_OK;
+}
+
+static int test_keylog_file_sink(void)
+{
+    if (!g_cacert) {
+        printf("  skipped (no CA certificate loaded)\n");
+        return OPRT_OK;
+    }
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ak_keylog_test_%d.log", (int)getpid());
+    unlink(path);
+
+    if (tls_keylog_open_file(path) != TLS_OK) {
+        printf("  tls_keylog_open_file failed\n");
+        return -1;
+    }
+    /* A second open while one is active must be refused rather than silently
+     * leaking the first FILE*. */
+    if (tls_keylog_open_file(path) == TLS_OK) {
+        printf("  expected second tls_keylog_open_file to fail\n");
+        tls_keylog_close_file();
+        unlink(path);
+        return -1;
+    }
+
+    int ret = keylog_do_one_tls_handshake();
+    tls_keylog_close_file();
+    tls_keylog_close_file();   /* idempotent */
+
+    if (ret != 0) {
+        printf("  TLS connect failed\n");
+        unlink(path);
+        return -1;
+    }
+
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        printf("  key log file not created\n");
+        return -1;
+    }
+    char line[512] = {0};
+    char *got = fgets(line, sizeof(line), f);
+    fclose(f);
+    unlink(path);
+
+    if (!got) {
+        printf("  key log file is empty\n");
+        return -1;
+    }
+    if (!keylog_line_is_well_formed(line, "CLIENT_RANDOM", 96)) {
+        printf("  malformed line in key log file: %s", line);
+        return -1;
+    }
+    return OPRT_OK;
+}
+
 /* ---------- Test: connect failure (bad URL) ---------- */
 
 static int test_connect_bad_url(void)
@@ -862,6 +1032,9 @@ int main(void)
     RUN_TEST(test_connect_tls_auth_fail);
     RUN_TEST(test_connect_tls_handshake_fail);
     RUN_TEST(test_connect_tls_unreachable);
+    RUN_TEST(test_keylog_off_by_default);
+    RUN_TEST(test_keylog_handler_captures_client_random);
+    RUN_TEST(test_keylog_file_sink);
     RUN_TEST(test_connect_bad_url);
 
     stop_mock_tls_server();
