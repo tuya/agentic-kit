@@ -71,6 +71,11 @@ extern "C" {
 #define STM_FILE_NAME_MAX_LEN        255
 
 /**
+ * @brief file format max length
+ */
+#define STM_FILE_FORMAT_MAX_LEN      31
+
+/**
  * @brief signaling stream id
  */
 #define STM_SIGNALING_ID             0
@@ -371,8 +376,8 @@ typedef struct stm_image_params {
 typedef struct stm_file_params {
     /** file payload type, 0-raw 1-base64 2-url **/
     uint8_t payload_type;
-    /** file format, 1-mp4 2-ogg 3-pdf 4-json 5-log 6-map **/
-    uint8_t format;
+    /** file format description string, e.g. "mp4", "ogg", "pdf", "json", "log", "map" **/
+    char format[STM_FILE_FORMAT_MAX_LEN + 1];
     /** file name **/
     char name[STM_FILE_NAME_MAX_LEN];
 } stm_file_params_t;
