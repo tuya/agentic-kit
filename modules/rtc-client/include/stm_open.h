@@ -65,6 +65,8 @@ typedef struct stm_open_session_config {
     char* app_data;
     /** user data **/
     void *user_data;
+    /** max fragment size in bytes; 0/unset = default, valid range [512,1184] **/
+    int max_fragment_size;
 } stm_open_session_config_t;
 
 /**

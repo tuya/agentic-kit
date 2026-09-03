@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Chaneged
+
+- rtc-client - upgrade libstm(#33)
+
 ### Fixed
 
 - iot-client — US-East (`UEAZ`) fell back to an ATOP host that does not resolve(#32).
