@@ -1610,9 +1610,12 @@ static void test_sg_send_failure(void)
         (void)tai_loopback_pop_sent(tx, sizeof(tx));
 
         /* Header write (call 0) ok, payload write (call 1) fails: mid-frame, bytes
-         * already committed -> TAI_ERR_NET, but the SDK must NOT tear down. */
+         * already committed -> TAI_ERR_NET, but the SDK must NOT tear down.
+         * pcm must push the whole frame over TAI_FRAME_COALESCE_LIMIT so it
+         * takes the 2-3-write scatter path — a coalesced small frame is a
+         * single write and has no mid-frame boundary to fail on. */
         tai_loopback_fail_send_after(1);
-        uint8_t pcm[320]; memset(pcm, 0x42, sizeof(pcm));
+        uint8_t pcm[TAI_FRAME_COALESCE_LIMIT]; memset(pcm, 0x42, sizeof(pcm));
         CHECK_EQ_INT(tai_send_audio_chunk(ctx, pcm, sizeof(pcm)), TAI_ERR_NET);
 
         tai_loopback_fail_send_after(-1);
@@ -1782,6 +1785,73 @@ static void test_sg_text_fragmented_uplink(void)
     sleep_ms(10);
     txn = tai_loopback_pop_sent(tx, sizeof(tx));
     CHECK(sg_reassemble_fragged(ctx, tx, txn, app, sizeof(app), &app_len) < 0);
+
+    tai_disconnect(ctx);
+    tai_ctx_deinit(ctx);
+}
+
+/* =========================================================================
+ * Test: small-frame coalesce boundary (TAI_FRAME_COALESCE_LIMIT). One text
+ * send emits 4 packets: EventStart / PayloadsEnd / EventEnd are CONTROL frames
+ * assembled in tx_ctrl_buf — so on the coalesced path the payload and the
+ * scratch buffer are the SAME memory (the aliasing hazard) — while the Text
+ * frame's payload lives in the caller's buffer. A body sized so the whole Text
+ * frame (5 frame hdr + 5 text hdr + body + 32 sig) is one byte UNDER the limit
+ * coalesces; one byte larger crosses to the zero-copy scatter path. Every
+ * frame must land HMAC-intact on both sides, with byte-exact Text payloads.
+ * ========================================================================= */
+static void test_sg_coalesce_boundary(void)
+{
+    SECTION("sg_coalesce_boundary");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx(ctx_mem);
+    CHECK(ctx != NULL);
+    CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+
+    static uint8_t tx[4096];
+    (void)tai_loopback_pop_sent(tx, sizeof(tx));             /* discard handshake */
+
+    /* text hdr = pkt byte + [id:2][flags:1][varint seq:1] = 5 bytes. */
+    static char under[TAI_FRAME_COALESCE_LIMIT - 5 - 5 - 32 - 1];
+    static char over [TAI_FRAME_COALESCE_LIMIT - 5 - 5 - 32];
+    for (size_t i = 0; i < sizeof(under); i++) under[i] = (char)('a' + (i % 26));
+    for (size_t i = 0; i < sizeof(over);  i++) over[i]  = (char)('A' + (i % 26));
+
+    for (int round = 0; round < 2; round++) {
+        const char *body = round ? over : under;
+        size_t body_len = round ? sizeof(over) : sizeof(under);
+        CHECK_EQ_INT(tai_send_text(ctx, body, body_len), TAI_OK);
+        sleep_ms(10);
+        size_t txn = tai_loopback_pop_sent(tx, sizeof(tx));
+        CHECK(txn > 0);
+
+        /* Walk every frame of the event: all HMAC-verified (the aliased
+         * coalesce corruption would fail verify/decode), exactly one TEXT. */
+        size_t off = 0;
+        int ntext = 0, nframes = 0;
+        while (off < txn) {
+            size_t flen = tai_frame_total_size(tx + off, txn - off);
+            if (flen == 0 || flen > txn - off) break;
+            CHECK(tai_frame_verify(tx + off, flen, 32, ctx->sign_key, ctx->pal) == TAI_OK);
+            uint8_t frag, pt; uint16_t seq; const uint8_t *pl; size_t pll;
+            CHECK(tai_frame_decode(tx + off, flen, 32, &frag, &seq, &pl, &pll) == TAI_OK);
+            CHECK_EQ_INT(frag, TAI_FRAG_NONE);              /* never fragments here */
+            tai_attr_t attrs[TAI_MAX_ATTRS]; int na = 0;
+            const uint8_t *payload; size_t payload_len;
+            CHECK(tai_packet_decode(TAI_VER_21, pl, pll, &pt, attrs, TAI_MAX_ATTRS,
+                                    &na, &payload, &payload_len) == TAI_OK);
+            if (pt == TAI_PKT_TEXT) {
+                ntext++;
+                /* decoded payload drops the pkt byte: [id:2][flags:1][varint] + body */
+                CHECK_EQ_INT(payload_len, 4 + body_len);
+                CHECK(memcmp(payload + 4, body, body_len) == 0);
+            }
+            nframes++;
+            off += flen;
+        }
+        CHECK_EQ_INT(nframes, 4);                           /* Start/Text/PEnd/End */
+        CHECK_EQ_INT(ntext, 1);
+    }
 
     tai_disconnect(ctx);
     tai_ctx_deinit(ctx);
@@ -1980,6 +2050,7 @@ int main(void)
     test_sg_audio_fragmented_uplink();
     test_sg_image_fragmented_uplink();
     test_sg_text_fragmented_uplink();
+    test_sg_coalesce_boundary();
     test_sg_mcp_response();
     test_sg_send_failure();
     test_sg_control_json_limit();

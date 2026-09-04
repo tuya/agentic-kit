@@ -151,8 +151,17 @@ no large contiguous frame buffer:
 
 `send_one_frame_sg` signs the logical `[frame header || app header || payload]` via
 `tai_frame_hmac_sg` (byte-identical to the contiguous HMAC — the receiver is unchanged), then
-writes the merged `[frame header || app header]`, the **zero-copy payload**, and the signature
-(2–3 TLS records per Frame). A logical packet over 32 KB is fragmented across the concat, with the
+emits the frame in one of two shapes, split by `TAI_FRAME_COALESCE_LIMIT` (default 512 B,
+counting the whole frame: header, app header, payload, signature):
+
+- **Below the limit**: the frame is coalesced into `tx_ctrl_buf` and sent as ONE TLS record.
+  A control packet's payload already lives in `tx_ctrl_buf`, so it is only shifted in place
+  (memmove — payload and scratch are the same buffer, which is why the relocation happens
+  before the frame header overwrites its front).
+- **At or above the limit**: zero-copy, 2–3 TLS records — the merged
+  `[frame header || app header]`, the **payload from the caller's buffer**, and the signature.
+
+A logical packet over 32 KB is fragmented across the concat, with the
 app header only in the first Frame. (ClientHello is the one exception: it is sent *unsigned* and
 one-shot, so `tai_connect` frames it inline on the stack rather than through the signing sender.)
 
