@@ -179,9 +179,28 @@ static int send_one_frame_sg(tai_ctx_t *ctx, uint8_t frag_flag, uint16_t seq,
         }
     }
 
-    /* From here on, any failure has committed bytes to the wire and desyncs the
-     * stream: return TAI_ERR_NET (distinct from the pre-wire errors above so the
-     * caller knows the sequence number was consumed). */
+    size_t wire_len = head_len + pay_len + ctx->sig_len;
+
+    /* Small-frame fast path: coalesce the whole frame into ONE transport write.
+     * A control packet's payload IS tx_ctrl_buf (send_app), so it must be
+     * relocated to its final offset FIRST — memmove is overlap-safe — before
+     * the frame header overwrites its front; the HMAC above sampled the
+     * original bytes, which the in-place shift preserves. Capped by the smaller
+     * of the coalesce limit and tx_ctrl_buf so shrinking either knob stays safe. */
+    if (wire_len < TAI_FRAME_COALESCE_LIMIT &&
+        wire_len <= sizeof(ctx->tx_ctrl_buf)) {
+        uint8_t *buf = ctx->tx_ctrl_buf;
+        if (pay_len)                                  /* pay is NULL when 0 */
+            memmove(buf + head_len, pay, pay_len);   /* pay may == buf (control) */
+        memcpy(buf, head, head_len);
+        memcpy(buf + head_len + pay_len, ctx->tx_sig, ctx->sig_len);
+        return (ctx_io_send(ctx, buf, wire_len) == TAI_OK) ? TAI_OK : TAI_ERR_NET;
+    }
+
+    /* Large-frame path: stay zero-copy, 2-3 writes. From here on, any failure
+     * has committed bytes to the wire and desyncs the stream: return TAI_ERR_NET
+     * (distinct from the pre-wire errors above so the caller knows the sequence
+     * number was consumed). */
     int rc = ctx_io_send(ctx, head, head_len);
     if (rc != TAI_OK) return TAI_ERR_NET;
     if (pay_len) {

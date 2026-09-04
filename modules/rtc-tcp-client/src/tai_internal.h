@@ -103,21 +103,35 @@
 #ifndef TAI_FRAG_BUF_SIZE
 #  define TAI_FRAG_BUF_SIZE     32000U
 #endif
+
+/* Scatter-gather header buffer: [5-byte frame header][app header] for one
+ * frame. Bounds the application header (pkt byte + attr block + media/text
+ * header); the streamed payload is never copied here. */
+#ifndef TAI_TX_HDR_BUF_SIZE
+#  define TAI_TX_HDR_BUF_SIZE    256U
+#endif
+
+/* Small-frame coalesce threshold: a whole frame (frame hdr + app hdr + payload
+ * + signature) STRICTLY smaller than this is copied into tx_ctrl_buf and sent
+ * as one transport write (one TLS record instead of 2-3); at or above it the
+ * frame keeps the zero-copy scatter-gather path. The send path also caps
+ * coalescing at TAI_TX_CTRL_BUF_SIZE, so shrinking either knob is safe — it
+ * only narrows the size window that gets coalesced. */
+#ifndef TAI_FRAME_COALESCE_LIMIT
+#  define TAI_FRAME_COALESCE_LIMIT 512U
+#endif
+
 /* Control-packet assembly buffer. Must hold the largest control application
  * packet — dominated by the session/event JSON escaped into attr 111. The
  * SessionNew / EventStart packet is roughly 2*strlen(JSON) + ~115 bytes of
  * framing/attrs, so the session/event JSON must satisfy that bound or
  * SessionNew/EventStart returns TAI_ERR_MEM. Default 1024 ≈ 4x the largest
  * packet the bundled examples build (~260 B) and fits JSON up to ~700 chars;
- * raise it (e.g. 2048/4096) for richer session configs. */
+ * raise it (e.g. 2048/4096) for richer session configs. It doubles as the
+ * small-frame coalesce scratch (see TAI_FRAME_COALESCE_LIMIT) — a control
+ * packet is shifted in place inside the same buffer, never copied out. */
 #ifndef TAI_TX_CTRL_BUF_SIZE
 #  define TAI_TX_CTRL_BUF_SIZE   1024U
-#endif
-/* Scatter-gather header buffer: [5-byte frame header][app header] for one
- * frame. Bounds the application header (pkt byte + attr block + media/text
- * header); the streamed payload is never copied here. */
-#ifndef TAI_TX_HDR_BUF_SIZE
-#  define TAI_TX_HDR_BUF_SIZE    256U
 #endif
 
 /* Maximum attributes decoded from a single packet */
@@ -315,7 +329,10 @@ struct tai_ctx {
      * sent zero-copy from the caller's buffer; tx_sig holds the per-frame
      * signature computed before any byte goes on the wire. tx_ctrl_buf
      * assembles a control packet (its attribute block can carry the user
-     * session/event JSON) which is then sent as that zero-copy payload. */
+     * session/event JSON) which is then sent as that zero-copy payload, and
+     * doubles as the coalesce scratch for whole frames under
+     * TAI_FRAME_COALESCE_LIMIT (one transport write; a control packet shifts
+     * in place within the same buffer). */
     uint8_t tx_ctrl_buf[TAI_TX_CTRL_BUF_SIZE];
     uint8_t tx_hdr_buf[TAI_TX_HDR_BUF_SIZE];
     uint8_t tx_sig[32];
