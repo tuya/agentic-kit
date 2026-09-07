@@ -4,6 +4,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <stdbool.h>
 #include <stdarg.h>   /* capture_log_handler takes a va_list */
 
@@ -11,6 +12,7 @@
 #include "iot_client.h"
 #include "iot_config_defaults.h"
 #include "log.h"
+#include "tls.h"   /* TLS key log */
 
 #define TEST_CLIENT_ID   "mqtt_test_client"
 #define TEST_USERNAME    "test_user"
@@ -761,6 +763,158 @@ static int test_connect_tls_unreachable(void)
     return OPRT_OK;
 }
 
+/* ---------- Tests: TLS key log ---------- */
+
+/* One TLS handshake against the TLS mock, straight through tls_connect() with
+ * the same profile mqtt.c uses (TLS 1.2, Tuya suites): every key-log line is
+ * produced inside the handshake, before any MQTT byte, so the MQTT layer adds
+ * nothing here. The mock tolerates a peer that closes right after the
+ * handshake. Returns 0 if the handshake completed. */
+static int keylog_do_one_tls_handshake(void)
+{
+    tls_config_t cfg = {
+        .host         = "127.0.0.1",
+        .port         = 18883,
+        .sni          = "127.0.0.1",
+        .cacert       = g_cacert,
+        .force_tls12  = true,
+        .ciphersuites = tls_ciphersuites_tuya_default(),
+        .pal          = get_default_pal(),
+    };
+    tls_t *t = tls_connect(&cfg);
+    if (!t) return -1;
+    tls_close(t);
+    return 0;
+}
+
+static int  g_keylog_lines = 0;
+static char g_keylog_last[512];
+
+static void keylog_capture(void *ctx, const char *line)
+{
+    (void)ctx;
+    g_keylog_lines++;
+    snprintf(g_keylog_last, sizeof(g_keylog_last), "%s", line);
+}
+
+/* `label` ' ' 64 lowercase hex (client random) ' ' secret_hex_len lowercase hex
+ * '\n' -- and nothing after it: Wireshark wants exactly one line. */
+static bool keylog_line_is_well_formed(const char *line, const char *label,
+                                       size_t secret_hex_len)
+{
+    static const char hex[] = "0123456789abcdef";
+    size_t label_len = strlen(label);
+    if (strncmp(line, label, label_len) != 0 || line[label_len] != ' ') return false;
+    const char *p = line + label_len + 1;
+    if (strspn(p, hex) != 64 || p[64] != ' ') return false;
+    p += 65;
+    if (strspn(p, hex) != secret_hex_len) return false;
+    return p[secret_hex_len] == '\n' && p[secret_hex_len + 1] == '\0';
+}
+
+/* iot-client pins TLS 1.2, so one handshake yields exactly one CLIENT_RANDOM
+ * line carrying the 48-byte master secret; clearing the sink must stop them.
+ * Also pins the "key logging ENABLED" warning the docs tell operators to grep
+ * production logs for. */
+static int test_keylog_handler_captures_client_random(void)
+{
+    g_keylog_lines = 0;
+    g_keylog_last[0] = '\0';
+
+    capture_start();
+    tls_set_keylog_handler(keylog_capture, NULL);
+    capture_stop();
+    if (strstr(log_capture, "key logging ENABLED") == NULL) {
+        printf("  enabling the sink did not log the documented warning\n");
+        tls_set_keylog_handler(NULL, NULL);
+        return -1;
+    }
+
+    int ret = keylog_do_one_tls_handshake();
+    tls_set_keylog_handler(NULL, NULL);
+
+    if (ret != 0) {
+        printf("  TLS connect failed\n");
+        return -1;
+    }
+    if (g_keylog_lines != 1) {
+        printf("  expected 1 key-log line, got %d\n", g_keylog_lines);
+        return -1;
+    }
+    if (!keylog_line_is_well_formed(g_keylog_last, "CLIENT_RANDOM", 96)) {
+        printf("  malformed key-log line: %s", g_keylog_last);
+        return -1;
+    }
+
+    /* Disabling must actually disable: no further lines after the handler is
+     * cleared, or a debug session would keep leaking secrets. */
+    g_keylog_lines = 0;
+    if (keylog_do_one_tls_handshake() != 0) {
+        printf("  second TLS connect failed\n");
+        return -1;
+    }
+    if (g_keylog_lines != 0) {
+        printf("  handler still called after being cleared (%d lines)\n", g_keylog_lines);
+        return -1;
+    }
+    return OPRT_OK;
+}
+
+static int test_keylog_file_sink(void)
+{
+    const pal_t *pal = get_default_pal();
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ak_keylog_test_%d.log", (int)getpid());
+    unlink(path);
+    int rc = -1;
+    char *content = NULL;
+
+    if (tls_keylog_open_file(path) != TLS_OK) {
+        printf("  tls_keylog_open_file failed\n");
+        goto out;
+    }
+    /* A second open while one is active must be refused rather than silently
+     * leaking the first FILE*. */
+    if (tls_keylog_open_file(path) == TLS_OK) {
+        printf("  expected second tls_keylog_open_file to fail\n");
+        goto out;
+    }
+    /* Replacing the file sink with a custom one must not leave the file open:
+     * the file must be complete (and closable twice) after the swap. */
+    if (keylog_do_one_tls_handshake() != 0) {
+        printf("  TLS connect failed\n");
+        goto out;
+    }
+    tls_keylog_close_file();
+    tls_keylog_close_file();   /* idempotent */
+
+    /* The whole file, not the first line: the validator wants "\n\0" right after
+     * the secret, so this also proves exactly one line was written. */
+    content = load_file(pal, path);
+    if (!content || content[0] == '\0') {
+        printf("  key log file missing or empty\n");
+        goto out;
+    }
+    if (!keylog_line_is_well_formed(content, "CLIENT_RANDOM", 96)) {
+        printf("  key log file does not hold exactly one well-formed line: %s", content);
+        goto out;
+    }
+#if defined(__unix__) || defined(__APPLE__)
+    struct stat st;
+    if (stat(path, &st) != 0 || (st.st_mode & 0777) != 0600) {
+        printf("  key log file mode is %o, expected 0600\n",
+               (unsigned)(st.st_mode & 0777));
+        goto out;
+    }
+#endif
+    rc = OPRT_OK;
+out:
+    tls_keylog_close_file();
+    unlink(path);           /* never leave session keys behind, pass or fail */
+    if (content) pal->free(content);
+    return rc;
+}
+
 /* ---------- Test: connect failure (bad URL) ---------- */
 
 static int test_connect_bad_url(void)
@@ -862,6 +1016,12 @@ int main(void)
     RUN_TEST(test_connect_tls_auth_fail);
     RUN_TEST(test_connect_tls_handshake_fail);
     RUN_TEST(test_connect_tls_unreachable);
+    if (g_cacert) {
+        RUN_TEST(test_keylog_handler_captures_client_random);
+        RUN_TEST(test_keylog_file_sink);
+    } else {
+        printf("\n  key-log tests skipped (no CA certificate loaded)\n");
+    }
     RUN_TEST(test_connect_bad_url);
 
     stop_mock_tls_server();
