@@ -314,15 +314,19 @@ static void lb_hs_feed(const uint8_t *buf, size_t len)
 
     if (g_hs.mode == TAI_LB_HS_AUTH_OK) {
         /* Production-server style: confirm the connect with a signed
-         * AuthenticateResponse (pkt 3) carrying connection-status-code = 200,
-         * and NO separate SessionNew ack. */
+         * AuthenticateResponse (pkt 3) carrying connection-status-code = 200 and
+         * the server-assigned connection-id, and NO separate SessionNew ack. */
         uint8_t code_buf[2] = { 0x00, 0xC8 };   /* 200, big-endian u16 */
-        tai_attr_t a = { .type  = TAI_ATTR_CONNECTION_STATUS_CODE,
-                         .len   = 2,
-                         .value = code_buf };
+        tai_attr_t a[2];
+        a[0] = (tai_attr_t){ .type  = TAI_ATTR_CONNECTION_STATUS_CODE,
+                             .len   = 2,
+                             .value = code_buf };
+        a[1] = (tai_attr_t){ .type  = TAI_ATTR_CONNECTION_ID,
+                             .len   = (uint16_t)strlen("vcd-conn-lb01"),
+                             .value = (const uint8_t *)"vcd-conn-lb01" };
         uint8_t app[64];
         int alen = tai_packet_encode(TAI_VER_21, TAI_PKT_AUTHENTICATE_RESPONSE,
-                                     &a, 1, (const uint8_t *)"", 0, app, sizeof(app));
+                                     a, 2, (const uint8_t *)"", 0, app, sizeof(app));
         if (alen > 0) {
             uint8_t frame[128];
             int flen = tai_frame_encode(TAI_FRAG_NONE, 1, app, (size_t)alen,

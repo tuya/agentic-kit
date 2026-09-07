@@ -1858,6 +1858,71 @@ static void test_sg_coalesce_boundary(void)
 }
 
 /* =========================================================================
+ * Test: ConnectionRefresh (temporary feature). The server assigns the
+ * connection-id (attr 23) in its AuthenticateResponse; the client stores it and
+ * emits a REFRESH_REQ carrying it. An inbound ConnectionRefreshResponse is
+ * handled cleanly (informational; no teardown).
+ * ========================================================================= */
+static size_t server_send_conn_refresh_resp(tai_ctx_t *ctx, uint16_t code,
+                                             uint64_t expire, uint16_t seq)
+{
+    uint8_t s_code[2], s_exp[8];
+    tai_attr_t attrs[2];
+    attrs[0] = tai_attr_u16v(TAI_ATTR_CONNECTION_STATUS_CODE, s_code, code);
+    attrs[1] = tai_attr_u64v(TAI_ATTR_LATEST_EXPIRE_TS,       s_exp,  expire);
+    return server_send(ctx, TAI_PKT_CONNECTION_REFRESH_RESP, attrs, 2,
+                       NULL, 0, seq);
+}
+
+static void test_conn_refresh(void)
+{
+    SECTION("conn_refresh");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx(ctx_mem);
+    CHECK(ctx != NULL);
+
+    /* Production-server handshake: the connect is confirmed by an
+     * AuthenticateResponse carrying the server-assigned connection-id. */
+    tai_loopback_set_handshake_mode(TAI_LB_HS_AUTH_OK);
+    CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+
+    /* ClientHello must NOT carry a connection-id — the server assigns it. */
+    uint8_t tx[4096];
+    size_t txn = tai_loopback_pop_sent(tx, sizeof(tx));
+    captured_pkt_t pkts[8];
+    int np = decode_captured(tx, txn, 0, pkts, 8);
+    CHECK(np >= 1);
+    CHECK_EQ_INT(pkts[0].pkt_type, TAI_PKT_CLIENT_HELLO);
+    CHECK(tai_attr_find(pkts[0].attrs, pkts[0].attr_count,
+                        TAI_ATTR_CONNECTION_ID) == NULL);
+
+    /* The connection-id from AuthenticateResponse was stored, and the build
+     * helper emits a REFRESH_REQ carrying exactly that id. */
+    CHECK(strcmp(ctx->connection_id, "vcd-conn-lb01") == 0);
+    uint8_t req[256];
+    int rlen = tai_proto_build_conn_refresh(ctx, req, sizeof(req));
+    CHECK(rlen > 0);
+    uint8_t pt; tai_attr_t rattrs[TAI_MAX_ATTRS]; int rna = 0;
+    const uint8_t *rpay; size_t rpayl;
+    CHECK(tai_packet_decode(TAI_VER_21, req, (size_t)rlen, &pt,
+                            rattrs, TAI_MAX_ATTRS, &rna, &rpay, &rpayl) == TAI_OK);
+    CHECK_EQ_INT(pt, TAI_PKT_CONNECTION_REFRESH_REQ);
+    const tai_attr_t *rcid = tai_attr_find(rattrs, rna, TAI_ATTR_CONNECTION_ID);
+    CHECK(rcid && rcid->len == strlen("vcd-conn-lb01") &&
+          memcmp(rcid->value, "vcd-conn-lb01", rcid->len) == 0);
+
+    /* An inbound REFRESH_RESP is informational: handled, link stays up. A valid
+     * TEXT after it proves the stream is still in sync and no teardown fired. */
+    server_send_conn_refresh_resp(ctx, 200, 1700000000000ULL, 1);
+    server_send_text(ctx, "still-up", 8, TAI_STREAM_ONE_SHOT, 1, 2);
+    CHECK(WAIT_FOR(g_st.text_calls >= 1, 1000));
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);
+
+    tai_disconnect(ctx);
+    tai_ctx_deinit(ctx);
+}
+
+/* =========================================================================
  * Test: control-packet attribute JSON vs the tx_ctrl_buf limit (§6.5, finding
  * #4). The session/event JSON is escaped into the attribute block on the
  * contiguous control path. An oversized event JSON (escaped > 8 KB) must return
@@ -2051,6 +2116,7 @@ int main(void)
     test_sg_image_fragmented_uplink();
     test_sg_text_fragmented_uplink();
     test_sg_coalesce_boundary();
+    test_conn_refresh();
     test_sg_mcp_response();
     test_sg_send_failure();
     test_sg_control_json_limit();

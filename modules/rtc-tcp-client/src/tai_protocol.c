@@ -190,6 +190,22 @@ int tai_proto_build_session_close(tai_ctx_t *ctx,
 }
 
 /* =========================================================================
+ * tai_proto_build_conn_refresh
+ *
+ * ConnectionRefreshRequest (temporary feature): asks the server to extend the
+ * connection's lifetime. Required attribute: connection-id (23). The server
+ * replies with a ConnectionRefreshResponse carrying the new expiry timestamp.
+ * ========================================================================= */
+int tai_proto_build_conn_refresh(tai_ctx_t *ctx,
+                                  uint8_t *buf, size_t buf_size)
+{
+    tai_attr_t attrs[1];
+    attrs[0] = tai_attr_strv(TAI_ATTR_CONNECTION_ID, ctx->connection_id);
+    return tai_packet_encode(ctx->proto_ver, TAI_PKT_CONNECTION_REFRESH_REQ,
+                              attrs, 1, NULL, 0, buf, buf_size);
+}
+
+/* =========================================================================
  * tai_proto_build_event_start
  *
  * Generates a new event ID.  Attributes: session-id, event-id,
@@ -800,7 +816,19 @@ int tai_proto_dispatch(tai_ctx_t *ctx,
             else if (st->len >= 2) code = tai_r16(st->value);
         }
         ctx->session_ack = (code == 200) ? 0 : code;
-        TAI_LOGD(ctx->pal, TAG, "AuthenticateResponse: status=%d", code);
+
+        /* The server assigns the connection-id (attr 23) here; store it for the
+         * periodic ConnectionRefreshRequest (temporary feature). */
+        const tai_attr_t *cid = tai_attr_find(attrs, attr_count,
+                                              TAI_ATTR_CONNECTION_ID);
+        if (cid && cid->len > 0) {
+            size_t n = cid->len < sizeof(ctx->connection_id) - 1
+                     ? cid->len : sizeof(ctx->connection_id) - 1;
+            memcpy(ctx->connection_id, cid->value, n);
+            ctx->connection_id[n] = '\0';
+        }
+        TAI_LOGD(ctx->pal, TAG, "AuthenticateResponse: status=%d conn_id=%s",
+                 code, ctx->connection_id[0] ? ctx->connection_id : "(none)");
         break;
     }
 
@@ -817,6 +845,24 @@ int tai_proto_dispatch(tai_ctx_t *ctx,
         }
         ctx->session_ack = status;
         TAI_LOGD(ctx->pal, TAG, "SessionNew ack: status=%d", status);
+        break;
+    }
+
+    case TAI_PKT_CONNECTION_REFRESH_RESP: {
+        /* Server's reply to our ConnectionRefreshRequest (temporary feature):
+         * connection-status-code (24) + optional latest-expire-ts (25). Purely
+         * informational — the link stays up regardless; we just log it. */
+        uint16_t code = 0;
+        uint64_t expire = 0;
+        const tai_attr_t *st = tai_attr_find(attrs, attr_count,
+                                             TAI_ATTR_CONNECTION_STATUS_CODE);
+        const tai_attr_t *ex = tai_attr_find(attrs, attr_count,
+                                             TAI_ATTR_LATEST_EXPIRE_TS);
+        if (st) code   = tai_attr_u16(st);
+        if (ex) expire = tai_attr_u64(ex);
+        TAI_LOGI(ctx->pal, TAG,
+                 "CONNECTION_REFRESH_RESP: code=%u latest_expire_ts=%llu",
+                 code, (unsigned long long)expire);
         break;
     }
 

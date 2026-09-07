@@ -181,6 +181,10 @@ sidebar_position: 1
 | `ping_timeout_ms` | `uint32_t` | Ping 超时（0 = 默认 90000ms） |
 | `connect_timeout_ms` | `uint32_t` | 连接超时（0 = 默认 5000ms）。分别约束 `tai_connect` 的两个串行等待阶段：先是连接建立（TCP 建连 + TLS 握手，共用一份预算），再是服务端 SessionNew 应答。任一阶段超时即判定连接失败，因此 `tai_connect` 最坏耗时约为该值的 2 倍。 |
 
+:::note 连接刷新（临时功能）
+后台线程除了 Ping/Pong 外，还会每隔 `TAI_CONN_REFRESH_INTERVAL_MS`（编译期常量，默认 30 分钟）发送一次 `ConnectionRefreshRequest`（`TAI_PKT_CONNECTION_REFRESH_REQ`），携带 `connection-id`（属性 23）以续期连接的服务端生命周期。`connection-id` 由**服务端在 `AuthenticateResponse` 中下发**（属性 23），客户端存储后使用；在收到之前不发送刷新。服务端回复 `ConnectionRefreshResponse`（状态码 + 最新过期时间），客户端仅记录日志。刷新与保活相互独立：刷新发送失败只记日志、不触发断连（Ping 才是权威的上行健康探针）。此为短期功能，不合入发布分支。
+:::
+
 ### 3.7 测试配置
 
 | 字段 | 类型 | 说明 |

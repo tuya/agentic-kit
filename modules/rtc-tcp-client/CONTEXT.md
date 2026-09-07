@@ -80,6 +80,17 @@ Counting any receive, not just Pong, keeps a long downstream stream from trippin
 timeout.
 _Avoid_: heartbeat, poll.
 
+**Connection refresh** _(temporary)_:
+A liveness-adjacent exchange the background thread also runs: every
+`TAI_CONN_REFRESH_INTERVAL_MS` (default 30 min) it sends a `TAI_PKT_CONNECTION_REFRESH_REQ`
+carrying the `connection-id` to extend the Connection's server-side lifetime; the server
+replies with a `TAI_PKT_CONNECTION_REFRESH_RESP` (status + latest-expire-ts) that the client
+only logs. The `connection-id` is *server-assigned* — the server returns it as attr 23 in the
+`AuthenticateResponse`, and the client stores it; refresh is skipped until one arrives. This
+is a short-lived feature slated for removal — it does not live on a release branch.
+_Avoid_: keepalive (that is Ping/Pong; refresh does not gate liveness — a failed refresh send
+is logged, not fatal).
+
 **Chat break**:
 A client-sent Event (`TAI_EVT_CHAT_BREAK`) that interrupts the server's in-progress
 response. Sent standalone, not part of an Event's normal lifecycle. The server also sends
@@ -221,7 +232,8 @@ START), splits concatenated constant-bitrate Opus by frame size, and delivers ea
 `on_audio`; **Text** strips the text header and delivers to `on_text` with its Stream flag;
 **Event** unpacks the Event type and data (EventEnd clears the open Event) and delivers to
 `on_event` — where the inbound ChatBreak (the cloud-VAD turn boundary), MCP commands, etc.
-surface; **ConnectionClose / SessionClose**
+surface; **ConnectionRefreshResponse** (temporary) is logged (status + latest-expire-ts) and
+otherwise ignored; **ConnectionClose / SessionClose**
 clear state and fire `on_disconnect`. An **unknown Packet type or Event type** (framing and HMAC
 valid, but the type is not enumerated) is *tolerated*: it is logged and skipped so the link stays
 up — a server that introduces a forward-compatible new type must not knock existing clients

@@ -154,6 +154,10 @@ target_link_libraries(mcp_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_p
 add_executable(agent_trigger_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/agent_trigger_demo.c")
 target_link_libraries(agent_trigger_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
 
+# TEMPORARY: long-lived connection test for the ConnectionRefresh feature.
+add_executable(long_connection_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/long_connection_demo.c")
+target_link_libraries(long_connection_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
+
 find_library(OPUS_LIBRARY opus)
 find_path(OPUS_INCLUDE_DIR opus/opus.h)
 if(OPUS_LIBRARY AND OPUS_INCLUDE_DIR)

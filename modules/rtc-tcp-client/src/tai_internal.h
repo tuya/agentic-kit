@@ -158,6 +158,14 @@
 #  define TAI_WORKER_POLL_CAP_MS  2000U
 #endif
 
+/* How often the worker sends a ConnectionRefreshRequest to extend the
+ * connection's server-side lifetime. Temporary feature — every 30 min by
+ * default. The server replies with a ConnectionRefreshResponse carrying the new
+ * expiry; the client just logs it. */
+#ifndef TAI_CONN_REFRESH_INTERVAL_MS
+#  define TAI_CONN_REFRESH_INTERVAL_MS  1800000U  /* 30 minutes */
+#endif
+
 
 /* =========================================================================
  * Attribute type codes  (Appendix A)
@@ -272,6 +280,7 @@ struct tai_ctx {
     uint32_t connect_timeout_ms;         /* SessionNew-ack wait in tai_connect */
     char     session_id[64];
     char     event_id[64];
+    char     connection_id[64];          /* server-assigned in AuthenticateResponse; used by refresh */
 
 
 
@@ -341,6 +350,7 @@ struct tai_ctx {
     void           *thread_handle;
     volatile int    running;
     uint64_t        last_ping_ms;
+    uint64_t        last_conn_refresh_ms;   /* last ConnectionRefreshRequest send time */
     uint32_t        ping_interval_ms;
     uint32_t        ping_timeout_ms;
 };
@@ -534,6 +544,8 @@ int tai_proto_build_client_hello(tai_ctx_t *ctx,
 int tai_proto_build_session_new  (tai_ctx_t *ctx,
                                   uint8_t *buf, size_t buf_size);
 int tai_proto_build_session_close(tai_ctx_t *ctx,
+                                  uint8_t *buf, size_t buf_size);
+int tai_proto_build_conn_refresh (tai_ctx_t *ctx,
                                   uint8_t *buf, size_t buf_size);
 int tai_proto_build_event_start  (tai_ctx_t *ctx,
                                   uint8_t *buf, size_t buf_size);

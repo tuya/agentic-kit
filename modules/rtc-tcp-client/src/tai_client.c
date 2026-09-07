@@ -554,6 +554,7 @@ int tai_connect(tai_ctx_t *ctx)
     ctx->last_ping_ms = ctx->pal->time_ms();
     ctx->last_pong_ms = ctx->last_ping_ms;
     ctx->last_rx_ms   = ctx->last_ping_ms;
+    ctx->last_conn_refresh_ms = ctx->last_ping_ms;  /* first refresh one interval out */
     ctx->running      = 1;
     int trc = ctx->pal->thread_create(&ctx->thread_handle, worker_thread, ctx);
     if (trc != 0) {
@@ -825,6 +826,23 @@ static int tai_ping(tai_ctx_t *ctx)
     if (!ctx || !ctx->connected) return TAI_ERR_ARGS;
     ctx_lock(ctx);
     int len = tai_proto_build_ping(ctx, ctx->tx_ctrl_buf, sizeof(ctx->tx_ctrl_buf));
+    int rc = (len > 0) ? send_app(ctx, ctx->tx_ctrl_buf, (size_t)len) : len;
+    ctx_unlock(ctx);
+    return rc;
+}
+
+/* Send a ConnectionRefreshRequest (temporary feature). Driven by the worker on
+ * TAI_CONN_REFRESH_INTERVAL_MS; the server replies with a
+ * ConnectionRefreshResponse handled in tai_proto_dispatch. */
+static int tai_conn_refresh(tai_ctx_t *ctx)
+{
+    if (!ctx || !ctx->connected) return TAI_ERR_ARGS;
+    /* Nothing to refresh until the server has assigned a connection-id (via
+     * AuthenticateResponse). A server that never sends one gets no refresh. */
+    if (!ctx->connection_id[0]) return TAI_OK;
+    ctx_lock(ctx);
+    int len = tai_proto_build_conn_refresh(ctx, ctx->tx_ctrl_buf,
+                                           sizeof(ctx->tx_ctrl_buf));
     int rc = (len > 0) ? send_app(ctx, ctx->tx_ctrl_buf, (size_t)len) : len;
     ctx_unlock(ctx);
     return rc;
@@ -1275,6 +1293,19 @@ static void *worker_thread(void *arg)
             }
             TAI_LOGI(ctx->pal, TAG, "worker: ping sent OK");
             ctx->last_ping_ms = now;
+        }
+
+        /* Periodic ConnectionRefreshRequest (temporary feature). Unlike the
+         * ping, a failed refresh send is not treated as a fatal TX fault — the
+         * next ping is the authoritative uplink health probe; just log and
+         * retry on the next interval. */
+        if (now - ctx->last_conn_refresh_ms >= TAI_CONN_REFRESH_INTERVAL_MS) {
+            int rrc = tai_conn_refresh(ctx);
+            if (rrc != TAI_OK)
+                TAI_LOGW(ctx->pal, TAG, "worker: conn-refresh send rc=%d", rrc);
+            else
+                TAI_LOGI(ctx->pal, TAG, "worker: conn-refresh sent");
+            ctx->last_conn_refresh_ms = now;
         }
 
         /* Block until data arrives or the next ping is due. Pong timeout is
