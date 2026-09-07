@@ -7,179 +7,107 @@ slug: /concepts
 
 # 核心概念
 
-本页用通俗语言介绍 Agentic-kit 的关键概念，帮助你在进入具体教程之前建立整体
-认知。每个概念附有"了解更多"链接，指向详细的指南或 API 参考。
+<div className="doc-lead">先理解身份、连接、会话和能力调用之间的关系，再进入具体 API。Agentic-kit 的设计重点是让终端保持轻量，同时把平台能力与客户自有能力放在清晰、可替换的边界中。</div>
 
-## 授权码（License）
+## 身份与激活
 
-每台设备出厂时持有的"身份证"，用于在涂鸦云端证明"我是合法设备"。
+<div className="doc-terms">
+  <div><div><strong>授权码</strong><small>LICENSE</small></div><section><p>每台设备出厂时持有的身份凭证，由全球唯一的 <code>uuid</code> 和与之配对的 <code>authkey</code> 组成。它用于证明设备有权激活，不等同于激活后的设备 ID。</p><code>出厂身份：uuid + authkey -&gt; 激活成功 -&gt; 云端正式身份：devid + secret_key + local_key</code></section></div>
+  <div><div><strong>产品 PID</strong><small>PRODUCT ID</small></div><section><p>标识一类产品的共同配置。PID 下可定义数据点、面板和默认 AI Agent；同一产品的设备共享 PID，但拥有不同授权码与设备 ID。</p></section></div>
+  <div><div><strong>设备激活</strong><small>ACTIVATION</small></div><section><p>把设备从出厂状态变为已联网、已绑定用户并已注册云端的过程。激活通常只执行一次，设备应安全持久化返回凭据，后续启动直接使用。</p></section></div>
+</div>
 
-每台设备持有一对**授权码**：
+## Agent 与会话
 
-| 字段 | 说明 |
-|------|------|
-| `uuid` | 设备唯一标识（全球唯一） |
-| `authkey` | 授权密钥，与 uuid 配对使用 |
-
-测试阶段可在涂鸦 IoT 平台
-[领取授权码](./get-authkey)；大规模出货需联系涂鸦商务购买，
-烧录到设备中。
-
-:::note 授权码 ≠ 设备 ID
-授权码（uuid/authkey）是出厂时的身份凭证。设备激活后，云端返回的 `devid` 才是
-设备在云端的正式 ID——`devid` 内部关联了授权码、产品 PID 和用户账号。
-:::
-
-
-## 设备激活与配网（Activation & Provisioning）
-
-把设备从"出厂状态"变成"已联网、已绑定用户、已注册云端"的完整过程。
-
-这是一次性过程，包含三个环节：联网 → 绑定用户 → 云端注册。设备需要三样东西才能
-完成激活（配网）：
-
-| 输入 | 来源 | 作用 |
-|------|------|------|
-| **uuid / authkey** | 出厂烧录（授权码） | 证明"我是合法设备" |
-| **产品 PID** | 授权码绑定 | 告诉云端"我是什么产品"（数据点定义、面板、Agent 等） |
-| **用户 Token** | 配网过程获得 | 将设备绑定到用户的涂鸦 App 账号 |
-
-配网成功后，云端验证三项输入，返回：
-
-| 凭据 | 说明 |
-|------|------|
-| `devid` | 设备在云端的唯一 ID。**内部关联了授权码（uuid/authkey）、产品 PID、用户账号**——之后云端通过 `devid` 就能查到设备的全部身份信息 |
-| `secret_key` | 设备与云端通信的加密密钥 |
-| `local_key` | 数据点（DP）加解密用的本地密钥 |
-
-激活只需一次。之后设备将这三项凭据持久化存储，每次启动直接使用，无需重复配网。
-
-**了解更多**：[配网方式总览](./tutorials/pair-overall)
-
-## 产品 PID 与 AI Agent
-
-PID 标识"这是哪一类产品"，Agent 决定"这个产品的 AI 怎么表现"。
-
-- **产品 PID**（Product ID）：在涂鸦 IoT 平台创建产品时获得。一类产品共享一个
-  PID，PID 下定义了这类产品的数据点（功能点）、面板、绑定的 AI Agent 等。
-
-- **AI Agent**：在涂鸦 AI 平台上配置的智能体，包含系统提示词（System Prompt）、
-  TTS 语音类型、语言设置等。一个产品绑定一个默认 Agent（也可绑定多个，通过
-  `agent_token` 切换）。
-
-设备通过 SDK 连接 AI 基座时，云端根据设备所属产品的 PID 找到对应的 Agent，
-由 Agent 负责处理对话、生成回复、调用工作流等。
-
-**了解更多**：[创建和配置 Agent](./guides/create-agent)
+<div className="doc-terms">
+  <div><div><strong>AI Agent</strong><small>BEHAVIOR</small></div><section><p>定义产品如何理解、决策和表达。平台侧可配置系统提示词、语言、TTS、工作流和可调用工具；一个产品可使用默认 Agent，也可按项目配置切换。</p><code>PID 回答“这是什么产品”，Agent 回答“这个产品如何交流和行动”。</code></section></div>
+  <div><div><strong>会话</strong><small>SESSION</small></div><section><p>一次连续 AI 交互的运行上下文。它包含连接状态、输入输出流、回调事件和可选会话属性。SDK 负责承载会话数据；具体业务语义由应用和平台配置共同决定。</p></section></div>
+  <div><div><strong>Agent Core</strong><small>PLATFORM RUNTIME</small></div><section><p>Tuya Physical AI 平台中的 Agent 编排与运行层，负责上下文组装、工具编排、模型路由、记忆框架和运行保障。它属于云端平台能力，不随端侧 SDK 编译进设备。</p></section></div>
+</div>
 
 ## tRTC 实时通道
 
-设备与涂鸦 AI 云端之间的一条加密长连接，用于实时收发音频、图片、文本。
+tRTC 是设备与 Tuya AI 云端之间的加密实时通道。Agentic-kit 当前提供 TCP 开源实现和 UDP 预编译静态库两类客户端，二者在交付方式、平台支持和重连责任上有所不同，应结合目标芯片、弱网需求与源码控制要求选择。
 
-tRTC（Tuya RTC）是涂鸦自研的实时通信协议。Agentic-kit 提供两种实现：
+| 实现 | 传输 | 集成形态 | 主要特点 |
+| --- | --- | --- | --- |
+| `rtc-tcp-client` | TCP | 开源代码 + PAL | 便于源码控制和跨平台移植；应用按文档处理断线与重连 |
+| `rtc-client` | UDP | 按芯片平台提供预编译静态库 | 适合快速集成与弱网场景；当前请联系涂鸦商务获取目标平台对应库 |
 
-| 实现 | 传输层 | 集成方式 | 适用场景 |
-|------|--------|---------|---------|
-| rtc-tcp-client（`tai_*`） | TCP | 源码（需实现 PAL） | 新项目、ESP-IDF、需源码控制 |
-| rtc-client（`stm_open_*`） | UDP | 预编译静态库 | 快速集成、弱网场景 |
+<div className="doc-callout doc-callout--info"><b>选择前先确认交付形态</b><p>需要源码可控或适配新系统时，优先评估 TCP 开源实现；需要使用 UDP 链路时，应先确认芯片、操作系统、工具链和库版本，再由涂鸦商务提供匹配的预编译静态库。</p></div>
 
-设备通过 tRTC 通道发送语音/图片/文本给云端 AI，接收 AI 返回的 TTS 音频、文字
-回复、以及 MCP 工具调用指令。这条通道由 SDK 内部管理 TLS 加密与心跳保活，你只需
-实现回调处理业务逻辑。断线重连两种实现有差异：rtc-client 内部有恢复重连
-（Recovering）机制；rtc-tcp-client 则需要应用在收到 `on_disconnect` 回调后自行
-重新调用 `tai_connect()`（注意不要在回调内直接调用，详见 [FAQ](./faq)）。
+<div className="doc-callout doc-callout--neutral"><b>实时通道不等于 AI 模型</b><p>通道负责把音频、图像、视频、文本、事件和工具结果送到合适的能力，并把回复与指令送回终端。模型和算法可由涂鸦平台、客户云或端侧实现。</p></div>
 
-**了解更多**：[RTC TCP Client 参考](./reference/rtc-tcp-client) | [RTC Client 参考](./reference/rtc-client)
+## 多模态流与事件
 
-## 数据点（Data Point / DP）
+<div className="doc-card-grid doc-card-grid--two">
+  <article><span>UPLINK / 终端 -&gt; 平台</span><h3>输入与状态</h3><ul><li>流式音频、音频结束</li><li>图像与视频帧</li><li>文本、设备事件、工具执行结果</li><li>设备状态和数据点上报</li></ul></article>
+  <article><span>DOWNLINK / 平台 -&gt; 终端</span><h3>结果与动作</h3><ul><li>TTS 音频、文字回复</li><li>图像与视频结果</li><li>会话、VAD 与打断事件</li><li>MCP 工具调用和设备指令</li></ul></article>
+</div>
 
-设备功能的数字化表示——每个功能（开关、亮度、温度）对应一个编号的
-数据点。
+终端应用需要为采集、缓冲、播放、打断和失败恢复建立明确状态机。例如使用云端 VAD 时，设备持续发送音频，收到服务端端点事件后结束本轮上行；本地 VAD 是可选优化，可用于电池、带宽或高交互要求场景。
 
-数据点（DP）是涂鸦 IoT 模型中描述设备状态的基本单元。每个 DP 有：
+## PAL：平台抽象层
 
-- 一个 **编号**（1–255），如 DP 1 = 开关、DP 2 = 温度
-- 一个 **类型**：`bool`（开关）、`value`（数值）、`string`（字符串）、`enum`（枚举）、`raw`（原始字节）
-- 一个 **访问模式**：`ro`（只上报）、`rw`（可读可写）、`wr`（只下发）
+PAL 是 Agentic-kit 的可移植边界。SDK 不直接绑定某个 RTOS 或芯片，而是通过函数指针使用 TCP、线程、互斥锁、时间和内存。官方提供 POSIX 与 FreeRTOS 实现，新平台可据此适配。
 
-**Schema** 是一个产品所有 DP 定义的集合（JSON 数组），描述"这个产品有哪些功能、
-每个功能的取值范围"。Schema 在 IoT 平台配置产品时生成，设备激活时下发。
+| 类别 | 典型接口 | 工程关注点 |
+| --- | --- | --- |
+| 网络 | `connect / send / recv / close / poll` | 超时、部分收发、TLS 依赖、断网恢复 |
+| 并发 | `thread_create / join`、mutex | 线程栈、回调上下文、锁粒度 |
+| 系统 | `time_ms`、`malloc / free` | 时钟单调性、内存峰值与碎片 |
 
-SDK 管理数据点的**本地缓存**和**上下行通信**：
+## 物理设备控制：DP 与端侧 MCP
 
-- **上行（Report）**：设备 → 云端，设备主动上报当前 DP 值。云端缓存的 DP 状态只能
-  通过设备上报来刷新。
-- **下行（DP Set）**：云端 → 设备，App 或云端下发指令改变设备状态（如"开灯"）。
+Agentic-kit 提供两种面向物理设备的控制方式。客户可以根据设备能力是否标准化、调用参数是否动态，以及是否需要由 Agent 理解上下文，自主选择数据点或端侧 MCP，也可以在同一产品中分别承载不同类型的能力。
 
-:::important SDK 不自动上报
-恢复 DP 状态或设备重连后，**SDK 不会自动上报**。应用需在每次（重）连成功后调用
-`iot_dp_report_all()` 刷新云端缓存，否则 App 端看到的可能是旧状态。
-:::
+<div className="doc-card-grid doc-card-grid--two">
+  <article><span>DATA POINT / DP</span><h3>标准设备能力与状态</h3><p>用产品 Schema 描述开关、亮度、温度、模式等稳定功能，适合 App 控制、状态同步、自动化和跨设备联动。设备通过上报刷新云端状态，通过下行 DP 指令改变本地状态。</p></article>
+  <article><span>DEVICE MCP</span><h3>面向 Agent 的动态工具</h3><p>把读传感器、拍照、控制电机或执行任务注册为带名称、说明和参数 Schema 的工具，适合需要上下文理解、结构化参数或执行结果回传的 AI 交互。</p></article>
+</div>
 
-**了解更多**：[DP 状态持久化](./guides/dp-persistence) | [IoT Client 参考](./reference/iot-client)
+| 判断维度 | 优先使用 DP | 优先使用端侧 MCP |
+| --- | --- | --- |
+| 能力形态 | 稳定、可枚举的设备属性和功能 | 动态、任务型或带复杂参数的工具 |
+| 主要调用方 | App、云端自动化、设备联动 | AI Agent |
+| 结果表达 | 状态值与标准指令 | 结构化执行结果、错误与上下文 |
 
-## PAL（Platform Abstraction Layer）
+<div className="doc-callout doc-callout--info"><b>重连后的状态同步由应用负责</b><p>SDK 不会自动把恢复的本地 DP 状态重新上报。应用应在每次连接或重连成功后刷新必要状态，避免云端和设备端显示不一致。</p></div>
 
-一组函数指针（TCP、线程、内存、时间），你为硬件平台实现它，SDK 就能
-在上面运行。
+## MCP 的设备侧与云侧角色
 
-Agentic-kit 不直接调用操作系统的 API，而是通过 PAL 间接调用。这使得 SDK 可以
-运行在任何平台上——你只需为你的芯片/操作系统实现 14 个 PAL 接口：
+MCP 用统一协议描述工具名称、用途、参数和返回值。在 Physical AI 中，工具既可能位于设备，也可能位于客户或第三方云端；端侧 MCP 是上节两种物理设备控制方式之一。
 
-| 接口类别 | 函数 | 说明 |
-|----------|------|------|
-| TCP | `tcp_connect/send/recv/close/poll` | TCP 连接管理 |
-| 线程 | `thread_create/thread_join` | 后台线程 |
-| 互斥锁 | `mutex_create/lock/unlock/destroy` | 线程同步 |
-| 时间 | `time_ms` | 毫秒时间戳 |
-| 内存 | `malloc/free` | 动态内存分配 |
+<div className="doc-card-grid doc-card-grid--two">
+  <article><span>DEVICE MCP</span><h3>设备是工具提供方</h3><p>终端注册读传感器、控制电机、拍照等能力。Agent 发起调用，设备验证参数并执行，再返回结构化结果。</p></article>
+  <article><span>CLOUD MCP</span><h3>云服务是工具提供方</h3><p>天气、搜索、企业知识或客户核心业务由云端服务执行，可使用涂鸦能力，也可接入客户自有实现。</p></article>
+</div>
 
-SDK 已提供 POSIX（macOS/Linux）和 FreeRTOS 两个现成的 PAL 实现。移植到新平台
-时，复制其中一个作为模板修改即可。
+<div className="doc-callout"><b>物理动作需要更严格的边界</b><p>工具声明只是调用入口。具身机器人或空间助手执行门锁、窗帘、移动、抓取等动作前，还需校验设备绑定、用户授权、参数范围、当前状态和失败回退。</p></div>
 
-**了解更多**：[适配新平台](./guides/porting-to-new-platform)
+## 感知、模型与记忆
 
-## MCP（Model Context Protocol）
+Physical AI 的体验来自感知、推理、记忆和执行协同。这些能力不必部署在同一位置，也不必由同一家服务提供。
 
-让 AI 能调用外部工具（读传感器、控制设备、查数据库等）的标准协议。
+<div className="doc-layers">
+  <div><strong>端侧感知</strong><small>EDGE</small><span>关键词唤醒 · 本地 VAD（可选） · 视觉预处理 · 传感器融合 · 安全急停</span></div>
+  <div className="doc-layers__accent"><strong>平台能力</strong><small>TUYA PHYSICAL AI</small><span>云端 VAD / ASR / TTS · 视觉算法 · Agent Core · OmniMem · PAM · MCP / A2A</span></div>
+  <div><strong>客户能力</strong><small>YOUR STACK</small><span>私有模型 · 私域知识 · 核心云服务 · 自研算法 · 产品业务</span></div>
+</div>
 
-MCP 定义了 Client 和 Server 两种角色：**Client 是 AI 侧**（发起工具调用），
-**Server 是工具提供方**（执行并返回结果）。涂鸦平台同时支持两种 MCP 功能提供方：
+例如语音链路可组合流式 ASR、动态热词、云端 VAD 和客户自有 TTS；宠物相机可连接宠物个体识别、行为理解和事件记录；机器人可把平台任务规划与本体控制、安全策略和已授权家庭设备组合。部署位置取决于时延、功耗、带宽、隐私、算力和业务控制权。
 
-### 设备侧 MCP（设备 = Server，tuya 云端 AI = Client）
+## 一张边界表
 
-设备在云端 AI 面前暴露自己的能力（读传感器、控制外设），AI 在对话过程中主动调用：
-
-```
-用户："现在室温多少？"
-    → 云端 AI 判断需要调用设备的 read_sensor 工具
-    → 设备收到 MCP 请求，读取温度传感器，返回 25.3°C
-    → AI 基于结果生成自然语言回复："当前室温 25.3 度"
-```
-
-在 Agentic-kit 中，你在设备上注册工具（带名称、描述、参数 schema），AI 通过
-JSON-RPC 2.0 调用它们。
-
-**了解更多**：[设备 MCP 指南](./guides/device-mcp)
-
-### 云侧 MCP（三方服务 = Server，tuya 云端 AI = Client）
-
-部分 AI 扩展能力由第三方服务提供，例如天气查询、地理信息查询、联网搜索等。
-这些 MCP 工具可在云端的 Agent 配置页面进行选择——可以使用 Tuya 提供的公共
-实现，也可以由客户提供自定义实现。
-
-```
-用户："现在天气怎么样？"
-    → 云端 AI 判断需要调用天气查询 MCP
-    → 三方云（如墨迹 / weatherbit 等）处理 MCP 请求，返回当地温度 25.3°C
-    → AI 基于结果生成自然语言回复："当前杭州的温度为 25.3 度..."
-```
-**了解更多**：[创建和配置 Agent](./guides/create-agent)
+| 层 | 主要职责 | 由谁控制 |
+| --- | --- | --- |
+| 产品应用 | 采集、播放、状态机、动作执行、用户体验 | 客户 |
+| Agentic-kit | 身份、IoT、tRTC、会话事件、数据与工具交互 | 开放 SDK + 客户集成 |
+| Tuya Physical AI 平台 | Agent 编排、平台模型、记忆、知识、设备与行业服务 | 按需选用 |
+| 客户服务 | 私有模型、核心业务、私域知识与差异化算法 | 客户，可通过开放能力接入 |
 
 ## 下一步
 
-理解了以上概念后，建议按以下顺序继续：
-
-- [系统架构](./architecture) — 了解各模块如何协作
-- [快速开始](./tutorials/quick-start) — 在电脑上运行第一个示例
-- [创建和配置 Agent](./guides/create-agent) — 在 IoT 平台上准备你的产品和 Agent
+- [系统架构](./architecture) - 了解各模块如何协作
+- [快速开始](./tutorials/quick-start) - 在电脑上运行第一个示例
+- [创建和配置 Agent](./guides/create-agent) - 在 IoT 平台上准备你的产品和 Agent
