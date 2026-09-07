@@ -93,14 +93,23 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
    omission is invisible until someone flashes a board. They diverge on purpose — `pal_posix.c`
    and `iot_pal_defaults.c` host-only (each IDF app defines its own `get_default_pal()`),
    `pal_freertos.c` IDF-only — so never blind-sync them.
+<<<<<<< HEAD
 5. **Module code goes through the PAL**: `pal->malloc`/`pal->free` for memory, the `log_tag_*`
    macros in `common/log.h` for output (via each module's own family: `IOT_LOG*`,
    `TAI_LOG*`, `TUYA_BLE_HAL_LOG*`). A direct `malloc` or
    `printf` is a porting bug even where it links on the host -- and the `test` CI job greps for
    raw `log_emit(`/`printf(` call sites outside `common/log.{h,c}` and the test trees, so one
    fails the pipeline. The one deliberate gap: `pal_t` has
+=======
+5. **Module code goes through the PAL**: `pal->malloc`/`pal->free` for memory, `log_emit` for
+   output (via each module's prefixed `log_info`/`log_warn`/`log_error`). A direct `malloc` or
+   `printf` is a porting bug even where it links on the host. Two deliberate gaps: `pal_t` has
+>>>>>>> 2629217 (feat(common): opt-in TLS key log, for decrypting captures in Wireshark)
    only a monotonic `time_ms`, so ATOP signing reads libc `time(NULL)` — a port needs a real-time
-   clock the C library can see, or every signed request carries a `t` the cloud rejects.
+   clock the C library can see, or every signed request carries a `t` the cloud rejects; and
+   `pal_t` has no file interface, so the TLS key-log file sink in `common/tls.c` uses libc
+   `fopen`/`fputs`, compiled in only where `TLS_KEYLOG_FILE_SINK` is 1 (POSIX and ESP-IDF by
+   default) so a bare newlib port without `_open`/`_close` stubs still links `tls.o`.
 6. **CHANGELOG entries are terse, and carry a PR number.** One line per change —
    `- <module> — <what changed>(#<PR>).` — with indented sub-bullets only for specifics a reader
    acts on (a new symbol, a changed default, a migration step). `## [0.3.0]` is the reference for
