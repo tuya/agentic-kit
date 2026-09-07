@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A scan provider enables WiFi-list/status capability discovery, not a complete PSK3.0 activation exchange.
 - docs-site — new bilingual guide "DP (Data Point): Definition, Creation, and Usage" under User Guides → Cloud Configuration (#41).
   - Covers the official three-level DP definition, the four elements (DPID/DPCode/type/constraints), the six data types, rw/ro/wr transfer modes, `dps` and cloud command-set message formats, cloud rate limits, platform-side DP creation, and DP usage in agentic-kit (schema intake, type mapping, core `iot_dp_*` APIs, a typical code flow), with official and on-site references.
+- common — opt-in TLS key log, for decrypting a capture of the SDK's cloud
+  traffic in Wireshark(#34).
+  - `tls_keylog_open_file()` / `tls_keylog_close_file()` write NSS
+    `SSLKEYLOGFILE` lines to a file (compiled in on POSIX and ESP-IDF, or with
+    `TLS_KEYLOG_FILE_SINK=1`); `tls_set_keylog_handler()` routes them to your
+    own sink.
+  - Process-wide and off by default: enable it once before the first TLS
+    connection and every channel (MQTT, ATOP, IoT-DNS, RTC/TAI) exports.
+  - A runtime switch for debugging only; enabling it logs a `LOG_WARN`.
+    Needs mbedTLS 3.x.
+  - `docs-site/docs/guides/tls-keylog.md` covers the Wireshark setup.
 
 ### Changed
 
