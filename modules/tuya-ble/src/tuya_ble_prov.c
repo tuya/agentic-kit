@@ -1,9 +1,32 @@
-#include "tuya_ble_prov.h"
+#include "tuya_ble_internal.h"
 
 #include "cJSON.h"
+#include "log.h"
+
+#undef TUYA_BLE_HAL_LOGI
+#undef TUYA_BLE_HAL_LOGW
+#undef TUYA_BLE_HAL_LOGE
+#undef TUYA_BLE_HAL_HEXDUMP
+#define TUYA_BLE_HAL_LOGI(fmt, ...) log_emit(LOG_DEBUG, "[ble] " fmt, ##__VA_ARGS__)
+#define TUYA_BLE_HAL_LOGW(fmt, ...) log_emit(LOG_WARN, "[ble] " fmt, ##__VA_ARGS__)
+#define TUYA_BLE_HAL_LOGE(fmt, ...) log_emit(LOG_ERROR, "[ble] " fmt, ##__VA_ARGS__)
+#define TUYA_BLE_HAL_HEXDUMP(buf, len)                                         \
+    do {                                                                       \
+        const uint8_t *p_ = (const uint8_t *)(buf);                            \
+        size_t n_ = (len);                                                     \
+        char hex_[193];                                                        \
+        size_t o_ = 0;                                                         \
+        for (size_t i_ = 0; i_ < n_ && o_ + 3 < sizeof(hex_); i_++) {           \
+            o_ += (size_t)snprintf(hex_ + o_, sizeof(hex_) - o_, "%02X ",       \
+                                   p_[i_]);                                    \
+        }                                                                      \
+        if (o_) hex_[o_ - 1] = '\0';                                           \
+        log_emit(LOG_DEBUG, "[ble] HEX(%u): %s", (unsigned)n_, hex_);          \
+    } while (0)
 #include "mbedtls/aes.h"
 #include "mbedtls/md5.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #define FRM_QRY_DEV_INFO_REQ         0x0000
@@ -34,6 +57,20 @@
 #define ADV_FLAG_UUID_COMP  (1 << 0)
 #define SETBIT(val, bit)    ((val) |= (1 << (bit)))
 
+static int random_fill(tuya_ble_prov_state_t *state, uint8_t *out, size_t len)
+{
+    memset(out, 0, len);
+    if (state->cfg.random_fn) {
+        if (state->cfg.random_fn(out, len, state->cfg.random_ctx) != (int)len) {
+            memset(out, 0, len);
+            return -1;
+        }
+    } else {
+        tuya_ble_hal_random(out, len);
+    }
+    return 0;
+}
+
 static int md5_hash(const uint8_t *input, size_t ilen, uint8_t output[16])
 {
     return mbedtls_md5(input, ilen, output);
@@ -51,32 +88,6 @@ static uint16_t crc16_modbus(const uint8_t *data, uint16_t size)
         }
     }
     return crc;
-}
-
-static int var_len_encode(uint32_t value, uint8_t *buf)
-{
-    int len = 0;
-    do {
-        uint8_t byte = value & 0x7F;
-        value >>= 7;
-        if (value > 0) byte |= 0x80;
-        buf[len++] = byte;
-    } while (value > 0);
-    return len;
-}
-
-static int var_len_decode(const uint8_t *buf, uint16_t buf_len, uint32_t *value)
-{
-    *value = 0;
-    int shift = 0;
-    for (int i = 0; i < (int)buf_len && i < 4; i++) {
-        *value |= (uint32_t)(buf[i] & 0x7F) << shift;
-        shift += 7;
-        if ((buf[i] & 0x80) == 0) {
-            return i + 1;
-        }
-    }
-    return -1;
 }
 
 static int generate_key_11(const uint8_t *auth_key, const uint8_t *uuid,
@@ -166,12 +177,7 @@ static int aes_cbc_decrypt(const uint8_t *key, const uint8_t *iv,
     mbedtls_aes_free(&aes);
     if (ret != 0) return ret;
 
-    uint8_t pad = out[in_len - 1];
-    if (pad == 0 || pad > 16) {
-        *out_len = in_len;
-    } else {
-        *out_len = in_len - pad;
-    }
+    *out_len = in_len;
     return 0;
 }
 
@@ -220,7 +226,17 @@ static int tuya_ble_send(tuya_ble_prov_state_t *state, uint16_t cmd,
 {
     if (state->cfg.send_fn == NULL) return -1;
 
-    uint16_t frame_len = BLE_FRAME_HEADER_LEN + data_len + BLE_FRAME_CRC_LEN;
+    size_t needed = BLE_FRAME_MIN_LEN + (size_t)data_len;
+    size_t packet_needed = encrypt_mode == ENCRYPTION_MODE_NONE
+        ? 1 + needed : 17 + ((needed + 15) & ~(size_t)15);
+    if ((data_len && !data) || packet_needed > TUYA_BLE_TX_BUF_SIZE ||
+        state->tx_count == TUYA_BLE_TX_QUEUE_DEPTH || state->sn == UINT32_MAX) {
+        TUYA_BLE_HAL_LOGE("[TX] rejected: cmd=0x%04X len=%u needed=%u queue=%u sn=%lu",
+                          cmd, data_len, (unsigned)packet_needed,
+                          state->tx_count, (unsigned long)state->sn);
+        return -1;
+    }
+    uint16_t frame_len = (uint16_t)needed;
     uint8_t *frame = state->tx_frame;
     if (frame_len > sizeof(state->tx_frame)) {
         TUYA_BLE_HAL_LOGE("[TX] frame too large: %u > %u",
@@ -268,7 +284,7 @@ static int tuya_ble_send(tuya_ble_prov_state_t *state, uint16_t cmd,
             memcpy(iv, state->server_rand, 16);
             memcpy(enc_key, state->key_11, 16);
         } else {
-            tuya_ble_hal_random(iv, 16);
+            if (random_fill(state, iv, sizeof(iv)) != 0) return -1;
             if (encrypt_mode == ENCRYPTION_MODE_KEY_12) {
                 ret = generate_key_12(state->key_11, state->pair_rand, enc_key);
                 if (ret != 0) return ret;
@@ -289,35 +305,28 @@ static int tuya_ble_send(tuya_ble_prov_state_t *state, uint16_t cmd,
         enc_pkt_len = 17 + enc_len;
     }
 
-    uint8_t *trsmitr_buf = state->tx_trsmitr_buf;
-    int toff = 0;
-
-    trsmitr_buf[toff++] = 0x00;
-    toff += var_len_encode(enc_pkt_len, &trsmitr_buf[toff]);
-    trsmitr_buf[toff++] = (TUYA_BLE_PROTOCOL_VER_HI << 4) | (state->trsmitr_seq & 0x0F);
-    state->trsmitr_seq++;
-    memcpy(&trsmitr_buf[toff], enc_pkt, enc_pkt_len);
-    uint16_t total_len = toff + enc_pkt_len;
-
-    TUYA_BLE_HAL_LOGI("[TX] trsmitr_len=%d (hdr=%d + enc=%d)", total_len, toff, enc_pkt_len);
-    TUYA_BLE_HAL_HEXDUMP(trsmitr_buf, total_len);
-
-    int rc = state->cfg.send_fn(trsmitr_buf, total_len, state->cfg.send_ctx);
-    if (rc != 0) {
-        TUYA_BLE_HAL_LOGE("Notify send failed, rc=%d", rc);
-    }
-    return rc;
+    unsigned slot = (state->tx_head + state->tx_count) % TUYA_BLE_TX_QUEUE_DEPTH;
+    memcpy(state->tx_queue[slot], enc_pkt, enc_pkt_len);
+    state->tx_queue_len[slot] = enc_pkt_len;
+    if (!state->tx_count) state->tx_started_ms = state->now_ms;
+    state->tx_count++;
+    int rc = tuya_ble_prov_tx_ready(state);
+    return rc == TUYA_BLE_SEND_BUSY ? 0 : rc;
 }
 
 static void handle_dev_info_req(tuya_ble_prov_state_t *state, const uint8_t *data, uint16_t data_len)
 {
-    TUYA_BLE_HAL_LOGI("[PROTO] FRM_QRY_DEV_INFO_REQ, data_len=%d", data_len);
+    TUYA_BLE_HAL_LOGI("[PROTO] FRM_QRY_DEV_INFO_REQ, data_len=%d (pkt_len=%u)",
+                      data_len, state->peer_pkt_len);
+    TUYA_BLE_HAL_HEXDUMP(data, data_len > 32 ? 32 : data_len);
 
-    tuya_ble_hal_random(state->pair_rand, TUYA_BLE_PAIR_RAND_LEN);
-    TUYA_BLE_HAL_LOGI("[PROTO] pair_rand:");
-    TUYA_BLE_HAL_HEXDUMP(state->pair_rand, TUYA_BLE_PAIR_RAND_LEN);
-    TUYA_BLE_HAL_LOGI("[PROTO] server_rand (APP's IV):");
-    TUYA_BLE_HAL_HEXDUMP(state->server_rand, 16);
+    state->handshake_ready = false;
+    if (random_fill(state, state->pair_rand, TUYA_BLE_PAIR_RAND_LEN) != 0) {
+        TUYA_BLE_HAL_LOGE("[PROTO] pair_rand generation failed");
+        return;
+    }
+
+
 
     uint8_t resp[200];
     memset(resp, 0, sizeof(resp));
@@ -332,9 +341,8 @@ static void handle_dev_info_req(tuya_ble_prov_state_t *state, const uint8_t *dat
 
     int reg_key_ret = generate_register_key((const uint8_t *)state->cfg.auth_key,
                                             state->server_rand, &resp[14]);
-    (void)reg_key_ret;
+    if (reg_key_ret != 0) return;
     TUYA_BLE_HAL_LOGI("[PROTO] register_key ret=%d", reg_key_ret);
-    TUYA_BLE_HAL_HEXDUMP(&resp[14], 16);
 
     resp[52] = (TUYA_COMM_ABILITY >> 8) & 0xFF;
     resp[53] = TUYA_COMM_ABILITY & 0xFF;
@@ -362,34 +370,36 @@ static void handle_dev_info_req(tuya_ble_prov_state_t *state, const uint8_t *dat
     }
 
     TUYA_BLE_HAL_LOGI("[PROTO] DevInfo response, %d bytes", payload_len);
-    TUYA_BLE_HAL_HEXDUMP(resp, payload_len);
-    tuya_ble_send(state, FRM_QRY_DEV_INFO_REQ, resp, payload_len, ENCRYPTION_MODE_KEY_11);
+    state->handshake_ready = tuya_ble_send(state, FRM_QRY_DEV_INFO_REQ, resp,
+                                          payload_len, ENCRYPTION_MODE_KEY_11) == 0;
+    TUYA_BLE_HAL_LOGI("[PROTO] handshake_ready=%d", state->handshake_ready);
 }
 
 static void handle_pair_req(tuya_ble_prov_state_t *state, const uint8_t *data, uint16_t data_len)
 {
     TUYA_BLE_HAL_LOGI("[PROTO] FRM_PAIR_REQ, data_len=%d", data_len);
-    if (data_len > 0) {
-        TUYA_BLE_HAL_HEXDUMP(data, data_len);
-    }
 
-    uint8_t result = 0x00;
+    uint8_t result = data_len < TUYA_BLE_ID_LEN ? 0x01 : 0x00;
     if (data_len >= TUYA_BLE_ID_LEN) {
         if (memcmp(data, state->ble_id, TUYA_BLE_ID_LEN) != 0) {
             TUYA_BLE_HAL_LOGW("[PROTO] BLE ID mismatch in pair request!");
-            TUYA_BLE_HAL_LOGI("[PROTO] Expected BLE ID:");
-            TUYA_BLE_HAL_HEXDUMP(state->ble_id, TUYA_BLE_ID_LEN);
+
             result = 0x01;
         }
     }
 
     if (result == 0x00) {
         state->paired = true;
+        state->authenticated = true;
         TUYA_BLE_HAL_LOGI("[PROTO] Paired successfully");
     }
 
     uint8_t resp[1] = {result};
-    tuya_ble_send(state, FRM_PAIR_REQ, resp, 1, ENCRYPTION_MODE_KEY_12);
+    if (tuya_ble_send(state, FRM_PAIR_REQ, resp, 1, ENCRYPTION_MODE_KEY_12) != 0) {
+        TUYA_BLE_HAL_LOGE("[PROTO] Pair response send failed");
+        state->paired = state->authenticated = false;
+        return;
+    }
 
     if (state->paired) {
         uint8_t net_stat = 0x00;
@@ -400,7 +410,6 @@ static void handle_pair_req(tuya_ble_prov_state_t *state, const uint8_t *data, u
 static void handle_wifi_config(tuya_ble_prov_state_t *state, const uint8_t *data, uint16_t data_len)
 {
     TUYA_BLE_HAL_LOGI("[PROTO] FRM_DOWNLINK_TRANSPARENT_REQ (%d bytes):", data_len);
-    TUYA_BLE_HAL_HEXDUMP(data, data_len);
 
     if (data_len < 4) {
         TUYA_BLE_HAL_LOGW("[PROTO] Transparent data too short");
@@ -427,58 +436,67 @@ static void handle_wifi_config(tuya_ble_prov_state_t *state, const uint8_t *data
 
     char json_str[512];
     uint16_t json_len = data_len - offset;
-    if (json_len >= sizeof(json_str)) json_len = sizeof(json_str) - 1;
+    if (json_len >= sizeof(json_str) || memchr(data + offset, 0, json_len)) {
+        TUYA_BLE_HAL_LOGW("[PROTO] WiFi JSON too long or embedded NUL (%u)", data_len - offset);
+        return;
+    }
     memcpy(json_str, &data[offset], json_len);
     json_str[json_len] = '\0';
-
     TUYA_BLE_HAL_LOGI("[PROTO] WiFi JSON: %s", json_str);
 
-    cJSON *root = cJSON_Parse(json_str);
+
+    cJSON *root = cJSON_ParseWithOpts(json_str, NULL, true);
     if (root == NULL) {
-        TUYA_BLE_HAL_LOGE("JSON parse failed");
+        TUYA_BLE_HAL_LOGE("JSON parse failed: %s", json_str);
         return;
     }
 
+    cJSON *ssid = cJSON_GetObjectItemCaseSensitive(root, "ssid");
+    cJSON *pwd = cJSON_GetObjectItemCaseSensitive(root, "pwd");
+    cJSON *token = cJSON_GetObjectItemCaseSensitive(root, "token");
+    if (!cJSON_IsObject(root) || !cJSON_IsString(ssid) || !cJSON_IsString(pwd) ||
+        !cJSON_IsString(token) || !ssid->valuestring[0] || !token->valuestring[0] ||
+        strlen(ssid->valuestring) > TUYA_BLE_SSID_MAX_LEN ||
+        strlen(pwd->valuestring) > TUYA_BLE_PASSWORD_MAX_LEN ||
+        strlen(token->valuestring) > TUYA_BLE_TOKEN_MAX_LEN) {
+        TUYA_BLE_HAL_LOGW("[PROTO] WiFi JSON rejected field validation");
+        cJSON_Delete(root);
+        return;
+    }
     memset(&state->creds, 0, sizeof(state->creds));
-
-    cJSON *ssid = cJSON_GetObjectItem(root, "ssid");
-    if (cJSON_IsString(ssid) && ssid->valuestring) {
-        strncpy(state->creds.ssid, ssid->valuestring, TUYA_BLE_SSID_MAX_LEN);
-        TUYA_BLE_HAL_LOGI("[PROTO] SSID: %s", state->creds.ssid);
-    }
-
-    cJSON *pwd = cJSON_GetObjectItem(root, "pwd");
-    if (cJSON_IsString(pwd) && pwd->valuestring) {
-        strncpy(state->creds.password, pwd->valuestring, TUYA_BLE_PASSWORD_MAX_LEN);
-        TUYA_BLE_HAL_LOGI("[PROTO] Password: %s", state->creds.password);
-    }
-
-    cJSON *token = cJSON_GetObjectItem(root, "token");
-    if (cJSON_IsString(token) && token->valuestring) {
-        strncpy(state->creds.token, token->valuestring, TUYA_BLE_TOKEN_MAX_LEN);
-        TUYA_BLE_HAL_LOGI("[PROTO] Token: %s", state->creds.token);
-    }
+    strcpy(state->creds.ssid, ssid->valuestring);
+    strcpy(state->creds.password, pwd->valuestring);
+    strcpy(state->creds.token, token->valuestring);
 
     cJSON_Delete(root);
 
     uint8_t resp[5] = {0x00, 0x00, 0x00, 0x01, 0x00};
-    tuya_ble_send(state, FRM_UPLINK_TRANSPARENT_REQ, resp, sizeof(resp), ENCRYPTION_MODE_KEY_12);
+    if (tuya_ble_send(state, FRM_UPLINK_TRANSPARENT_REQ, resp, sizeof(resp), ENCRYPTION_MODE_KEY_12) != 0) {
+        TUYA_BLE_HAL_LOGE("[PROTO] Creds ack send failed");
+        return;
+    }
 
-    if (state->creds.ssid[0] && state->cfg.cb) {
-        state->cfg.cb(&state->creds);
+    state->credentials_pending = true;
+    if (!state->tx_count) {
+        state->credentials_pending = false;
+        if (state->cfg.cb) state->cfg.cb(&state->creds);
     }
 }
 
-static void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t packet_len)
+void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t packet_len)
 {
     TUYA_BLE_HAL_LOGI("[RX] packet_len=%d", packet_len);
-    TUYA_BLE_HAL_HEXDUMP(packet, packet_len > 64 ? 64 : packet_len);
 
-    if (packet_len < 2) return;
+    if (packet_len < 2) {
+        TUYA_BLE_HAL_LOGW("[RX] Packet too short (%u)", packet_len);
+        return;
+    }
 
     uint8_t encrypt_mode = packet[0];
     TUYA_BLE_HAL_LOGI("[RX] encrypt_mode=0x%02X", encrypt_mode);
+    TUYA_BLE_HAL_HEXDUMP(packet, packet_len > 64 ? 64 : packet_len);
 
+    uint8_t candidate_key[16] = {0};
     uint8_t *frame = state->rx_frame;
     uint16_t frame_len;
 
@@ -492,7 +510,7 @@ static void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, u
         memcpy(frame, &packet[1], frame_len);
     } else {
         if (packet_len < 18) {
-            TUYA_BLE_HAL_LOGW("[RX] Encrypted packet too short");
+            TUYA_BLE_HAL_LOGW("[RX] Encrypted packet too short (%u)", packet_len);
             return;
         }
         const uint8_t *iv = &packet[1];
@@ -502,16 +520,24 @@ static void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, u
         uint8_t dec_key[16];
         int ret = 0;
         if (encrypt_mode == ENCRYPTION_MODE_KEY_11) {
-            memcpy(state->server_rand, iv, 16);
             ret = generate_key_11((const uint8_t *)state->cfg.auth_key,
                                   state->ble_id, iv, dec_key);
-            if (ret != 0) return;
-            memcpy(state->key_11, dec_key, 16);
-            TUYA_BLE_HAL_LOGI("[RX] Cached service_rand and KEY_11");
-            TUYA_BLE_HAL_HEXDUMP(state->server_rand, 16);
+            if (ret != 0) {
+                TUYA_BLE_HAL_LOGE("[RX] key_11 derive failed, ret=%d", ret);
+                return;
+            }
+            memcpy(candidate_key, dec_key, 16);
+
         } else if (encrypt_mode == ENCRYPTION_MODE_KEY_12) {
+            if (!state->handshake_ready) {
+                TUYA_BLE_HAL_LOGW("[RX] KEY_12 packet before handshake ready");
+                return;
+            }
             ret = generate_key_12(state->key_11, state->pair_rand, dec_key);
-            if (ret != 0) return;
+            if (ret != 0) {
+                TUYA_BLE_HAL_LOGE("[RX] key_12 derive failed, ret=%d", ret);
+                return;
+            }
         } else {
             TUYA_BLE_HAL_LOGW("[RX] Unsupported encrypt_mode=0x%02X", encrypt_mode);
             return;
@@ -532,21 +558,25 @@ static void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, u
         return;
     }
 
-    uint32_t sn = (frame[0] << 24) | (frame[1] << 16) | (frame[2] << 8) | frame[3];
-    state->last_rx_sn = sn;
+    uint32_t sn = ((uint32_t)frame[0] << 24) | ((uint32_t)frame[1] << 16) | ((uint32_t)frame[2] << 8) | frame[3];
     uint16_t cmd = (frame[8] << 8) | frame[9];
     uint16_t data_len = (frame[10] << 8) | frame[11];
     const uint8_t *data = &frame[12];
 
-    if (cmd == FRM_QRY_DEV_INFO_REQ && data_len >= 2) {
-        state->peer_pkt_len = ((uint16_t)data[0] << 8) | data[1];
-        TUYA_BLE_HAL_LOGI("[PROTO] peer_pkt_len=%u", state->peer_pkt_len);
-    }
-
-    uint16_t crc_offset = BLE_FRAME_HEADER_LEN + data_len;
-    if (crc_offset + 2 > frame_len) {
-        TUYA_BLE_HAL_LOGW("[RX] Invalid data_len=%d", data_len);
+    size_t crc_offset = BLE_FRAME_HEADER_LEN + (size_t)data_len;
+    if (crc_offset + BLE_FRAME_CRC_LEN > frame_len) {
+        TUYA_BLE_HAL_LOGW("[RX] Invalid data_len=%d (frame=%u)", data_len, (unsigned)frame_len);
         return;
+    }
+    /* The Frame length is declared by its header; CBC padding after the CRC is
+     * neither validated nor stripped (TuyaOpen ble_packet_recv). The real app
+     * pads a block-aligned Frame with a full extra PKCS#7 block, so the
+     * decrypted buffer is often longer than the Frame — never use it as the
+     * length. */
+    size_t exact_len = crc_offset + BLE_FRAME_CRC_LEN;
+    if (frame_len != exact_len) {
+        TUYA_BLE_HAL_LOGI("[RX] Frame %u bytes, buffer %u (padding ignored)",
+                          (unsigned)exact_len, (unsigned)frame_len);
     }
     uint16_t recv_crc = (frame[crc_offset] << 8) | frame[crc_offset + 1];
     uint16_t calc_crc = crc16_modbus(frame, crc_offset);
@@ -557,6 +587,45 @@ static void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, u
 
     TUYA_BLE_HAL_LOGI("[RX] SN=%lu, CMD=0x%04X, LEN=%d, CRC=OK",
                       (unsigned long)sn, cmd, data_len);
+
+    /* Only validated, authorized Frames may commit counters or key material. */
+    if (sn == 0 || sn <= state->last_rx_sn) {
+        TUYA_BLE_HAL_LOGW("[RX] Stale/replayed SN=%lu (last=%lu)",
+                          (unsigned long)sn, (unsigned long)state->last_rx_sn);
+        return;
+    }
+    if (cmd == FRM_QRY_DEV_INFO_REQ) {
+        if (encrypt_mode != ENCRYPTION_MODE_KEY_11 || state->authenticated || state->tx_count || data_len < 2) {
+            TUYA_BLE_HAL_LOGW("[RX] DevInfo gate: mode=0x%02X auth=%d tx=%d len=%u",
+                              encrypt_mode, state->authenticated, state->tx_count, data_len);
+            return;
+        }
+        uint16_t peer = ((uint16_t)data[0] << 8) | data[1];
+        if (peer < 20 || peer > TUYA_BLE_TX_BUF_SIZE) {
+            TUYA_BLE_HAL_LOGW("[RX] DevInfo peer_pkt_len=%u out of range", peer);
+            return;
+        }
+        memcpy(state->server_rand, packet + 1, 16);
+        memcpy(state->key_11, candidate_key, 16);
+        state->peer_pkt_len = peer;
+    } else if (cmd == FRM_PAIR_REQ) {
+        if (encrypt_mode != ENCRYPTION_MODE_KEY_12 || !state->handshake_ready ||
+            state->authenticated || data_len < TUYA_BLE_ID_LEN) {
+            TUYA_BLE_HAL_LOGW("[RX] Pair gate: mode=0x%02X hs=%d auth=%d len=%u",
+                              encrypt_mode, state->handshake_ready, state->authenticated, data_len);
+            return;
+        }
+    } else if (cmd == FRM_DOWNLINK_TRANSPARENT_REQ) {
+        if (encrypt_mode != ENCRYPTION_MODE_KEY_12 || !state->authenticated || !state->paired) {
+            TUYA_BLE_HAL_LOGW("[RX] Creds gate: mode=0x%02X auth=%d paired=%d",
+                              encrypt_mode, state->authenticated, state->paired);
+            return;
+        }
+    } else {
+        TUYA_BLE_HAL_LOGW("[RX] Unhandled CMD=0x%04X", cmd);
+        return;
+    }
+    state->last_rx_sn = sn;
 
     switch (cmd) {
     case FRM_QRY_DEV_INFO_REQ:
@@ -627,10 +696,9 @@ static void build_adv_data(tuya_ble_prov_state_t *state)
 
     TUYA_BLE_HAL_LOGI("UUID raw: %s (len=%d, compressed=%d)", state->cfg.uuid,
                       (int)strlen(state->cfg.uuid), state->is_id_comp);
-    TUYA_BLE_HAL_LOGI("ble_id:");
-    TUYA_BLE_HAL_HEXDUMP(state->ble_id, TUYA_BLE_ID_LEN);
 
-    uint8_t name_len = strlen(state->cfg.device_name);
+
+    size_t name_len = strlen(state->cfg.device_name);
     if (name_len > TUYA_BLE_NAME_MAX_LEN) name_len = TUYA_BLE_NAME_MAX_LEN;
     state->rsp_data[state->rsp_len++] = name_len + 1;
     state->rsp_data[state->rsp_len++] = 0x09;
@@ -638,8 +706,6 @@ static void build_adv_data(tuya_ble_prov_state_t *state)
     state->rsp_len += name_len;
 
     TUYA_BLE_HAL_LOGI("adv_data (%d bytes), rsp_data (%d bytes)", state->adv_len, state->rsp_len);
-    TUYA_BLE_HAL_HEXDUMP(state->adv_data, state->adv_len);
-    TUYA_BLE_HAL_HEXDUMP(state->rsp_data, state->rsp_len);
 }
 
 int tuya_ble_prov_init(tuya_ble_prov_state_t *state, const tuya_ble_prov_cfg_ext_t *cfg)
@@ -649,8 +715,20 @@ int tuya_ble_prov_init(tuya_ble_prov_state_t *state, const tuya_ble_prov_cfg_ext
         return -1;
     }
 
+    size_t supplied_uuid_len = strlen(cfg->uuid);
+    if (strlen(cfg->product_key) != 16 || strlen(cfg->auth_key) != 32 ||
+        (supplied_uuid_len != 16 && supplied_uuid_len != 20)) return -1;
+    if (supplied_uuid_len == 20) {
+        for (size_t i = 0; i < supplied_uuid_len; i++) {
+            unsigned char c = cfg->uuid[i];
+            if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+                  (c >= 'a' && c <= 'z'))) return -1;
+        }
+    }
     memset(state, 0, sizeof(*state));
     state->cfg = *cfg;
+    state->gatt_payload = 20;
+    state->peer_pkt_len = 20;
 
     size_t uuid_len = strlen(cfg->uuid);
     if (uuid_len >= 20) {
@@ -672,62 +750,25 @@ void tuya_ble_prov_reset_conn(tuya_ble_prov_state_t *state)
     state->trsmitr_seq = 0;
     state->rx_len = 0;
     state->rx_total_len = 0;
+    state->rx_next_subpkg = 0;
+    state->tx_count = state->tx_head = 0;
+    state->tx_offset = 0;
+    state->tx_subpkg = 0;
+    state->credentials_pending = false;
 }
 
-int tuya_ble_prov_on_data(tuya_ble_prov_state_t *state, const uint8_t *raw, uint16_t len)
+void tuya_ble_prov_close(tuya_ble_prov_state_t *state)
 {
-    if (state == NULL || raw == NULL || len == 0 || len > TUYA_BLE_RX_BUF_SIZE) {
-        return -1;
-    }
-
-    TUYA_BLE_HAL_HEXDUMP(raw, len > 64 ? 64 : len);
-
-    int offset = 0;
-    uint32_t subpkg_num = 0;
-    int consumed = var_len_decode(&raw[offset], len - offset, &subpkg_num);
-    if (consumed < 0) {
-        TUYA_BLE_HAL_LOGW("[TRSMITR] Failed to decode SubPkgNum");
-        return 0;
-    }
-    offset += consumed;
-
-    if (subpkg_num == 0) {
-        uint32_t total_len = 0;
-        consumed = var_len_decode(&raw[offset], len - offset, &total_len);
-        if (consumed < 0) {
-            TUYA_BLE_HAL_LOGW("[TRSMITR] Failed to decode TotalLen");
-            return 0;
-        }
-        offset += consumed;
-        state->rx_total_len = total_len;
-        state->rx_len = 0;
-    }
-
-    if (offset >= len) return 0;
-    uint8_t ver_seq = raw[offset++];
-    (void)ver_seq;
-    TUYA_BLE_HAL_LOGI("[TRSMITR] subpkg=%lu, ver=%d, seq=%d, total=%lu",
-                      (unsigned long)subpkg_num, (ver_seq >> 4) & 0x0F,
-                      ver_seq & 0x0F, (unsigned long)state->rx_total_len);
-
-    uint16_t payload_len = len - offset;
-    if (state->rx_len + payload_len > sizeof(state->rx_buf)) {
-        TUYA_BLE_HAL_LOGE("[TRSMITR] RX buffer overflow");
-        state->rx_len = 0;
-        return 0;
-    }
-    memcpy(state->rx_buf + state->rx_len, raw + offset, payload_len);
-    state->rx_len += payload_len;
-
-    if (state->rx_len >= state->rx_total_len) {
-        TUYA_BLE_HAL_LOGI("[TRSMITR] Complete, %d bytes", state->rx_len);
-        tuya_ble_recv(state, state->rx_buf, state->rx_len);
-        state->rx_len = 0;
-    } else {
-        TUYA_BLE_HAL_LOGI("[TRSMITR] Partial %d/%lu", state->rx_len, (unsigned long)state->rx_total_len);
-    }
-
-    return 0;
+    if (!state) return;
+    tuya_ble_prov_cfg_ext_t cfg = state->cfg;
+    uint64_t now_ms = state->now_ms;
+    uint32_t generation = state->connection_generation + 1;
+    /* Volatile stores erase session keys, credentials and queued Packets. */
+    volatile uint8_t *p = (volatile uint8_t *)state;
+    for (size_t i = 0; i < sizeof(*state); i++) p[i] = 0;
+    (void)tuya_ble_prov_init(state, &cfg);
+    state->connection_generation = generation;
+    state->now_ms = now_ms;
 }
 
 void tuya_ble_prov_get_adv_data(const tuya_ble_prov_state_t *state,
@@ -749,5 +790,8 @@ void tuya_ble_prov_get_read_payload(const tuya_ble_prov_state_t *state,
 
 void tuya_ble_prov_set_paired(tuya_ble_prov_state_t *state, bool paired)
 {
-    if (state) state->paired = paired;
+    if (state) {
+        state->paired = paired;
+        if (!paired) state->authenticated = false;
+    }
 }

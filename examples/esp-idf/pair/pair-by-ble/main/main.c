@@ -23,6 +23,7 @@
 #include "nvs_flash.h"
 #include "esp_crt_bundle.h"
 #include "app_config.h"
+#include "log.h"
 #include "tuya_ble_nimble.h"
 #include "iot_client.h"
 #include "pal.h"
@@ -119,6 +120,10 @@ static void wifi_init_sta(const char *ssid, const char *password)
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    /* Modem power save (listen interval 3) gets STAs kicked by hotspot-style
+     * APs before DHCP completes (disconnect reason=7 ~35 s in at weak RSSI);
+     * keep the radio awake so the association survives and DHCP can finish. */
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     ESP_ERROR_CHECK(esp_wifi_start());
 }
 
@@ -155,7 +160,11 @@ static void iot_log_callback(log_level_t level, const char *fmt, va_list args)
         break;
     }
 
-    esp_log_writev(esp_level, TAG, fmt, args);
+    /* esp_log_writev does not append a newline; the facade's messages have
+     * none of their own, so add one or every line runs into the next. */
+    char line[256];
+    vsnprintf(line, sizeof(line), fmt, args);
+    ESP_LOG_LEVEL_LOCAL(esp_level, "tuya_ble", "%s", line);
 }
 
 static esp_err_t activate_device_with_ble_token(void)
@@ -170,7 +179,7 @@ static esp_err_t activate_device_with_ble_token(void)
         .cert_bundle_attach = (tls_cert_bundle_attach_fn)esp_crt_bundle_attach,
     };
 
-    ESP_LOGI(TAG, "Starting activation with BLE token: %s", s_wifi_creds.token);
+    ESP_LOGI(TAG, "Starting activation with BLE token");
     s_iot_client = iot_client_init_on_boarding_with_token(&ob_config, s_wifi_creds.token);
     if (s_iot_client == NULL) {
         ESP_LOGE(TAG, "Activation request failed");
@@ -197,6 +206,11 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
     ESP_ERROR_CHECK(iot_init_default() == OPRT_OK ? ESP_OK : ESP_FAIL);
+    /* The SDK's log facade defaults to LOG_INFO and its default handler
+     * writes to stderr (nowhere on ESP-IDF); route it through ESP logging
+     * and raise the ceiling so [ble] protocol DEBUG lines are visible. */
+    log_set_handler(iot_log_callback);
+    log_set_level(LOG_DEBUG);
 
     printf("\n");
     printf("╔════════════════════════════════════════════════════════════╗\n");
@@ -250,12 +264,27 @@ void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(500));
 
     /* Connect WiFi with the credentials received over BLE */
-    ESP_LOGI(TAG, "Connecting to WiFi SSID: %s, password: %s", s_wifi_creds.ssid, s_wifi_creds.password);
+    ESP_LOGI(TAG, "Connecting to WiFi");
     wifi_init_sta(s_wifi_creds.ssid, s_wifi_creds.password);
 
-    xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
-                        pdFALSE, pdFALSE, portMAX_DELAY);
-
+    /* Bounded wait: 15 s per DHCP attempt, 5 attempts. The disconnect handler
+     * reconnects in a loop; without a timeout a dead AP hangs here silently. */
+    bool wifi_up = false;
+    for (int attempt = 1; attempt <= 5 && !wifi_up; attempt++) {
+        EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
+                                               pdFALSE, pdFALSE,
+                                               pdMS_TO_TICKS(15000));
+        if (bits & WIFI_CONNECTED_BIT) {
+            wifi_up = true;
+        } else {
+            ESP_LOGW(TAG, "No IP after %d s (attempt %d/5), still retrying...",
+                     15 * attempt, attempt);
+        }
+    }
+    if (!wifi_up) {
+        ESP_LOGE(TAG, "WiFi never got an IP; activation aborted");
+        return;
+    }
     ESP_LOGI(TAG, "WiFi connected successfully");
     ESP_LOGI(TAG, "Free heap before activation: %" PRIu32, esp_get_free_heap_size());
     ESP_LOGI(TAG, "Minimum free heap before activation: %" PRIu32, esp_get_minimum_free_heap_size());

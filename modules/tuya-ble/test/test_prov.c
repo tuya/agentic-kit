@@ -1,4 +1,6 @@
 #include "tuya_ble_prov.h"
+#include "iot_client.h"
+#include "log.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -184,8 +186,12 @@ static int test_on_data_rejects_invalid_args(void)
     return 0;
 }
 
+int test_wire(void);
+
 int main(void)
 {
+    EXPECT_TRUE(iot_init_default() == 0);
+    log_set_level(LOG_ERROR);
     EXPECT_TRUE(test_init_rejects_invalid_args() == 0);
     EXPECT_TRUE(test_init_builds_adv_and_rsp_data() == 0);
     EXPECT_TRUE(test_get_read_payload_matches_adv_data() == 0);
@@ -193,6 +199,8 @@ int main(void)
     EXPECT_TRUE(test_reset_conn_clears_rx_state_only() == 0);
     EXPECT_TRUE(test_set_paired_updates_state() == 0);
     EXPECT_TRUE(test_on_data_rejects_invalid_args() == 0);
+
+    EXPECT_TRUE(test_wire() == 0);
 
     printf("PASS test_prov\n");
     return 0;

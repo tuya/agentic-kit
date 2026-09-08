@@ -27,6 +27,7 @@ set(AK_SRCS
 
     # tuya-ble
     ${AK_DIR}/modules/tuya-ble/src/tuya_ble_prov.c
+    ${AK_DIR}/modules/tuya-ble/src/tuya_ble_trsmitr.c
 
     # PAL (FreeRTOS+lwIP) and shared common transport / log / RNG
     ${AK_DIR}/pal/pal_freertos.c

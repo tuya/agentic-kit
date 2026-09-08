@@ -64,9 +64,8 @@ iot_client_init_on_boarding_with_token(token)  // 6. 用 Token 激活设备
 static void on_tuya_ble_prov_complete(const tuya_ble_wifi_creds_t *creds)
 {
     // 收到来自 App 的 WiFi 凭据
-    printf("ssid=%s\n", creds->ssid);
-    printf("password=%s\n", creds->password);
-    printf("token=%s\n", creds->token);
+    // creds 仅在回调期间有效；复制到应用持有的缓冲区，不记录密码或 Token
+    s_wifi_creds = *creds;
     // 通知主线程继续
     xEventGroupSetBits(s_prov_event_group, PROV_DONE_BIT);
 }
@@ -75,6 +74,7 @@ void app_main(void)
 {
     // 初始化 NVS（NimBLE 需要）
     nvs_flash_init();
+    iot_init_default(); // 在 BLE JSON 解析前初始化 PAL/cJSON 分配器
 
     tuya_ble_prov_cfg_t prov_cfg = {
         .device_name = "TYBLE",         // BLE 广播名称（最长 5 字符，超出会被截断）
@@ -174,3 +174,26 @@ idf.py flash monitor
 - 配网完成后的设备激活流程与[设备扫码配网](./scan-by-device)相同，使用 `iot_client_init_on_boarding_with_token()`。
 - 切勿在激活配置中设 `.mqtt_disable_auto_connect = true`：**App 以设备 MQTT 上线作为配网成功的判定条件**，不连接 MQTT 时 App 会显示配网失败/超时。
 - 需确保项目正确引用了 `modules/tuya-ble/` 和 `modules/iot-client/` 组件。
+
+## BLE 核心移植约定
+
+配置字符串必须在核心状态生命周期内有效，并以 NUL 结尾：`product_key` 为
+16 字节、`auth_key` 为 32 字节，`uuid` 为 16 字节或 20 个字母/数字。
+升级后重新编译调用方，公开状态结构的布局发生了变化。
+
+在同一 BLE 执行上下文调用 `tuya_ble_prov_on_data()`、`tuya_ble_prov_tx_ready()`、
+`tuya_ble_prov_tick()` 和 `tuya_ble_prov_close()`。连接关闭、重新连接或协议栈重置时，
+调用 `close()` 清除会话密钥及排队数据；旧的 `reset_conn()` 仅重置传输状态。
+`set_paired(true)` 不授予凭据下发权限。
+
+通知默认最多 20 字节；MTU 协商后通过 `tuya_ble_prov_set_gatt_payload(state, mtu - 3)`
+更新实际预算。发送回调必须在返回前复制数据：返回 0 表示接受，
+`TUYA_BLE_SEND_BUSY` 表示未接受、稍后重试，其他值表示永久失败。
+端口定期传入单调毫秒时间；未完成传输在 10 秒后过期。NimBLE 示例在其事件队列上
+驱动重试和超时，不新增 MQTT 线程。凭据回调等待回复被传输层接受后才执行。
+
+`tuya_ble_prov_cfg_ext_t.random_fn` 可选，用于提供能报告已填充字节数的 CSPRNG；
+短输出会使握手失败。未提供时，`tuya_ble_hal_random()` 必须完整填充缓冲区。
+
+当前仍使用传统 Token 配网流程，未开放 PSK3.0、WiFi 列表或阶段能力声明。
+完成 BLE 凭据接收不表示已经完成云端激活。

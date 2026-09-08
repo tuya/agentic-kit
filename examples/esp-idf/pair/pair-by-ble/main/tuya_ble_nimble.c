@@ -1,5 +1,6 @@
 #include "esp_log.h"
 #include "esp_random.h"
+#include "esp_timer.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
@@ -37,7 +38,8 @@ static const ble_uuid16_t s_svc_uuid = BLE_UUID16_INIT(0xFD50);
 static tuya_ble_prov_state_t s_prov;
 static bool s_prov_done;
 static uint8_t s_own_addr_type;
-static uint16_t s_conn_handle;
+static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+static struct ble_npl_callout s_transport_timer;
 static uint16_t s_notify_attr_handle;
 static bool s_notify_enabled;
 
@@ -86,16 +88,15 @@ static int nimble_send(const uint8_t *buf, uint16_t len, void *ctx)
 {
     (void)ctx;
 
-    if (s_conn_handle == 0 || !s_notify_enabled) {
-        return -1;
-    }
+    if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) return -1;
+    if (!s_notify_enabled) return TUYA_BLE_SEND_BUSY;
 
     struct os_mbuf *om = ble_hs_mbuf_from_flat(buf, len);
-    if (om == NULL) {
-        return -1;
-    }
+    if (om == NULL) return TUYA_BLE_SEND_BUSY;
 
-    return ble_gatts_notify_custom(s_conn_handle, s_notify_attr_handle, om);
+    int rc = ble_gatts_notify_custom(s_conn_handle, s_notify_attr_handle, om);
+    if (rc == BLE_HS_ENOMEM || rc == BLE_HS_EBUSY) return TUYA_BLE_SEND_BUSY;
+    return rc == 0 ? 0 : -1;
 }
 
 static int prov_gatt_write_access(uint16_t conn_handle, uint16_t attr_handle,
@@ -118,7 +119,9 @@ static int prov_gatt_write_access(uint16_t conn_handle, uint16_t attr_handle,
 
     uint8_t raw[TUYA_BLE_RX_BUF_SIZE];
     os_mbuf_copydata(ctxt->om, 0, len, raw);
-    tuya_ble_prov_on_data(&s_prov, raw, len);
+    if (tuya_ble_prov_on_data(&s_prov, raw, len) != 0) {
+        ESP_LOGW(TAG, "[GATT] on_data rejected %d bytes", len);
+    }
     return 0;
 }
 
@@ -188,7 +191,9 @@ static int prov_gap_event(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status == 0) {
             s_conn_handle = event->connect.conn_handle;
-            tuya_ble_prov_reset_conn(&s_prov);
+            tuya_ble_prov_close(&s_prov);
+            s_notify_enabled = false;
+            tuya_ble_prov_tick(&s_prov, (uint64_t)esp_timer_get_time() / 1000);
             ble_gap_conn_find(s_conn_handle, &desc);
             ESP_LOGI(TAG, "[GAP] CONNECT, handle=%d, peer=%02x:%02x:%02x:%02x:%02x:%02x",
                      s_conn_handle,
@@ -205,9 +210,9 @@ static int prov_gap_event(struct ble_gap_event *event, void *arg)
 
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGW(TAG, "[GAP] DISCONNECT, reason=0x%x", event->disconnect.reason);
-        s_conn_handle = 0;
+        s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_notify_enabled = false;
-        tuya_ble_prov_set_paired(&s_prov, false);
+        tuya_ble_prov_close(&s_prov);
         if (!s_prov_done) {
             prov_start_advertise();
         }
@@ -215,6 +220,7 @@ static int prov_gap_event(struct ble_gap_event *event, void *arg)
 
     case BLE_GAP_EVENT_MTU:
         ESP_LOGI(TAG, "[GAP] MTU=%d", event->mtu.value);
+        tuya_ble_prov_set_gatt_payload(&s_prov, event->mtu.value - 3);
         break;
 
     case BLE_GAP_EVENT_ENC_CHANGE:
@@ -226,7 +232,8 @@ static int prov_gap_event(struct ble_gap_event *event, void *arg)
                  event->subscribe.attr_handle, s_notify_attr_handle,
                  event->subscribe.cur_notify, event->subscribe.cur_indicate);
         if (event->subscribe.attr_handle == s_notify_attr_handle) {
-            s_notify_enabled = event->subscribe.cur_notify || event->subscribe.cur_indicate;
+            s_notify_enabled = event->subscribe.cur_notify;
+            if (s_notify_enabled) tuya_ble_prov_tx_ready(&s_prov);
             ESP_LOGI(TAG, "[GAP] Tuya notify %s", s_notify_enabled ? "ENABLED" : "DISABLED");
         }
         break;
@@ -275,6 +282,20 @@ static void ble_on_sync(void)
 static void ble_on_reset(int reason)
 {
     ESP_LOGW(TAG, "BLE host reset, reason=%d", reason);
+    s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+    s_notify_enabled = false;
+    tuya_ble_prov_close(&s_prov);
+}
+
+/* Runs on the NimBLE event queue, never the application/IoT task. */
+static void transport_tick(struct ble_npl_event *event)
+{
+    (void)event;
+    if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE &&
+        tuya_ble_prov_tick(&s_prov, (uint64_t)esp_timer_get_time() / 1000) < 0) {
+        ble_gap_terminate(s_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+    }
+    if (!s_prov_done) ble_npl_callout_reset(&s_transport_timer, ble_npl_time_ms_to_ticks32(100));
 }
 
 static void nimble_host_task(void *param)
@@ -295,7 +316,7 @@ int tuya_ble_nimble_start(const tuya_ble_prov_cfg_t *cfg)
     esp_log_level_set("tuya_ble", ESP_LOG_DEBUG);
 
     s_prov_done = false;
-    s_conn_handle = 0;
+    s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
     s_notify_enabled = false;
 
     tuya_ble_prov_cfg_ext_t prov_cfg = {
@@ -340,6 +361,8 @@ int tuya_ble_nimble_start(const tuya_ble_prov_cfg_t *cfg)
         return -1;
     }
 
+    ble_npl_callout_init(&s_transport_timer, nimble_port_get_dflt_eventq(), transport_tick, NULL);
+    ble_npl_callout_reset(&s_transport_timer, ble_npl_time_ms_to_ticks32(100));
     ble_store_clear();
     nimble_port_freertos_init(nimble_host_task);
 
@@ -353,6 +376,7 @@ int tuya_ble_nimble_stop(void)
     s_prov_done = true;
     int rc = nimble_port_stop();
     if (rc == 0) {
+        ble_npl_callout_stop(&s_transport_timer);
         nimble_port_deinit();
     }
     ESP_LOGI(TAG, "BLE provisioning stopped");

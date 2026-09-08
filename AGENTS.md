@@ -307,3 +307,13 @@ ordinary changes.
   cert rotation. Both headers claimed the opposite until the API was made public; if that
   "refreshes the CA and retries once" wording ever reappears, it is fiction — no such code
   has ever existed in `iot_client_message_try_connect()`.
+
+## BLE wire regression tests
+
+`cmake --build build --target tuya_ble_test -j 4` then
+`ctest --test-dir build -R '^tuya_ble_test$' --output-on-failure` runs the lifecycle
+and independent encrypted peer harness. No external credentials or mock servers
+are needed. The harness initializes the shared PAL/cJSON binding via `iot_init_default()`.
+It covers low-MTU Pairing/Provisioning, replay and mode checks, padding/CRC,
+transport order/timeouts, notification backpressure, entropy failure and isolation.
+The full suite remains serial: `ctest --test-dir build --output-on-failure --no-tests=error --timeout 180`.

@@ -46,8 +46,7 @@ _Avoid_: uuid (the input string), device id, MAC address.
 
 **product_key**:
 The static Tuya vendor identifier for the product *family*, embedded in the advertising
-data so the app knows what kind of device this is. Copied in as exactly 16 raw bytes and
-never measured, so a shorter string broadcasts the rodata behind it.
+data so the app knows what kind of device this is. Validated as a 16-byte NUL-terminated string before copying into advertising data.
 _Avoid_: uuid (per-device), auth_key (the secret), schema id (an IoT-Client term).
 
 **uuid**:
@@ -58,7 +57,7 @@ _Avoid_: BLE ID (the derived 16-byte value), product_key.
 **auth_key**:
 The 32-byte per-device shared secret, the root from which the encryption keys are derived
 via MD5; its first 16 bytes also key the AES block returned in the device-info response.
-Read as a fixed-length raw buffer and, like the product_key, never measured.
+Validated as a 32-byte NUL-terminated string at initialization.
 _Avoid_: key (unqualified), token, local_key (an IoT-Client term).
 
 **pair_rand**:
@@ -130,21 +129,25 @@ _Avoid_: handler, listener, hook.
 
 ## Invariants
 
-- Inbound dispatch is gated on nothing. `tuya_ble_recv` switches on `cmd` alone, accepts
-  Encryption mode `NONE`, and validates only the length fields and the Frame's CRC16-MODBUS — a
-  public checksum. `paired` is read in exactly one place (whether to follow the pair response
-  with net-status), never as authorization, so any peer that can connect and write the
-  characteristic can hand the device creds with no auth_key. A handler that acts on device state
-  must gate itself on `paired` *and* on the Encryption mode being KEY_12 — which means plumbing
-  the mode down, since `tuya_ble_recv` keeps it in a local and passes handlers only the payload.
-- `tuya_ble_hal_random` is the whole entropy supply — this context does not use `common/rng.c` —
-  and a stub still provisions. pair_rand goes to the app in the device-info response and both
-  sides then derive `key_12 = MD5(key_11 ‖ pair_rand)`, so an all-zero pair_rand still yields a
-  *matching* key: Pairing, Provisioning and cloud activation all succeed, on a deterministic
-  key_12 with a fixed IV, identically on every device. A port must supply a real CSPRNG that
-  fills the whole buffer — a missing one is a link error, a stubbed one is silent.
-- `tuya_ble_prov_init` validates only non-NULL, so the caller owns every length. A short
-  product_key or auth_key gives no crash and no log — the app simply never pairs.
+- Credential delivery requires cryptographic Pairing and KEY_12. The compatibility
+  `set_paired(true)` setter cannot grant authorization. Validate CRC, exact Frame
+  length/padding, mode and increasing SN before committing session material.
+- Every port calls `tuya_ble_prov_close` on GATT disconnect/host reset. The historical
+  `reset_conn` clears transport state only and preserves Pairing status.
+- One BLE owner drives RX, TX-ready and monotonic tick. Never call MQTT from this
+  context. Send callbacks copy before returning: 0 accepted, 1 busy, other failure.
+- Trsmitr continuation segments contain only subpacket number and data. Version and
+  Packet sequence appear in the first segment only; Frame SN is a separate counter.
+- CBC padding comes from the declared Frame length. Aligned Frames have no extra
+  padding block; their last CRC byte must never be interpreted as a padding length.
+- Ports supply a full-fill CSPRNG. Optional `random_fn` reports the number of bytes
+  filled; partial output fails the exchange. The legacy void HAL cannot report errors.
+- Config strings are borrowed, NUL-terminated and validated: product_key 16 bytes,
+  auth_key 32 bytes, UUID 16 bytes or 20 alphanumeric bytes. Recompile consumers when
+  the public state layout changes. Initialize PAL/cJSON hooks with `iot_init()` before
+  JSON parsing; never create a second allocator binding.
+- PSK3.0 capability discovery remains disabled until a complete verified exchange
+  exists. The selected upstream registers only the token-credentials channel.
 
 ## Example dialogue
 

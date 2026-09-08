@@ -20,6 +20,15 @@ extern "C" {
 #define TUYA_BLE_RX_BUF_SIZE        512
 #define TUYA_BLE_TX_BUF_SIZE        1024
 
+/* send_fn copies bytes before returning: 0 accepted, 1 busy (retry unchanged),
+ * any other result is a permanent failure. Call all APIs on one BLE owner context;
+ * callbacks must not reenter the state. No SDK worker or sleeps are used. */
+#define TUYA_BLE_SEND_BUSY 1
+#define TUYA_BLE_TX_QUEUE_DEPTH 4
+
+/* Optional checked CSPRNG: return the number of bytes filled, or negative on failure. */
+typedef int (*tuya_ble_random_t)(uint8_t *buf, size_t len, void *ctx);
+
 typedef int (*tuya_ble_hal_send_t)(const uint8_t *buf, uint16_t len, void *ctx);
 
 void tuya_ble_hal_random(uint8_t *buf, size_t len);
@@ -64,6 +73,9 @@ typedef struct {
     tuya_ble_prov_cb_t cb;
     tuya_ble_hal_send_t send_fn;
     void *send_ctx;
+    /* Optional checked entropy source. NULL retains the legacy full-fill HAL contract. */
+    tuya_ble_random_t random_fn;
+    void *random_ctx;
 } tuya_ble_prov_cfg_ext_t;
 
 typedef struct {
@@ -83,6 +95,21 @@ typedef struct {
     uint8_t server_rand[16];
     uint8_t key_11[16];
     bool paired;
+    bool handshake_ready;
+    bool authenticated;
+    bool credentials_pending;
+    uint32_t connection_generation;
+    uint16_t gatt_payload;
+    uint32_t rx_next_subpkg;
+    uint64_t now_ms;
+    uint64_t rx_started_ms;
+    uint64_t tx_started_ms;
+    uint8_t tx_queue[TUYA_BLE_TX_QUEUE_DEPTH][TUYA_BLE_TX_BUF_SIZE];
+    uint16_t tx_queue_len[TUYA_BLE_TX_QUEUE_DEPTH];
+    uint8_t tx_head;
+    uint8_t tx_count;
+    uint16_t tx_offset;
+    uint32_t tx_subpkg;
 
     uint8_t trsmitr_seq;
     uint16_t peer_pkt_len;
@@ -95,7 +122,18 @@ typedef struct {
     uint8_t rx_frame[TUYA_BLE_TX_BUF_SIZE];
 } tuya_ble_prov_state_t;
 
+/* Config strings are borrowed and must outlive state: NUL-terminated product_key
+ * (16 bytes), auth_key (32 bytes), uuid (16 bytes or 20 alphanumeric bytes).
+ * Initialize the process PAL/cJSON hooks via iot_init() before delivering JSON.
+ * State layout is not ABI-stable: recompile callers after upgrading this header. */
 int tuya_ble_prov_init(tuya_ble_prov_state_t *state, const tuya_ble_prov_cfg_ext_t *cfg);
+/* Legacy transport-only reset preserves paired; use close for GATT disconnect. */
+void tuya_ble_prov_close(tuya_ble_prov_state_t *state);
+/* Effective notification value budget, ATT MTU minus 3; default 20 bytes. */
+int tuya_ble_prov_set_gatt_payload(tuya_ble_prov_state_t *state, uint16_t bytes);
+int tuya_ble_prov_tx_ready(tuya_ble_prov_state_t *state);
+/* Monotonic milliseconds; expires incomplete transport transfers after 10 s. */
+int tuya_ble_prov_tick(tuya_ble_prov_state_t *state, uint64_t now_ms);
 void tuya_ble_prov_reset_conn(tuya_ble_prov_state_t *state);
 int tuya_ble_prov_on_data(tuya_ble_prov_state_t *state, const uint8_t *raw, uint16_t len);
 void tuya_ble_prov_get_adv_data(const tuya_ble_prov_state_t *state,
@@ -104,6 +142,7 @@ void tuya_ble_prov_get_adv_data(const tuya_ble_prov_state_t *state,
 void tuya_ble_prov_get_read_payload(const tuya_ble_prov_state_t *state,
                                      const uint8_t **adv_data, uint8_t *adv_len,
                                      const uint8_t **rsp_data, uint8_t *rsp_len);
+/* Compatibility status setter; true never grants cryptographic authorization. */
 void tuya_ble_prov_set_paired(tuya_ble_prov_state_t *state, bool paired);
 
 #ifdef __cplusplus
