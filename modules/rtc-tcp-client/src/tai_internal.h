@@ -158,6 +158,23 @@
 #  define TAI_WORKER_POLL_CAP_MS  2000U
 #endif
 
+/* Dwell between flow-control re-checks when the app's on_flow_control hook
+ * reports the downstream decoder queue full. Each pass polls (not reads) the
+ * socket for this many ms, so the hook is re-evaluated at ~1000/x Hz and the
+ * lwIP receive window stays closed (TCP backpressure) in between. */
+#ifndef TAI_FLOW_CONTROL_POLL_MS
+#  define TAI_FLOW_CONTROL_POLL_MS  50U
+#endif
+
+/* Per-iteration CPU yield (ms). On single-core targets (ESP32-C3) the worker
+ * can otherwise monopolise the CPU under a sustained TTS flood: each recv()
+ * returns immediately (data is waiting) and the greedy drain loops with no
+ * blocking point, starving the IDLE task and tripping the task watchdog. A
+ * short sleep each pass guarantees IDLE a slice so the watchdog resets. */
+#ifndef TAI_WORKER_YIELD_MS
+#  define TAI_WORKER_YIELD_MS  10U
+#endif
+
 
 /* =========================================================================
  * Attribute type codes  (Appendix A)
@@ -313,6 +330,9 @@ struct tai_ctx {
     void (*on_event)     (tai_ctx_t *, const tai_event_msg_t      *, void *);
     void (*on_disconnect)(tai_ctx_t *, const tai_disconnect_msg_t *, void *);
     void *user_data;
+
+    /* Optional TCP-level flow control (see tuya_ai.h). NULL = always read. */
+    int (*on_flow_control)(tai_ctx_t *, void *);
 
     /* RX linear buffer (sliding-window: bytes always at buf[0]) */
     uint8_t rx_buf[TAI_RX_BUF_SIZE];

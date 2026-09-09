@@ -328,6 +328,18 @@ typedef struct tai_config {
     void (*on_disconnect)(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *user_data);
     void *user_data;
 
+    /* Optional TCP-level flow control. Called on the worker thread before each
+     * recv and between buffered frames (not during the connect handshake).
+     * Return 1 to receive normally; return 0 to pause parsing and SKIP the read
+     * for this pass, which lets the lwIP receive window close and stalls the
+     * sender (standard TCP backpressure). While returning 0 the control channel
+     * (CHAT_BREAK, ASR text) is also stalled — accept that tradeoff deliberately.
+     * Buffered frames resume without requiring new network data. A single
+     * dispatched packet may contain multiple audio codec frames; applications
+     * must also bound admission within their audio callback.
+     * NULL = always read (no backpressure). */
+    int  (*on_flow_control)(tai_ctx_t *ctx, void *user_data);
+
 } tai_config_t;
 
 /* =========================================================================
