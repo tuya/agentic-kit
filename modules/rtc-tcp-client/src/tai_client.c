@@ -341,6 +341,7 @@ tai_ctx_t *tai_ctx_init(void *mem, const tai_config_t *cfg)
     ctx->on_image              = cfg->on_image;
     ctx->on_event              = cfg->on_event;
     ctx->on_disconnect         = cfg->on_disconnect;
+    ctx->on_flow_control       = cfg->on_flow_control;
     ctx->user_data             = cfg->user_data;
 
     ctx->ping_interval_ms  = cfg->ping_interval_ms  ? cfg->ping_interval_ms  : 60000U;
@@ -723,6 +724,13 @@ static int tai_process_rx(tai_ctx_t *ctx)
      * by dropping bytes/frames, so we RETURN the cause and let the worker tear
      * the connection down (the app reconnects). */
     while (ctx->rx_len >= 5) {
+        /* One receive may contain several complete Frames. Stop before the next
+         * one when the consumer fills while dispatching the previous Frame. */
+        if (!ctx->connecting && ctx->on_flow_control &&
+            !ctx->on_flow_control(ctx, ctx->user_data)) {
+            break;
+        }
+
         /* Detect version from first byte */
         int ver = tai_frame_detect_version(ctx->rx_buf[0]);
         if (ver < 0) {
@@ -1238,6 +1246,12 @@ static void *worker_thread(void *arg)
     tai_ctx_t *ctx = (tai_ctx_t *)arg;
     TAI_LOGD(ctx->pal, TAG, "worker: started");
 
+    /* Before pal_t gained a sleep callback, a zero-event poll was the portable
+     * timed yield. The hardening follow-up replaces this with pal->sleep_ms. */
+    void *yield_tcp = ctx->tls ? tls_get_tcp_handle(ctx->tls) : ctx->raw_tcp;
+#define worker_yield(ms) \
+    do { if (yield_tcp) ctx->pal->tcp_poll(yield_tcp, 0, (ms)); } while (0)
+
     /* The worker owns the disconnect decision: lower layers RETURN a fatal
      * cause, transport faults are detected here, and we fire on_disconnect once
      * on exit. f_reason==0xFF means a clean stop (tai_disconnect / request). */
@@ -1293,8 +1307,17 @@ static void *worker_thread(void *arg)
          * ~AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS instead of waiting out a whole ping interval. */
         if (wait_ms > AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS) wait_ms = AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS;
 
+        /* Pausing skips the read so the receive window can close. The worker
+         * continues housekeeping and checks admission on a bounded cadence. */
+        if (ctx->on_flow_control &&
+            !ctx->on_flow_control(ctx, ctx->user_data)) {
+            worker_yield(AGENTIC_KIT_TAI_FLOW_CONTROL_POLL_MS);
+            continue;
+        }
+
         uint64_t drain_start = ctx->pal->time_ms();
-        int n = tai_recv_data(ctx, wait_ms);
+        /* Resume complete buffered Frames before waiting for more network data. */
+        int n = ctx->rx_len ? (int)ctx->rx_len : tai_recv_data(ctx, wait_ms);
         while (n > 0 && ctx->running) {
             int fatal = tai_process_rx(ctx);
             if (fatal != TAI_OK) {
@@ -1312,6 +1335,11 @@ static void *worker_thread(void *arg)
              * the next pass. */
             if (ctx->pal->time_ms() - drain_start > AGENTIC_KIT_TAI_DRAIN_BUDGET_MS)
                 break;
+            if (ctx->on_flow_control &&
+                !ctx->on_flow_control(ctx, ctx->user_data)) {
+                break;
+            }
+            worker_yield(AGENTIC_KIT_TAI_WORKER_YIELD_MS);
             n = tai_recv_data(ctx, 0);   /* drain remainder non-blocking */
         }
         if (f_reason != 0xFF) break;     /* fail-fast / CONNECTION_CLOSE during drain */
@@ -1331,6 +1359,7 @@ static void *worker_thread(void *arg)
         /* n > 0: budget yield (running still set) -> loop, keep housekeeping.
          * n == TAI_ERR_AGAIN: wait timed out (ping due) or drain finished.
          * running cleared with no fatal: a clean tai_request_disconnect. */
+        worker_yield(AGENTIC_KIT_TAI_WORKER_YIELD_MS);
     }
 
     /* Single-point disconnect: fire on_disconnect exactly once if the worker
@@ -1344,5 +1373,6 @@ static void *worker_thread(void *arg)
     }
 
     TAI_LOGD(ctx->pal, TAG, "worker: exiting");
+#undef worker_yield
     return NULL;
 }
