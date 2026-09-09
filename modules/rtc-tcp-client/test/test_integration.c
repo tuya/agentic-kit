@@ -2022,6 +2022,57 @@ static void test_disconnect_latency(void)
     tai_ctx_deinit(ctx);
 }
 
+/* Pause after each delivered Packet, including Packets buffered by one recv.
+ * Resume without new network bytes to prove rx_buf work cannot be stranded. */
+static int flow_allowed_calls;
+
+static int test_flow_control(tai_ctx_t *ctx, void *user_data)
+{
+    (void)ctx;
+    (void)user_data;
+    pthread_mutex_lock(&g_st.mtx);
+    int ready = g_st.audio_calls < flow_allowed_calls;
+    pthread_mutex_unlock(&g_st.mtx);
+    return ready;
+}
+
+static void test_receive_backpressure(void)
+{
+    SECTION("receive_backpressure");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx(ctx_mem);
+    CHECK(ctx != NULL);
+    flow_allowed_calls = 0;
+    ctx->on_flow_control = test_flow_control;
+    CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+
+    uint8_t audio[800];
+    memset(audio, 0x5a, sizeof(audio));
+    for (int i = 0; i < 40; i++) {
+        CHECK(server_send_audio(ctx,
+                                i == 0 ? TAI_STREAM_START : TAI_STREAM_MIDDLE,
+                                i == 0 ? "111 1 16 16000" : NULL,
+                                audio, sizeof(audio), (uint16_t)(100 + i)) > 0);
+    }
+
+    for (int allowed = 1; allowed <= 40; allowed++) {
+        pthread_mutex_lock(&g_st.mtx);
+        flow_allowed_calls = allowed;
+        pthread_mutex_unlock(&g_st.mtx);
+        CHECK(WAIT_FOR(g_st.audio_calls >= allowed, 1000));
+        sleep_ms(10);
+        pthread_mutex_lock(&g_st.mtx);
+        CHECK_EQ_INT(g_st.audio_calls, allowed);
+        pthread_mutex_unlock(&g_st.mtx);
+    }
+
+    tai_disconnect(ctx);
+    CHECK_EQ_INT(g_st.audio_calls, 40);
+    CHECK_EQ_INT(g_st.audio_bytes, 40 * sizeof(audio));
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);
+    tai_ctx_deinit(ctx);
+}
+
 /* =========================================================================
  * main
  * ========================================================================= */
@@ -2034,6 +2085,7 @@ int main(void)
     test_log_env_default();
     pthread_mutex_init(&g_st.mtx, NULL);
 
+    test_receive_backpressure();
     test_text_query();
     test_audio_roundtrip();
     test_image_query();

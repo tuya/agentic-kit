@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- rtc-tcp-client — enforce receive backpressure between buffered Frames and drain reads; resume buffered data without another network read (PR pending).
+
 - tuya-ble — accept incoming Trsmitr versions >= 2 for app Pairing compatibility while keeping TX at version 4 (#39).
 - Docs — the pair-by-ble callback sample no longer claims credentials are never logged; the
   demo's DEBUG protocol log prints the credential JSON on purpose, for device bring-up.

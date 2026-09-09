@@ -328,6 +328,18 @@ typedef struct tai_config {
     void (*on_disconnect)(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *user_data);
     void *user_data;
 
+    /* Optional TCP receive backpressure. Called on the worker thread before
+     * each receive and between complete buffered Frames, but never during the
+     * synchronous connect handshake. Return nonzero to admit another Frame or
+     * read; return 0 to pause parsing and skip the read, allowing the TCP receive
+     * window to close. This pauses all inbound traffic, including ChatBreak,
+     * text, Pong, and EOF detection. The hook must return promptly.
+     *
+     * Admission is at wire Frame boundaries. One Audio Packet may emit several
+     * codec-frame callbacks, so applications must also bound their queue inside
+     * on_audio. NULL means receive continuously. */
+    int (*on_flow_control)(tai_ctx_t *ctx, void *user_data);
+
 } tai_config_t;
 
 /* =========================================================================

@@ -72,8 +72,9 @@
  * Buffer sizes — defaults & docs: include/tai_config_defaults.h
  * (AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD, AGENTIC_KIT_TAI_FRAG_BUF_SIZE, AGENTIC_KIT_TAI_TX_HDR_BUF_SIZE,
  *  AGENTIC_KIT_TAI_FRAME_COALESCE_LIMIT, AGENTIC_KIT_TAI_TX_CTRL_BUF_SIZE, AGENTIC_KIT_TAI_MAX_ATTRS,
- *  AGENTIC_KIT_TAI_DRAIN_BUDGET_MS, AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS; reduce for
- *  memory-constrained targets, e.g. ESP32 without PSRAM.)
+ *  AGENTIC_KIT_TAI_DRAIN_BUDGET_MS, AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS,
+ *  AGENTIC_KIT_TAI_FLOW_CONTROL_POLL_MS, AGENTIC_KIT_TAI_WORKER_YIELD_MS;
+ *  reduce for memory-constrained targets, e.g. ESP32 without PSRAM.)
  * ========================================================================= */
 
 /* RX sliding-window buffer. Sized to EXACTLY one maximum wire frame —
@@ -240,6 +241,9 @@ struct tai_ctx {
     void (*on_event)     (tai_ctx_t *, const tai_event_msg_t      *, void *);
     void (*on_disconnect)(tai_ctx_t *, const tai_disconnect_msg_t *, void *);
     void *user_data;
+
+    /* Optional TCP receive backpressure (see tuya_ai.h). */
+    int (*on_flow_control)(tai_ctx_t *, void *);
 
     /* RX linear buffer (sliding-window: bytes always at buf[0]) */
     uint8_t rx_buf[TAI_RX_BUF_SIZE];
