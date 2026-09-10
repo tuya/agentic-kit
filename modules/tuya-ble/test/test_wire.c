@@ -1,6 +1,7 @@
 /* Independent peer harness: builds wire Frames through public GATT RX and
  * decrypts captured notifications. Test credentials are synthetic. */
 #include "tuya_ble_prov.h"
+#include "tuya_ble_bigdata.h"
 #include "mbedtls/aes.h"
 #include "mbedtls/md5.h"
 #include <stdio.h>
@@ -21,6 +22,10 @@ typedef struct {
     int busy, fail;
     size_t budget;
     unsigned entropy_seed;
+    uint16_t requested_count;
+    char requested_ccode[3];
+    uint32_t scan_token;
+    int scan_rc;
 } peer_t;
 static int deterministic_random(uint8_t *out, size_t len, void *ctx)
 {
@@ -28,6 +33,16 @@ static int deterministic_random(uint8_t *out, size_t len, void *ctx)
     for (size_t i = 0; i < len; i++) out[i] = (uint8_t)(peer->entropy_seed + i);
     peer->entropy_seed += 17;
     return (int)len;
+}
+static int scan_request(uint16_t count, const char *ccode, uint32_t token, void *ctx)
+{
+    peer_t *peer = ctx;
+    peer->requested_count = count;
+    peer->requested_ccode[0] = ccode[0];
+    peer->requested_ccode[1] = ccode[1];
+    peer->requested_ccode[2] = '\0';
+    peer->scan_token = token;
+    return peer->scan_rc;
 }
 
 static uint32_t read_var(const uint8_t *p, size_t *o) {
@@ -85,7 +100,7 @@ static int deliver(tuya_ble_prov_state_t *s,const uint8_t *p,size_t n,size_t bud
 static int setup(tuya_ble_prov_state_t *s,peer_t *p,uint8_t key11[16]) {
     static unsigned seed = 1;
     memset(p,0,sizeof(*p));p->budget=20;p->entropy_seed=seed++;callbacks=0;
-    tuya_ble_prov_cfg_ext_t cfg={.device_name="test",.product_key=uuid,.uuid=uuid,.auth_key=auth,.cb=credentials,.send_fn=capture,.send_ctx=p,.random_fn=deterministic_random,.random_ctx=p};
+    tuya_ble_prov_cfg_ext_t cfg={.device_name="test",.product_key=uuid,.uuid=uuid,.auth_key=auth,.cb=credentials,.send_fn=capture,.send_ctx=p,.random_fn=deterministic_random,.random_ctx=p,.wifi_scan_request=scan_request,.wifi_scan_ctx=p};
     CHECK(!tuya_ble_prov_init(s,&cfg));uint8_t input[64];memcpy(input,auth,32);memcpy(input+32,uuid,16);memcpy(input+48,server_iv,16);
     CHECK(!mbedtls_md5(input,64,key11));return 0;
 }
@@ -94,8 +109,9 @@ static int handshake(tuya_ble_prov_state_t *s,peer_t *p,uint8_t key12[16],size_t
     CHECK(!tuya_ble_prov_set_gatt_payload(s,budget));uint8_t size[2]={0,244};
     CHECK(!deliver(s,wire,packet(wire,0,1,size,2,k,0),20));CHECK(p->complete==1 && s->handshake_ready);
     CHECK(!crypt(0,k,p->packet[0]+1,p->packet[0]+17,p->sizes[0]-17,plain));
-    CHECK(plain[8]==0 && plain[9]==0 && plain[10]==0 && plain[11]==132);
-    CHECK(crc(plain,144)==((uint16_t)plain[144]<<8|plain[145]));
+    CHECK(plain[8]==0 && plain[9]==0 && plain[10]==0 && plain[11]==135);
+    CHECK(plain[144] == 0 && plain[145] == 1 && plain[146] == 3);
+    CHECK(crc(plain,147)==((uint16_t)plain[147]<<8|plain[148]));
     CHECK(plain[12+2]==4 && plain[12+3]==4);
     memcpy(input,k,16);memcpy(input+16,plain+18,6);CHECK(!mbedtls_md5(input,sizeof(input),key12));
     CHECK(!deliver(s,wire,packet(wire,1,2,uuid,16,key12,0),20));
@@ -120,6 +136,31 @@ static int unauthorized_and_invalid(void) {
     uint8_t zero[16]={0};CHECK(!memcmp(s.key_11,zero,16)&&s.last_rx_sn==0&&s.peer_pkt_len==20);
     CHECK(!deliver(&s,wire,packet(wire,1,12,NULL,0,NULL,0),20));CHECK(!s.authenticated&&p.complete==0);return 0;
 }
+static int device_info_requery_restarts_pairing(void) {
+    tuya_ble_prov_state_t state;
+    peer_t peer;
+    uint8_t key11[16], key12[16], wire[512], plain[512], input[64];
+    uint8_t size[2] = {0, 253};
+
+    CHECK(!handshake(&state, &peer, key12, 244));
+    memcpy(input, auth, 32);
+    memcpy(input + 32, uuid, 16);
+    memcpy(input + 48, server_iv, 16);
+    CHECK(!mbedtls_md5(input, sizeof(input), key11));
+    CHECK(!deliver(&state, wire, packet(wire, 0, 3, size, sizeof(size), key11, 0), 20));
+    CHECK(state.handshake_ready && !state.authenticated && !state.paired);
+    CHECK(state.last_rx_sn == 3 && peer.complete == 4);
+    CHECK(!crypt(0, key11, peer.packet[3] + 1, peer.packet[3] + 17,
+                 peer.sizes[3] - 17, plain));
+    CHECK(plain[8] == 0 && plain[9] == 0 && plain[10] == 0 && plain[11] == 135);
+    memcpy(input, key11, 16);
+    memcpy(input + 16, plain + 18, 6);
+    CHECK(!mbedtls_md5(input, 22, key12));
+    CHECK(!deliver(&state, wire, packet(wire, 1, 4, uuid, 16, key12, 0), 20));
+    CHECK(state.authenticated && state.paired && peer.complete == 6);
+    return 0;
+}
+
 static int malformed_credentials(void) {
     tuya_ble_prov_state_t s;peer_t p;uint8_t k[16],wire[512];CHECK(!handshake(&s,&p,k,244));
     const char json[]="\0\0\0\1{\"ssid\":\"router\",\"pwd\":\"password\",\"token\":\"12345678901234567\"}";
@@ -244,11 +285,108 @@ static int permanent_send_failure(void)
     return 0;
 }
 
+static int bigdata_netcfg_status(void) {
+    tuya_ble_prov_state_t state;
+    peer_t peer;
+    uint8_t key[16], wire[512], plain[512];
+    const uint8_t request[] = {0, 0, 0, 4};
+
+    CHECK(!handshake(&state, &peer, key, 244));
+    CHECK(!deliver(&state, wire, packet(wire, 0x801e, 3, request, sizeof(request), key, 0), 244));
+    CHECK(peer.complete == 4);
+    CHECK(!crypt(0, key, peer.packet[3] + 1, peer.packet[3] + 17,
+                 peer.sizes[3] - 17, plain));
+    uint16_t len = ((uint16_t)plain[10] << 8) | plain[11];
+    CHECK(len == 4 + sizeof("{\"type\":1,\"stage\":0,\"status\":0}") - 1);
+    plain[12 + len] = '\0';
+    CHECK(plain[8] == 0x80 && plain[9] == 0x1f);
+    CHECK(plain[12] == 0 && plain[13] == 1 && plain[14] == 0 && plain[15] == 4);
+    CHECK(!strcmp((char *)plain + 16, "{\"type\":1,\"stage\":0,\"status\":0}"));
+    return 0;
+}
+
+static int bigdata_wifi_list(void) {
+    tuya_ble_prov_state_t s; peer_t p; uint8_t key[16], wire[512], plain[1024];
+    CHECK(!handshake(&s, &p, key, 244));
+    const char request[] = "\0\0\0\3{\"cnt\":99,\"ccode\":\"US\"}";
+    CHECK(!deliver(&s, wire, packet(wire, 0x801e, 3, request, sizeof(request)-1, key, 0), 244));
+    CHECK(s.wifi_scan_pending && p.requested_count == 20 && !strcmp(p.requested_ccode, "US"));
+    tuya_ble_wifi_ap_t aps[] = {
+        {.ssid="weak", .rssi=-80, .sec=1}, {.ssid="best\\\"ap", .rssi=-22, .sec=0},
+        {.ssid="middle", .rssi=-55, .sec=1},
+    };
+    CHECK(!tuya_ble_bigdata_wifi_list_complete(&s, p.scan_token, aps, 3));
+    CHECK(!crypt(0, key, p.packet[3]+1, p.packet[3]+17, p.sizes[3]-17, plain));
+    uint16_t first_len = ((uint16_t)plain[10] << 8) | plain[11];
+    plain[12 + first_len] = '\0';
+    CHECK(plain[8] == 0x80 && plain[9] == 0x1f && plain[12] == 0 && plain[13] == 1);
+    CHECK(plain[14] == 0 && plain[15] == 3);
+    CHECK(strstr((char *)plain + 16, "best\\\\\\\"ap") != NULL);
+    CHECK(strstr((char *)plain + 16, "best") < strstr((char *)plain + 16, "middle"));
+    CHECK(strstr((char *)plain + 16, "middle") < strstr((char *)plain + 16, "weak"));
+    CHECK(!s.wifi_scan_pending);
+    const char limited[] = "\0\0\0\3{\"cnt\":2}";
+    CHECK(!deliver(&s, wire, packet(wire, 0x801e, 4, limited, sizeof(limited)-1, key, 0), 244));
+    CHECK(s.wifi_scan_count == 2);
+    CHECK(!tuya_ble_bigdata_wifi_list_complete(&s, p.scan_token, aps, 3));
+    CHECK(!crypt(0, key, p.packet[4]+1, p.packet[4]+17, p.sizes[4]-17, plain));
+    uint16_t limited_len = ((uint16_t)plain[10] << 8) | plain[11];
+    CHECK(limited_len < sizeof(plain) - 12);
+    plain[12 + limited_len] = '\0';
+    CHECK(p.requested_count == 2);
+    CHECK(strstr((char *)plain + 16, "weak") == NULL);
+    CHECK(!s.wifi_scan_pending);
+    return 0;
+}
+
+static int bigdata_rejects_stale_and_unpaired(void) {
+    tuya_ble_prov_state_t s; peer_t p; uint8_t key[16], wire[512];
+    CHECK(!setup(&s, &p, key));
+    const char request[] = "\0\0\0\3{}";
+    CHECK(!deliver(&s, wire, packet(wire, 0x801e, 1, request, sizeof(request)-1, NULL, 0), 20));
+    CHECK(!s.wifi_scan_pending && !p.complete);
+    CHECK(!handshake(&s, &p, key, 244));
+    CHECK(!deliver(&s, wire, packet(wire, 0x801e, 3, request, sizeof(request)-1, key, 0), 244));
+    CHECK(s.wifi_scan_pending);
+    tuya_ble_wifi_ap_t ap = {.ssid="router", .rssi=-40, .sec=1};
+    CHECK(tuya_ble_bigdata_wifi_list_complete(&s, p.scan_token + 1, &ap, 1) != 0);
+    CHECK(s.wifi_scan_pending);
+    tuya_ble_prov_close(&s);
+    CHECK(tuya_ble_bigdata_wifi_list_complete(&s, p.scan_token, &ap, 1) != 0);
+    return 0;
+}
+
+static int bigdata_budget_and_failure(void) {
+    tuya_ble_prov_state_t s; peer_t p; uint8_t key[16], wire[512], plain[1024];
+    CHECK(!handshake(&s, &p, key, 244));
+    const char request[] = "\0\0\0\3{\"cnt\":20}";
+    CHECK(!deliver(&s, wire, packet(wire, 0x801e, 3, request, sizeof(request)-1, key, 0), 244));
+    tuya_ble_wifi_ap_t aps[20];
+    memset(aps, 0, sizeof(aps));
+    for (unsigned i = 0; i < 20; i++) {
+        memset(aps[i].ssid, 'A' + (i % 26), 32); aps[i].ssid[32] = '\0';
+        aps[i].rssi = (int8_t)(-20 - i); aps[i].sec = 1;
+    }
+    CHECK(!tuya_ble_bigdata_wifi_list_complete(&s, p.scan_token, aps, 20));
+    CHECK(p.sizes[3] <= TUYA_BLE_TX_BUF_SIZE);
+    CHECK(!crypt(0, key, p.packet[3]+1, p.packet[3]+17, p.sizes[3]-17, plain));
+    uint16_t len = ((uint16_t)plain[10] << 8) | plain[11];
+    CHECK(len <= 4 + TUYA_BLE_WIFI_LIST_JSON_MAX);
+    p.scan_rc = -1;
+    CHECK(!deliver(&s, wire, packet(wire, 0x801e, 4, request, sizeof(request)-1, key, 0), 244));
+    CHECK(!crypt(0, key, p.packet[4]+1, p.packet[4]+17, p.sizes[4]-17, plain));
+    uint16_t empty_len = ((uint16_t)plain[10] << 8) | plain[11];
+    plain[12 + empty_len] = '\0';
+    CHECK(strstr((char *)plain + 16, "{\"wifi_list\":[]}") != NULL);
+    return 0;
+}
+
 int test_wire(void)
 {
     unsigned passed = 0;
 #define RUN(fn) do { CHECK(fn() == 0); passed++; } while (0)
     RUN(legacy_roundtrip);
+    RUN(device_info_requery_restarts_pairing);
     RUN(unauthorized_and_invalid);
     RUN(malformed_credentials);
     RUN(transport_errors_and_timeout);
@@ -259,6 +397,10 @@ int test_wire(void)
     RUN(isolated_connections);
     RUN(credential_ack_backpressure);
     RUN(permanent_send_failure);
+    RUN(bigdata_netcfg_status);
+    RUN(bigdata_wifi_list);
+    RUN(bigdata_rejects_stale_and_unpaired);
+    RUN(bigdata_budget_and_failure);
 #undef RUN
     printf("PASS %u BLE wire scenarios (state storage: %zu bytes)\n", passed, sizeof(tuya_ble_prov_state_t));
     return 0;

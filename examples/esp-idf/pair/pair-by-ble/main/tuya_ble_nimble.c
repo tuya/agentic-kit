@@ -1,6 +1,11 @@
+#include <string.h>
+
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
+#include "esp_event.h"
+#include "esp_netif.h"
+#include "esp_wifi.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
@@ -17,6 +22,7 @@ static const char *TAG = "tuya_ble";
 #define TUYA_BLE_HAL_LOGE(fmt, ...) ESP_LOGE(TAG, fmt, ##__VA_ARGS__)
 #define TUYA_BLE_HAL_HEXDUMP(buf, len) ESP_LOG_BUFFER_HEX_LEVEL(TAG, buf, len, ESP_LOG_INFO)
 #include "tuya_ble_nimble.h"
+#include "tuya_ble_bigdata.h"
 
 #define ADV_INTERVAL_MIN 48
 #define ADV_INTERVAL_MAX 96
@@ -42,6 +48,13 @@ static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static struct ble_npl_callout s_transport_timer;
 static uint16_t s_notify_attr_handle;
 static bool s_notify_enabled;
+static bool s_wifi_started;
+static bool s_wifi_scan_pending;
+static uint32_t s_wifi_scan_token;
+static tuya_ble_wifi_ap_t s_wifi_aps[TUYA_BLE_WIFI_LIST_MAX];
+static wifi_ap_record_t s_wifi_scan_records[TUYA_BLE_WIFI_LIST_MAX];
+static uint16_t s_wifi_ap_count;
+static struct ble_npl_event s_wifi_scan_done;
 
 static int prov_gap_event(struct ble_gap_event *event, void *arg);
 static int prov_gatt_write_access(uint16_t conn_handle, uint16_t attr_handle,
@@ -82,6 +95,84 @@ static const struct ble_gatt_svc_def s_gatt_svcs[] = {
 void tuya_ble_hal_random(uint8_t *buf, size_t len)
 {
     esp_fill_random(buf, len);
+}
+
+static void wifi_scan_done_on_nimble(struct ble_npl_event *event)
+{
+    (void)event;
+    if (!s_wifi_scan_pending) return;
+    s_wifi_scan_pending = false;
+    (void)tuya_ble_bigdata_wifi_list_complete(&s_prov, s_wifi_scan_token,
+                                              s_wifi_aps, s_wifi_ap_count);
+}
+
+static void wifi_event_handler(void *arg, esp_event_base_t event_base,
+                               int32_t event_id, void *event_data)
+{
+    (void)arg;
+    (void)event_data;
+    if (event_base != WIFI_EVENT || event_id != WIFI_EVENT_SCAN_DONE ||
+        !s_wifi_scan_pending) return;
+
+    uint16_t count = TUYA_BLE_WIFI_LIST_MAX;
+    s_wifi_ap_count = 0;
+    esp_err_t err = esp_wifi_scan_get_ap_records(&count, s_wifi_scan_records);
+    if (err == ESP_OK) {
+        for (uint16_t i = 0; i < count; i++) {
+            size_t len = strnlen((const char *)s_wifi_scan_records[i].ssid, TUYA_BLE_WIFI_SSID_MAX);
+            memcpy(s_wifi_aps[i].ssid, s_wifi_scan_records[i].ssid, len);
+            s_wifi_aps[i].ssid[len] = '\0';
+            s_wifi_aps[i].rssi = s_wifi_scan_records[i].rssi;
+            s_wifi_aps[i].sec = s_wifi_scan_records[i].authmode == WIFI_AUTH_OPEN ? 0 : 1;
+        }
+        s_wifi_ap_count = count;
+        ESP_LOGI(TAG, "WiFi scan complete: %u APs", count);
+    } else {
+        ESP_LOGW(TAG, "esp_wifi_scan_get_ap_records failed: %s", esp_err_to_name(err));
+    }
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_wifi_scan_done);
+}
+
+static void wifi_scan_cancel(void)
+{
+    if (s_wifi_scan_pending) (void)esp_wifi_scan_stop();
+    s_wifi_scan_pending = false;
+    s_wifi_ap_count = 0;
+}
+
+static int wifi_scan_request(uint16_t count, const char *ccode,
+                             uint32_t token, void *ctx)
+{
+    (void)count;
+    (void)ctx;
+    if (s_wifi_scan_pending) return -1;
+
+    if (!s_wifi_started) {
+        wifi_mode_t mode = WIFI_MODE_NULL;
+        if (esp_wifi_get_mode(&mode) != ESP_OK) {
+            wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
+            if (esp_wifi_init(&config) != ESP_OK) return -1;
+        }
+        if (esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK || esp_wifi_start() != ESP_OK) {
+            return -1;
+        }
+        s_wifi_started = true;
+    }
+    if (ccode[0]) {
+        wifi_country_t country = {.cc = "", .schan = 1, .nchan = 13,
+                                  .max_tx_power = 20, .policy = WIFI_COUNTRY_POLICY_AUTO};
+        country.cc[0] = ccode[0];
+        country.cc[1] = ccode[1];
+        (void)esp_wifi_set_country(&country);
+    }
+    wifi_scan_config_t config = {.scan_type = WIFI_SCAN_TYPE_ACTIVE};
+    s_wifi_scan_token = token;
+    s_wifi_scan_pending = true;
+    if (esp_wifi_scan_start(&config, false) != ESP_OK) {
+        s_wifi_scan_pending = false;
+        return -1;
+    }
+    return 0;
 }
 
 static int nimble_send(const uint8_t *buf, uint16_t len, void *ctx)
@@ -191,6 +282,7 @@ static int prov_gap_event(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status == 0) {
             s_conn_handle = event->connect.conn_handle;
+            wifi_scan_cancel();
             tuya_ble_prov_close(&s_prov);
             s_notify_enabled = false;
             tuya_ble_prov_tick(&s_prov, (uint64_t)esp_timer_get_time() / 1000);
@@ -212,6 +304,7 @@ static int prov_gap_event(struct ble_gap_event *event, void *arg)
         ESP_LOGW(TAG, "[GAP] DISCONNECT, reason=0x%x", event->disconnect.reason);
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_notify_enabled = false;
+        wifi_scan_cancel();
         tuya_ble_prov_close(&s_prov);
         if (!s_prov_done) {
             prov_start_advertise();
@@ -284,6 +377,7 @@ static void ble_on_reset(int reason)
     ESP_LOGW(TAG, "BLE host reset, reason=%d", reason);
     s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
     s_notify_enabled = false;
+    wifi_scan_cancel();
     tuya_ble_prov_close(&s_prov);
 }
 
@@ -315,9 +409,19 @@ int tuya_ble_nimble_start(const tuya_ble_prov_cfg_t *cfg)
     esp_log_level_set("NimBLE", ESP_LOG_DEBUG);
     esp_log_level_set("tuya_ble", ESP_LOG_DEBUG);
 
+    esp_err_t err = esp_netif_init();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return -1;
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return -1;
+    if (esp_netif_get_handle_from_ifkey("WIFI_STA_DEF") == NULL) {
+        esp_netif_create_default_wifi_sta();
+    }
+
     s_prov_done = false;
     s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
     s_notify_enabled = false;
+    s_wifi_scan_pending = false;
+    s_wifi_ap_count = 0;
 
     tuya_ble_prov_cfg_ext_t prov_cfg = {
         .device_name = cfg->device_name,
@@ -327,6 +431,9 @@ int tuya_ble_nimble_start(const tuya_ble_prov_cfg_t *cfg)
         .cb = cfg->cb,
         .send_fn = nimble_send,
         .send_ctx = NULL,
+        .comm_ability = TUYA_BLE_COMM_ABILITY_2_4_GHZ,
+        .wifi_scan_request = wifi_scan_request,
+        .wifi_scan_ctx = NULL,
     };
 
     if (tuya_ble_prov_init(&s_prov, &prov_cfg) != 0) {
@@ -362,6 +469,9 @@ int tuya_ble_nimble_start(const tuya_ble_prov_cfg_t *cfg)
     }
 
     ble_npl_callout_init(&s_transport_timer, nimble_port_get_dflt_eventq(), transport_tick, NULL);
+    ble_npl_event_init(&s_wifi_scan_done, wifi_scan_done_on_nimble, NULL);
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_SCAN_DONE,
+                                                wifi_event_handler, NULL));
     ble_npl_callout_reset(&s_transport_timer, ble_npl_time_ms_to_ticks32(100));
     ble_store_clear();
     nimble_port_freertos_init(nimble_host_task);

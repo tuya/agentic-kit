@@ -26,10 +26,32 @@ extern "C" {
 #define TUYA_BLE_SEND_BUSY 1
 #define TUYA_BLE_TX_QUEUE_DEPTH 4
 
+/* Encryption-mode byte of a Packet (big-data uplinks name the mode for
+ * tuya_ble_prov_send_frame). */
+#define TUYA_BLE_ENCRYPTION_MODE_NONE   0x00
+#define TUYA_BLE_ENCRYPTION_MODE_KEY_11 0x0B
+#define TUYA_BLE_ENCRYPTION_MODE_KEY_12 0x0C
+
+/* Radio capability advertised in the scan response and device-info response.
+ * Advertise only bands the port can actually scan and join: claiming 5 GHz on
+ * a 2.4-GHz-only radio makes the app offer networks the device cannot use. */
+#define TUYA_BLE_COMM_ABILITY_2_4_GHZ 0x0004
+#define TUYA_BLE_COMM_ABILITY_5_GHZ   0x0008
+
 /* Optional checked CSPRNG: return the number of bytes filled, or negative on failure. */
 typedef int (*tuya_ble_random_t)(uint8_t *buf, size_t len, void *ctx);
 
 typedef int (*tuya_ble_hal_send_t)(const uint8_t *buf, uint16_t len, void *ctx);
+
+/* WiFi-list scan request hook (big-data channel 0x801E sub 0x0003; see
+ * tuya_ble_bigdata.h). Called on the BLE owner context when the app queries
+ * the surrounding WiFi list. Must not block and must not call back into the
+ * state: copy cnt/ccode/token, start the port's scan asynchronously, and
+ * deliver the result later from the BLE owner context via
+ * tuya_ble_bigdata_wifi_list_complete(). Return 0 only if the scan started;
+ * any other value makes the SDK answer the app with an empty list. */
+typedef int (*tuya_ble_wifi_scan_request_fn)(uint16_t cnt, const char *ccode,
+                                             uint32_t token, void *ctx);
 
 void tuya_ble_hal_random(uint8_t *buf, size_t len);
 
@@ -76,6 +98,14 @@ typedef struct {
     /* Optional checked entropy source. NULL retains the legacy full-fill HAL contract. */
     tuya_ble_random_t random_fn;
     void *random_ctx;
+    /* Zero selects the safe 2.4-GHz default. The capability is descriptive;
+     * it does not enable the psk3 device-info tail. */
+    uint16_t comm_ability;
+    /* Optional asynchronous nearby-WiFi scan provider. Supplying it advertises
+     * WiFi-list support to the Tuya App (scan-response bit 5 plus device-info
+     * CombosFlag bit 0), which makes the App issue 0x801E/subcommand 0x0003. */
+    tuya_ble_wifi_scan_request_fn wifi_scan_request;
+    void *wifi_scan_ctx;
 } tuya_ble_prov_cfg_ext_t;
 
 typedef struct {
@@ -120,6 +150,9 @@ typedef struct {
     uint8_t tx_enc_pkt[TUYA_BLE_TX_BUF_SIZE];
     uint8_t tx_trsmitr_buf[TUYA_BLE_TX_BUF_SIZE];
     uint8_t rx_frame[TUYA_BLE_TX_BUF_SIZE];
+    uint32_t wifi_scan_token;
+    uint16_t wifi_scan_count;
+    bool wifi_scan_pending;
 } tuya_ble_prov_state_t;
 
 /* Config strings are borrowed and must outlive state: NUL-terminated product_key
@@ -144,6 +177,11 @@ void tuya_ble_prov_get_read_payload(const tuya_ble_prov_state_t *state,
                                      const uint8_t **rsp_data, uint8_t *rsp_len);
 /* Compatibility status setter; true never grants cryptographic authorization. */
 void tuya_ble_prov_set_paired(tuya_ble_prov_state_t *state, bool paired);
+
+/* Shared encrypted Frame sender for sibling BLE protocol modules. */
+int tuya_ble_prov_send_frame(tuya_ble_prov_state_t *state, uint16_t cmd,
+                             const uint8_t *data, uint16_t data_len,
+                             uint8_t encrypt_mode);
 
 #ifdef __cplusplus
 }

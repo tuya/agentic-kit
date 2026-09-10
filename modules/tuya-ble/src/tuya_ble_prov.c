@@ -1,4 +1,5 @@
 #include "tuya_ble_internal.h"
+#include "tuya_ble_bigdata.h"
 
 #include "cJSON.h"
 #include "log.h"
@@ -35,9 +36,9 @@
 #define FRM_DOWNLINK_TRANSPARENT_REQ 0x801B
 #define FRM_UPLINK_TRANSPARENT_REQ   0x801C
 
-#define ENCRYPTION_MODE_NONE        0x00
-#define ENCRYPTION_MODE_KEY_11      0x0B
-#define ENCRYPTION_MODE_KEY_12      0x0C
+#define ENCRYPTION_MODE_NONE        TUYA_BLE_ENCRYPTION_MODE_NONE
+#define ENCRYPTION_MODE_KEY_11      TUYA_BLE_ENCRYPTION_MODE_KEY_11
+#define ENCRYPTION_MODE_KEY_12      TUYA_BLE_ENCRYPTION_MODE_KEY_12
 
 #define TUYA_BLE_PROTOCOL_VER_HI    0x04
 #define TUYA_BLE_PROTOCOL_VER_LO    0x04
@@ -51,8 +52,10 @@
 #define TUYA_SVC_UUID_HI    0xFD
 #define TUYA_COMPANY_ID_LO  0xD0
 #define TUYA_COMPANY_ID_HI  0x07
-#define TUYA_COMM_ABILITY   0x000C
 #define TUYA_ENCRY_MODE     0x00
+#define ADV_FLAG_WIFI_LIST  (1U << 5)
+#define COMBOS_FLAG_WIFI_LIST (1U << 0)
+#define COMBOS_FLAG_NCFG_STAT (1U << 1)
 
 #define ADV_FLAG_UUID_COMP  (1 << 0)
 #define SETBIT(val, bit)    ((val) |= (1 << (bit)))
@@ -314,6 +317,13 @@ static int tuya_ble_send(tuya_ble_prov_state_t *state, uint16_t cmd,
     return rc == TUYA_BLE_SEND_BUSY ? 0 : rc;
 }
 
+int tuya_ble_prov_send_frame(tuya_ble_prov_state_t *state, uint16_t cmd,
+                             const uint8_t *data, uint16_t data_len,
+                             uint8_t encrypt_mode)
+{
+    return tuya_ble_send(state, cmd, data, data_len, encrypt_mode);
+}
+
 static void handle_dev_info_req(tuya_ble_prov_state_t *state, const uint8_t *data, uint16_t data_len)
 {
     TUYA_BLE_HAL_LOGI("[PROTO] FRM_QRY_DEV_INFO_REQ, data_len=%d (pkt_len=%u)",
@@ -321,6 +331,12 @@ static void handle_dev_info_req(tuya_ble_prov_state_t *state, const uint8_t *dat
     TUYA_BLE_HAL_HEXDUMP(data, data_len > 32 ? 32 : data_len);
 
     state->handshake_ready = false;
+    state->paired = false;
+    state->authenticated = false;
+    state->credentials_pending = false;
+    state->wifi_scan_pending = false;
+    state->wifi_scan_token++;
+    if (state->wifi_scan_token == 0) state->wifi_scan_token++;
     if (random_fill(state, state->pair_rand, TUYA_BLE_PAIR_RAND_LEN) != 0) {
         TUYA_BLE_HAL_LOGE("[PROTO] pair_rand generation failed");
         return;
@@ -344,8 +360,8 @@ static void handle_dev_info_req(tuya_ble_prov_state_t *state, const uint8_t *dat
     if (reg_key_ret != 0) return;
     TUYA_BLE_HAL_LOGI("[PROTO] register_key ret=%d", reg_key_ret);
 
-    resp[52] = (TUYA_COMM_ABILITY >> 8) & 0xFF;
-    resp[53] = TUYA_COMM_ABILITY & 0xFF;
+    resp[52] = (state->cfg.comm_ability >> 8) & 0xFF;
+    resp[53] = state->cfg.comm_ability & 0xFF;
     resp[54] = 0x06;
     resp[83] = 0x01;
     resp[86] = 0x01;
@@ -367,6 +383,12 @@ static void handle_dev_info_req(tuya_ble_prov_state_t *state, const uint8_t *dat
         resp[payload_len++] = 2;
         resp[payload_len++] = (pkt_len >> 8) & 0xFF;
         resp[payload_len++] = pkt_len & 0xFF;
+    }
+
+    if (state->cfg.wifi_scan_request != NULL) {
+        resp[payload_len++] = 0;
+        resp[payload_len++] = 1;
+        resp[payload_len++] = COMBOS_FLAG_WIFI_LIST | COMBOS_FLAG_NCFG_STAT;
     }
 
     TUYA_BLE_HAL_LOGI("[PROTO] DevInfo response, %d bytes", payload_len);
@@ -595,9 +617,9 @@ void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t
         return;
     }
     if (cmd == FRM_QRY_DEV_INFO_REQ) {
-        if (encrypt_mode != ENCRYPTION_MODE_KEY_11 || state->authenticated || state->tx_count || data_len < 2) {
-            TUYA_BLE_HAL_LOGW("[RX] DevInfo gate: mode=0x%02X auth=%d tx=%d len=%u",
-                              encrypt_mode, state->authenticated, state->tx_count, data_len);
+        if (encrypt_mode != ENCRYPTION_MODE_KEY_11 || state->tx_count || data_len < 2) {
+            TUYA_BLE_HAL_LOGW("[RX] DevInfo gate: mode=0x%02X tx=%d len=%u",
+                              encrypt_mode, state->tx_count, data_len);
             return;
         }
         uint16_t peer = ((uint16_t)data[0] << 8) | data[1];
@@ -621,6 +643,12 @@ void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t
                               encrypt_mode, state->authenticated, state->paired);
             return;
         }
+    } else if (cmd == TUYA_BLE_FRM_BIGDATA_DOWNLINK_REQ) {
+        if (encrypt_mode != ENCRYPTION_MODE_KEY_12 || !state->authenticated || !state->paired) {
+            TUYA_BLE_HAL_LOGW("[RX] Big-data gate: mode=0x%02X auth=%d paired=%d",
+                              encrypt_mode, state->authenticated, state->paired);
+            return;
+        }
     } else {
         TUYA_BLE_HAL_LOGW("[RX] Unhandled CMD=0x%04X", cmd);
         return;
@@ -636,6 +664,9 @@ void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t
         break;
     case FRM_DOWNLINK_TRANSPARENT_REQ:
         handle_wifi_config(state, data, data_len);
+        break;
+    case TUYA_BLE_FRM_BIGDATA_DOWNLINK_REQ:
+        (void)tuya_ble_bigdata_on_downlink(state, data, data_len);
         break;
     default:
         TUYA_BLE_HAL_LOGW("[RX] Unhandled CMD=0x%04X", cmd);
@@ -683,11 +714,12 @@ static void build_adv_data(tuya_ble_prov_state_t *state)
     state->rsp_data[state->rsp_len++] = TUYA_COMPANY_ID_LO;
     state->rsp_data[state->rsp_len++] = TUYA_COMPANY_ID_HI;
     state->rsp_data[state->rsp_len++] = TUYA_ENCRY_MODE;
-    state->rsp_data[state->rsp_len++] = (TUYA_COMM_ABILITY >> 8) & 0xFF;
-    state->rsp_data[state->rsp_len++] = TUYA_COMM_ABILITY & 0xFF;
+    state->rsp_data[state->rsp_len++] = (state->cfg.comm_ability >> 8) & 0xFF;
+    state->rsp_data[state->rsp_len++] = state->cfg.comm_ability & 0xFF;
 
     uint8_t *flag = &state->rsp_data[state->rsp_len++];
     *flag = 0x00;
+    if (state->cfg.wifi_scan_request != NULL) *flag |= ADV_FLAG_WIFI_LIST;
     if (state->is_id_comp) *flag |= ADV_FLAG_UUID_COMP;
 
     rsp_id_encrypt(key_in, TUYA_BLE_ID_LEN + 4, state->ble_id, TUYA_BLE_ID_LEN,
@@ -729,6 +761,9 @@ int tuya_ble_prov_init(tuya_ble_prov_state_t *state, const tuya_ble_prov_cfg_ext
     state->cfg = *cfg;
     state->gatt_payload = 20;
     state->peer_pkt_len = 20;
+    if (state->cfg.comm_ability == 0) {
+        state->cfg.comm_ability = TUYA_BLE_COMM_ABILITY_2_4_GHZ;
+    }
 
     size_t uuid_len = strlen(cfg->uuid);
     if (uuid_len >= 20) {
@@ -755,6 +790,9 @@ void tuya_ble_prov_reset_conn(tuya_ble_prov_state_t *state)
     state->tx_offset = 0;
     state->tx_subpkg = 0;
     state->credentials_pending = false;
+    state->wifi_scan_pending = false;
+    state->wifi_scan_token++;
+    if (state->wifi_scan_token == 0) state->wifi_scan_token++;
 }
 
 void tuya_ble_prov_close(tuya_ble_prov_state_t *state)
@@ -763,11 +801,14 @@ void tuya_ble_prov_close(tuya_ble_prov_state_t *state)
     tuya_ble_prov_cfg_ext_t cfg = state->cfg;
     uint64_t now_ms = state->now_ms;
     uint32_t generation = state->connection_generation + 1;
+    uint32_t wifi_scan_token = state->wifi_scan_token + 1;
+    if (wifi_scan_token == 0) wifi_scan_token++;
     /* Volatile stores erase session keys, credentials and queued Packets. */
     volatile uint8_t *p = (volatile uint8_t *)state;
     for (size_t i = 0; i < sizeof(*state); i++) p[i] = 0;
     (void)tuya_ble_prov_init(state, &cfg);
     state->connection_generation = generation;
+    state->wifi_scan_token = wifi_scan_token;
     state->now_ms = now_ms;
 }
 

@@ -251,6 +251,7 @@ endif()
 set(TUYA_BLE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/modules/tuya-ble")
 
 add_library(tuya_ble STATIC
+    "${TUYA_BLE_DIR}/src/tuya_ble_bigdata.c"
     "${TUYA_BLE_DIR}/src/tuya_ble_prov.c"
     "${TUYA_BLE_DIR}/src/tuya_ble_trsmitr.c"
 )
