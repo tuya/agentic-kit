@@ -151,6 +151,7 @@ CONFIG_FREERTOS_HZ=1000
 - `tcp_recv` 应支持阻塞/超时语义（后台线程会循环调用）
 - `tcp_poll` 用于检查套接字的可读/可写状态，需正确实现 events 位掩码
 - 如使用 Opus 编码，需额外集成 Opus 库
+- SDK 库代码只有两处直接依赖 libc 而不经过 PAL：ATOP 签名读 `time(NULL)`（需要 C 库能看到实时时钟），以及 TLS key log 的文件 sink 用 `fopen`/`fputs`（仅在 POSIX 与 ESP-IDF 上默认编入，其他平台需显式 `-DTLS_KEYLOG_FILE_SINK=1`，否则不引入任何文件 I/O 符号，见 [TLS 抓包解密](./tls-keylog.md)）
 
 ### PAL I/O 返回值契约
 
