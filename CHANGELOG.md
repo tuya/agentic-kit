@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- rtc-tcp-client — enforce receive backpressure between buffered Frames and drain reads; resume buffered data without another network read (PR pending).
+
 - iot-client — US-East (`UEAZ`) fell back to an ATOP host that does not resolve(#31).
   `IOT_UEAZ_HOST` is now `a1-ueaz.tuyaus.com`.
 

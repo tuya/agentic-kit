@@ -2021,6 +2021,58 @@ static void test_disconnect_latency(void)
     tai_ctx_deinit(ctx);
 }
 
+/* Pause after each delivered packet, including packets coalesced in one recv.
+ * Resume without pushing new network bytes to detect stranded rx_buf data. */
+static int flow_allowed_calls;
+static int test_flow_control(tai_ctx_t *ctx, void *user)
+{
+    (void)ctx; (void)user;
+    pthread_mutex_lock(&g_st.mtx);
+    int ready = g_st.audio_calls < flow_allowed_calls;
+    pthread_mutex_unlock(&g_st.mtx);
+    return ready;
+}
+
+static void test_receive_backpressure(void)
+{
+    SECTION("receive_backpressure");
+    static uint8_t mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx(mem);
+    flow_allowed_calls = 0;
+    ctx->on_flow_control = test_flow_control;
+    CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+    uint8_t audio[800];
+    memset(audio, 0x5a, sizeof(audio));
+    for (int i = 0; i < 40; ++i)
+        CHECK(server_send_audio(ctx, i == 0 ? TAI_STREAM_START : TAI_STREAM_MIDDLE,
+                                i == 0 ? "111 1 16 16000" : NULL,
+                                audio, sizeof(audio), (uint16_t)(100+i)) > 0);
+    for (int allowed = 1; allowed <= 40; ++allowed) {
+        pthread_mutex_lock(&g_st.mtx);
+        flow_allowed_calls = allowed;
+        pthread_mutex_unlock(&g_st.mtx);
+        int delivered = 0;
+        for (int attempt = 0; attempt < 200; ++attempt) {
+            sleep_ms(5);
+            pthread_mutex_lock(&g_st.mtx);
+            delivered = g_st.audio_calls;
+            pthread_mutex_unlock(&g_st.mtx);
+            if (delivered >= allowed) break;
+        }
+        /* Allow the greedy drain to run while admission remains closed. */
+        sleep_ms(10);
+        pthread_mutex_lock(&g_st.mtx);
+        CHECK_EQ_INT(g_st.audio_calls, allowed);
+        pthread_mutex_unlock(&g_st.mtx);
+        if (delivered != allowed) break;
+    }
+    tai_disconnect(ctx);  /* Must also shut down while flow is paused. */
+    CHECK_EQ_INT(g_st.audio_calls, 40);
+    CHECK_EQ_INT(g_st.audio_bytes, 40 * sizeof(audio));
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);
+    tai_ctx_deinit(ctx);
+}
+
 /* =========================================================================
  * main
  * ========================================================================= */
@@ -2029,6 +2081,7 @@ int main(void)
     printf("=== Tuya AI -- integration tests (loopback PAL) ===\n");
     pthread_mutex_init(&g_st.mtx, NULL);
 
+    test_receive_backpressure();
     test_text_query();
     test_audio_roundtrip();
     test_image_query();

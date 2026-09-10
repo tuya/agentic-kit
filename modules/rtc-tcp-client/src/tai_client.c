@@ -338,6 +338,7 @@ tai_ctx_t *tai_ctx_init(void *mem, const tai_config_t *cfg)
     ctx->on_image              = cfg->on_image;
     ctx->on_event              = cfg->on_event;
     ctx->on_disconnect         = cfg->on_disconnect;
+    ctx->on_flow_control       = cfg->on_flow_control;
     ctx->user_data             = cfg->user_data;
 
     ctx->ping_interval_ms  = cfg->ping_interval_ms  ? cfg->ping_interval_ms  : 60000U;
@@ -719,6 +720,11 @@ static int tai_process_rx(tai_ctx_t *ctx)
      * by dropping bytes/frames, so we RETURN the cause and let the worker tear
      * the connection down (the app reconnects). */
     while (ctx->rx_len >= 5) {
+        /* A single recv can contain multiple frames. Leave unconsumed bytes
+         * in rx_buf when the application fills up during dispatch. */
+        if (!ctx->connecting && ctx->on_flow_control &&
+            !ctx->on_flow_control(ctx, ctx->user_data))
+            break;
         /* Detect version from first byte */
         int ver = tai_frame_detect_version(ctx->rx_buf[0]);
         if (ver < 0) {
@@ -1234,6 +1240,15 @@ static void *worker_thread(void *arg)
     tai_ctx_t *ctx = (tai_ctx_t *)arg;
     TAI_LOGD(ctx->pal, TAG, "worker: started");
 
+    /* Yield the CPU for yield_ms without touching any socket. The PAL has no
+     * sleep primitive; tcp_poll with events=0 maps to select(nfds, NULL, NULL,
+     * NULL, &tv) — a pure timed block. Any connected handle works; we reuse the
+     * live TLS/TCP handle. Essential on single-core targets where a busy worker
+     * would otherwise starve the IDLE task and trip the task watchdog. */
+    void *yield_tcp = ctx->tls ? tls_get_tcp_handle(ctx->tls) : ctx->raw_tcp;
+    #define worker_yield(ms) \
+        do { if (yield_tcp) ctx->pal->tcp_poll(yield_tcp, 0, (ms)); } while (0)
+
     /* The worker owns the disconnect decision: lower layers RETURN a fatal
      * cause, transport faults are detected here, and we fire on_disconnect once
      * on exit. f_reason==0xFF means a clean stop (tai_disconnect / request). */
@@ -1289,8 +1304,26 @@ static void *worker_thread(void *arg)
          * ~TAI_WORKER_POLL_CAP_MS instead of waiting out a whole ping interval. */
         if (wait_ms > TAI_WORKER_POLL_CAP_MS) wait_ms = TAI_WORKER_POLL_CAP_MS;
 
+        /* TCP-level flow control: when the downstream decoder queue is full the
+         * app's on_flow_control hook returns 0. Skip the socket read entirely so
+         * lwIP's receive buffer stays full and its advertised TCP window shrinks
+         * to 0, stalling the sender (standard TCP backpressure). While stalled,
+         * inbound control frames (CHAT_BREAK) are also blocked — the app accepts
+         * that tradeoff by installing the hook. We still run ping/liveness above
+         * and re-check every TAI_FLOW_CONTROL_POLL_MS. */
+        if (ctx->on_flow_control && !ctx->on_flow_control(ctx, ctx->user_data)) {
+            /* Block ~TAI_FLOW_CONTROL_POLL_MS WITHOUT reading, then re-check the
+             * hook. The zero-event poll is a genuine CPU yield (see worker_yield),
+             * so IDLE runs and the watchdog resets while the lwIP receive window
+             * stays closed (TCP backpressure). */
+            worker_yield(TAI_FLOW_CONTROL_POLL_MS);
+            continue;
+        }
+
         uint64_t drain_start = ctx->pal->time_ms();
-        int n = tai_recv_data(ctx, wait_ms);
+        /* Resume buffered frames before reading again; otherwise flow control
+         * could leave a complete frame stranded until more network data arrives. */
+        int n = ctx->rx_len ? (int)ctx->rx_len : tai_recv_data(ctx, wait_ms);
         while (n > 0 && ctx->running) {
             int fatal = tai_process_rx(ctx);
             if (fatal != TAI_OK) {
@@ -1308,6 +1341,13 @@ static void *worker_thread(void *arg)
              * the next pass. */
             if (ctx->pal->time_ms() - drain_start > TAI_DRAIN_BUDGET_MS)
                 break;
+            /* Recheck after every dispatch, including the greedy drain path. */
+            if (ctx->on_flow_control && !ctx->on_flow_control(ctx, ctx->user_data))
+                break;
+            /* Yield inside the greedy drain: under a flood the non-blocking recv
+             * below returns immediately every pass, so without this the drain is
+             * a tight loop that starves the IDLE task on single-core targets. */
+            worker_yield(TAI_WORKER_YIELD_MS);
             n = tai_recv_data(ctx, 0);   /* drain remainder non-blocking */
         }
         if (f_reason != 0xFF) break;     /* fail-fast / CONNECTION_CLOSE during drain */
@@ -1327,6 +1367,12 @@ static void *worker_thread(void *arg)
         /* n > 0: budget yield (running still set) -> loop, keep housekeeping.
          * n == TAI_ERR_AGAIN: wait timed out (ping due) or drain finished.
          * running cleared with no fatal: a clean tai_request_disconnect. */
+
+        /* Yield at the end of every iteration. When data is flowing the blocking
+         * recv above returns immediately, so the loop body is otherwise a tight
+         * CPU-bound cycle; this guarantees the IDLE task a slice on single-core
+         * targets (ESP32-C3) and keeps the task watchdog happy under a TTS flood. */
+        worker_yield(TAI_WORKER_YIELD_MS);
     }
 
     /* Single-point disconnect: fire on_disconnect exactly once if the worker
@@ -1340,5 +1386,6 @@ static void *worker_thread(void *arg)
     }
 
     TAI_LOGD(ctx->pal, TAG, "worker: exiting");
+    #undef worker_yield
     return NULL;
 }
