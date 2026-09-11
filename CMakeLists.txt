@@ -251,13 +251,16 @@ endif()
 set(TUYA_BLE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/modules/tuya-ble")
 
 add_library(tuya_ble STATIC
+    "${TUYA_BLE_DIR}/src/tuya_ble_bigdata.c"
     "${TUYA_BLE_DIR}/src/tuya_ble_prov.c"
+    "${TUYA_BLE_DIR}/src/tuya_ble_trsmitr.c"
 )
 target_include_directories(tuya_ble PUBLIC
     "${TUYA_BLE_DIR}/include"
     "${cjson_source_dir}"
 )
 target_link_libraries(tuya_ble PUBLIC
+    agentic_kit_common
     ${AGENTIC_KIT_CJSON_TARGET}
     ${AGENTIC_KIT_MBEDTLS_TARGETS}
 )
@@ -332,10 +335,11 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     agentic_kit_add_iot_test(iot_ota_verify_test "${IOT_CLIENT_TESTS_DIR}/iot_ota_verify_test.c")
 
     add_executable(tuya_ble_test
+        "${TUYA_BLE_TESTS_DIR}/test_wire.c"
         "${TUYA_BLE_TESTS_DIR}/test_prov.c"
         "${TUYA_BLE_TESTS_DIR}/tuya_ble_hal_host.c"
     )
-    target_link_libraries(tuya_ble_test PRIVATE tuya_ble)
+    target_link_libraries(tuya_ble_test PRIVATE tuya_ble tuya_iot_client)
     add_test(NAME tuya_ble_test COMMAND tuya_ble_test)
 endif()
 

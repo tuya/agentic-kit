@@ -64,9 +64,9 @@ iot_client_init_on_boarding_with_token(token)  // 6. 用 Token 激活设备
 static void on_tuya_ble_prov_complete(const tuya_ble_wifi_creds_t *creds)
 {
     // 收到来自 App 的 WiFi 凭据
-    printf("ssid=%s\n", creds->ssid);
-    printf("password=%s\n", creds->password);
-    printf("token=%s\n", creds->token);
+    // creds 仅在回调期间有效；复制到应用持有的缓冲区（示例把日志开到 DEBUG，
+    // SDK 的 [ble] 协议日志会打印含密码/Token 的凭据 JSON 原文，便于真机联调）
+    s_wifi_creds = *creds;
     // 通知主线程继续
     xEventGroupSetBits(s_prov_event_group, PROV_DONE_BIT);
 }
@@ -75,6 +75,7 @@ void app_main(void)
 {
     // 初始化 NVS（NimBLE 需要）
     nvs_flash_init();
+    iot_init_default(); // 在 BLE JSON 解析前初始化 PAL/cJSON 分配器
 
     tuya_ble_prov_cfg_t prov_cfg = {
         .device_name = "TYBLE",         // BLE 广播名称（最长 5 字符，超出会被截断）
@@ -136,9 +137,15 @@ int tuya_ble_nimble_start(const tuya_ble_prov_cfg_t *cfg);
 int tuya_ble_nimble_stop(void);
 ```
 
-停止 BLE 广播和服务，释放 NimBLE 资源。
+停止 BLE 广播和服务，等待已接收的 WiFi 扫描任务结束，再释放队列和 NimBLE 资源。
+必须由应用任务串行调用 start/stop，不能在 BLE 回调或 ESP 事件循环中调用 stop。
+扫描采用逻辑取消，若驱动迟迟不返回，stop 也会等待。
 
-**返回值：** 当前实现始终返回 `0`（内部 `nimble_port_stop()` 的结果被忽略，不返回错误码）。
+**返回值：** `0` 表示已停止（重复停止也返回 `0`）；非零表示 `nimble_port_stop()` 失败，
+资源保留以便重试；`nimble_port_deinit()` 失败（干净停止后几乎不会发生）会经
+`ESP_ERROR_CHECK` 中止程序。
+成功停止后，示例先停止扫描阶段启动的 WiFi，再配置凭据并重新启动 STA，
+不依赖对已启动 STA 再次调用 start 产生连接事件。
 
 ### `tuya_ble_wifi_creds_t`
 
@@ -174,3 +181,31 @@ idf.py flash monitor
 - 配网完成后的设备激活流程与[设备扫码配网](./scan-by-device)相同，使用 `iot_client_init_on_boarding_with_token()`。
 - 切勿在激活配置中设 `.mqtt_disable_auto_connect = true`：**App 以设备 MQTT 上线作为配网成功的判定条件**，不连接 MQTT 时 App 会显示配网失败/超时。
 - 需确保项目正确引用了 `modules/tuya-ble/` 和 `modules/iot-client/` 组件。
+
+## BLE 核心移植约定
+
+配置字符串必须在核心状态生命周期内有效，并以 NUL 结尾：`product_key` 为
+16 字节、`auth_key` 为 32 字节，`uuid` 为 16 字节或 20 个字母/数字。
+升级后重新编译调用方，公开状态结构的布局发生了变化。
+
+在同一 BLE 执行上下文调用 `tuya_ble_prov_on_data()`、`tuya_ble_prov_tx_ready()`、
+`tuya_ble_prov_tick()` 和 `tuya_ble_prov_close()`。连接关闭、重新连接或协议栈重置时，
+调用 `close()` 清除会话密钥及排队数据；旧的 `reset_conn()` 仅重置传输状态。
+`set_paired(true)` 不授予凭据下发权限。
+
+通知默认最多 20 字节；MTU 协商后通过 `tuya_ble_prov_set_gatt_payload(state, mtu - 3)`
+更新实际预算。发送回调必须在返回前复制数据：返回 0 表示接受，
+`TUYA_BLE_SEND_BUSY` 表示未接受、稍后重试，其他值表示永久失败。
+端口定期传入单调毫秒时间；未完成传输在 10 秒后过期。NimBLE 示例在其事件队列上
+驱动重试和超时，不新增 MQTT 线程。凭据回调等待回复被传输层接受后才执行；
+等待期间忽略新的凭据请求，不替换待交付凭据，也不为新请求发送 ACK。
+Trsmitr 的乱序及超时诊断通过 SDK 日志 facade 输出。
+
+`tuya_ble_prov_cfg_ext_t.random_fn` 可选，用于提供能报告已填充字节数的 CSPRNG；
+短输出会使握手失败。未提供时，`tuya_ble_hal_random()` 必须完整填充缓冲区。
+
+配置扫描 provider 后会启用 WiFi 列表及状态查询能力声明；NimBLE 示例已配置 provider。
+端口工作任务执行 WiFi 扫描，通过队列复制原始 scan token 和结果，由 BLE 执行上下文交付给 SDK。
+取消后不立即中断无线扫描，旧任务结束并被处理前不接收新扫描，避免旧结果冒用新 token。
+状态查询仅返回固定 CFG 状态，没有主动阶段报告或完整 PSK3.0 activation exchange。
+凭据仍通过传统 Token 配网流程接收；完成 BLE 凭据接收不表示已经完成云端激活。

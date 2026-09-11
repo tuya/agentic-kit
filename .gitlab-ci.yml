@@ -73,11 +73,12 @@ test:memory-leak:
       # Leak-check the pure (no-subprocess) binaries, grouped by module:
       #   rtc-tcp-client : tai_unit_tests, tai_integration_tests
       #   iot-client     : iot_cipher_test
+      #   tuya-ble       : tuya_ble_test
       # rtc-client is a prebuilt closed lib (headers + libstm.a) with no offline
       # test, so there is nothing to leak-check for it here. The mock-driven iot
       # tests are covered by the `test` job; under valgrind their Python
       # handshakes would time out.
-      for t in tai_unit_tests tai_integration_tests iot_cipher_test; do
+      for t in tai_unit_tests tai_integration_tests iot_cipher_test tuya_ble_test; do
         echo "==================== valgrind: ${t} ===================="
         "$VG" "./${CMAKE_BUILD_DIR}/${t}" 2>&1 | tee "valgrind-${t}.log"
         rc=${PIPESTATUS[0]}

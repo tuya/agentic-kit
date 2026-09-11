@@ -26,7 +26,9 @@ set(AK_SRCS
     ${AK_DIR}/modules/iot-client/src/mqtt.c
 
     # tuya-ble
+    ${AK_DIR}/modules/tuya-ble/src/tuya_ble_bigdata.c
     ${AK_DIR}/modules/tuya-ble/src/tuya_ble_prov.c
+    ${AK_DIR}/modules/tuya-ble/src/tuya_ble_trsmitr.c
 
     # PAL (FreeRTOS+lwIP) and shared common transport / log / RNG
     ${AK_DIR}/pal/pal_freertos.c

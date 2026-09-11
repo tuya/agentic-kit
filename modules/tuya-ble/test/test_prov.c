@@ -1,4 +1,6 @@
 #include "tuya_ble_prov.h"
+#include "iot_client.h"
+#include "log.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -33,6 +35,29 @@ static tuya_ble_prov_cfg_ext_t make_cfg(uint16_t *sent_len)
         .send_ctx = sent_len,
     };
     return cfg;
+}
+
+static int mock_wifi_scan(uint16_t count, const char *ccode, uint32_t token, void *ctx)
+{
+    (void)count;
+    (void)ccode;
+    (void)token;
+    (void)ctx;
+    return 0;
+}
+
+static int test_wifi_list_capability_advertisement(void)
+{
+    tuya_ble_prov_state_t state;
+    tuya_ble_prov_cfg_ext_t cfg = make_cfg(NULL);
+
+    EXPECT_TRUE(tuya_ble_prov_init(&state, &cfg) == 0);
+    EXPECT_TRUE((state.rsp_data[7] & 0x20) == 0);
+
+    cfg.wifi_scan_request = mock_wifi_scan;
+    EXPECT_TRUE(tuya_ble_prov_init(&state, &cfg) == 0);
+    EXPECT_TRUE((state.rsp_data[7] & 0x20) != 0);
+    return 0;
 }
 
 static int test_init_rejects_invalid_args(void)
@@ -184,15 +209,22 @@ static int test_on_data_rejects_invalid_args(void)
     return 0;
 }
 
+int test_wire(void);
+
 int main(void)
 {
+    EXPECT_TRUE(iot_init_default() == 0);
+    log_set_level(LOG_ERROR);
     EXPECT_TRUE(test_init_rejects_invalid_args() == 0);
+    EXPECT_TRUE(test_wifi_list_capability_advertisement() == 0);
     EXPECT_TRUE(test_init_builds_adv_and_rsp_data() == 0);
     EXPECT_TRUE(test_get_read_payload_matches_adv_data() == 0);
     EXPECT_TRUE(test_uuid_compression_modes() == 0);
     EXPECT_TRUE(test_reset_conn_clears_rx_state_only() == 0);
     EXPECT_TRUE(test_set_paired_updates_state() == 0);
     EXPECT_TRUE(test_on_data_rejects_invalid_args() == 0);
+
+    EXPECT_TRUE(test_wire() == 0);
 
     printf("PASS test_prov\n");
     return 0;
