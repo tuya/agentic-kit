@@ -64,7 +64,8 @@ iot_client_init_on_boarding_with_token(token)  // 6. 用 Token 激活设备
 static void on_tuya_ble_prov_complete(const tuya_ble_wifi_creds_t *creds)
 {
     // 收到来自 App 的 WiFi 凭据
-    // creds 仅在回调期间有效；复制到应用持有的缓冲区，不记录密码或 Token
+    // creds 仅在回调期间有效；复制到应用持有的缓冲区（示例把日志开到 DEBUG，
+    // SDK 的 [ble] 协议日志会打印含密码/Token 的凭据 JSON 原文，便于真机联调）
     s_wifi_creds = *creds;
     // 通知主线程继续
     xEventGroupSetBits(s_prov_event_group, PROV_DONE_BIT);
@@ -141,7 +142,9 @@ int tuya_ble_nimble_stop(void);
 扫描采用逻辑取消，若驱动迟迟不返回，stop 也会等待。
 
 **返回值：** `0` 表示已停止（重复停止也返回 `0`）；非零表示 `nimble_port_stop()` 失败，
-资源保留以便重试。成功停止后，示例先停止扫描阶段启动的 WiFi，再配置凭据并重新启动 STA，
+资源保留以便重试；`nimble_port_deinit()` 失败（干净停止后几乎不会发生）会经
+`ESP_ERROR_CHECK` 中止程序。
+成功停止后，示例先停止扫描阶段启动的 WiFi，再配置凭据并重新启动 STA，
 不依赖对已启动 STA 再次调用 start 产生连接事件。
 
 ### `tuya_ble_wifi_creds_t`

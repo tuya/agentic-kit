@@ -41,3 +41,5 @@ docs-site/yarn-error.log
 .vimspector.json
 Testing
 spec
+
+.codegraph/

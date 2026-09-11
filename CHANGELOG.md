@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Docs — the pair-by-ble callback sample no longer claims credentials are never logged; the
+  demo's DEBUG protocol log prints the credential JSON on purpose, for device bring-up (PR pending).
+- Docs — the pair-by-ble stop section now also states the port's `nimble_port_deinit()` abort,
+  instead of implying every `tuya_ble_nimble_stop()` failure is retryable (PR pending).
 - tuya-ble — preserve pending credentials under TX backpressure and route Trsmitr diagnostics through the log facade (PR pending).
 - Examples — isolate BLE WiFi scan completions across cancellation, join workers before teardown, and restart STA before connecting (PR pending).
 - tuya-ble — enforce Pairing/KEY_12 credential authorization, reject replayed Frames, and accept the app's extra CBC padding block (PR pending).
