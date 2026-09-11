@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- tuya-ble — the SDK-internal log-facade binding, scan-token rotation and pending-credential
+  delivery are each defined once in `tuya_ble_internal.h` instead of being repeated per module (PR pending).
 - tuya-ble — bounded per-state Trsmitr reassembly, queued TX with backpressure, and configurable radio capability (PR pending).
   - Ports drive `tuya_ble_prov_set_gatt_payload()`, `tuya_ble_prov_tx_ready()` and `tuya_ble_prov_tick()`; call `tuya_ble_prov_close()` on disconnect/reset.
   - Recompile consumers for the public state/config layout changes; `comm_ability = 0` selects 2.4 GHz.

@@ -2,28 +2,6 @@
 #include "tuya_ble_bigdata.h"
 
 #include "cJSON.h"
-#include "log.h"
-
-#undef TUYA_BLE_HAL_LOGI
-#undef TUYA_BLE_HAL_LOGW
-#undef TUYA_BLE_HAL_LOGE
-#undef TUYA_BLE_HAL_HEXDUMP
-#define TUYA_BLE_HAL_LOGI(fmt, ...) log_emit(LOG_DEBUG, "[ble] " fmt, ##__VA_ARGS__)
-#define TUYA_BLE_HAL_LOGW(fmt, ...) log_emit(LOG_WARN, "[ble] " fmt, ##__VA_ARGS__)
-#define TUYA_BLE_HAL_LOGE(fmt, ...) log_emit(LOG_ERROR, "[ble] " fmt, ##__VA_ARGS__)
-#define TUYA_BLE_HAL_HEXDUMP(buf, len)                                         \
-    do {                                                                       \
-        const uint8_t *p_ = (const uint8_t *)(buf);                            \
-        size_t n_ = (len);                                                     \
-        char hex_[193];                                                        \
-        size_t o_ = 0;                                                         \
-        for (size_t i_ = 0; i_ < n_ && o_ + 3 < sizeof(hex_); i_++) {           \
-            o_ += (size_t)snprintf(hex_ + o_, sizeof(hex_) - o_, "%02X ",       \
-                                   p_[i_]);                                    \
-        }                                                                      \
-        if (o_) hex_[o_ - 1] = '\0';                                           \
-        log_emit(LOG_DEBUG, "[ble] HEX(%u): %s", (unsigned)n_, hex_);          \
-    } while (0)
 #include "mbedtls/aes.h"
 #include "mbedtls/md5.h"
 
@@ -335,8 +313,7 @@ static void handle_dev_info_req(tuya_ble_prov_state_t *state, const uint8_t *dat
     state->authenticated = false;
     state->credentials_pending = false;
     state->wifi_scan_pending = false;
-    state->wifi_scan_token++;
-    if (state->wifi_scan_token == 0) state->wifi_scan_token++;
+    state->wifi_scan_token = tuya_ble_next_scan_token(state->wifi_scan_token);
     if (random_fill(state, state->pair_rand, TUYA_BLE_PAIR_RAND_LEN) != 0) {
         TUYA_BLE_HAL_LOGE("[PROTO] pair_rand generation failed");
         return;
@@ -429,6 +406,14 @@ static void handle_pair_req(tuya_ble_prov_state_t *state, const uint8_t *data, u
     }
 }
 
+void tuya_ble_prov_flush_credentials(tuya_ble_prov_state_t *state)
+{
+    if (state->credentials_pending && !state->tx_count) {
+        state->credentials_pending = false;
+        if (state->cfg.cb) state->cfg.cb(&state->creds);
+    }
+}
+
 static void handle_wifi_config(tuya_ble_prov_state_t *state, const uint8_t *data, uint16_t data_len)
 {
     TUYA_BLE_HAL_LOGI("[PROTO] FRM_DOWNLINK_TRANSPARENT_REQ (%d bytes):", data_len);
@@ -504,10 +489,7 @@ static void handle_wifi_config(tuya_ble_prov_state_t *state, const uint8_t *data
     }
 
     state->credentials_pending = true;
-    if (!state->tx_count) {
-        state->credentials_pending = false;
-        if (state->cfg.cb) state->cfg.cb(&state->creds);
-    }
+    tuya_ble_prov_flush_credentials(state);
 }
 
 void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t packet_len)
@@ -796,8 +778,7 @@ void tuya_ble_prov_reset_conn(tuya_ble_prov_state_t *state)
     state->tx_subpkg = 0;
     state->credentials_pending = false;
     state->wifi_scan_pending = false;
-    state->wifi_scan_token++;
-    if (state->wifi_scan_token == 0) state->wifi_scan_token++;
+    state->wifi_scan_token = tuya_ble_next_scan_token(state->wifi_scan_token);
 }
 
 void tuya_ble_prov_close(tuya_ble_prov_state_t *state)
@@ -806,8 +787,7 @@ void tuya_ble_prov_close(tuya_ble_prov_state_t *state)
     tuya_ble_prov_cfg_ext_t cfg = state->cfg;
     uint64_t now_ms = state->now_ms;
     uint32_t generation = state->connection_generation + 1;
-    uint32_t wifi_scan_token = state->wifi_scan_token + 1;
-    if (wifi_scan_token == 0) wifi_scan_token++;
+    uint32_t wifi_scan_token = tuya_ble_next_scan_token(state->wifi_scan_token);
     /* Volatile stores erase session keys, credentials and queued Packets. */
     volatile uint8_t *p = (volatile uint8_t *)state;
     for (size_t i = 0; i < sizeof(*state); i++) p[i] = 0;

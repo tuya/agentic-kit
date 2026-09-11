@@ -1,4 +1,5 @@
 #include "tuya_ble_bigdata.h"
+#include "tuya_ble_internal.h"
 
 #include "cJSON.h"
 #include "log.h"
@@ -164,8 +165,7 @@ int tuya_ble_bigdata_on_downlink(tuya_ble_prov_state_t *state,
         return send_empty_list(state);
     }
 
-    state->wifi_scan_token++;
-    if (state->wifi_scan_token == 0) state->wifi_scan_token++;
+    state->wifi_scan_token = tuya_ble_next_scan_token(state->wifi_scan_token);
     state->wifi_scan_count = count;
     state->wifi_scan_pending = true;
     if (state->cfg.wifi_scan_request(count, ccode, state->wifi_scan_token,
