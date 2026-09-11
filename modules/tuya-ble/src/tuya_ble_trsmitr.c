@@ -1,14 +1,8 @@
 /* Trsmitr wire layout verified against TuyaOpen 1b92eb5a3b86a81d45290043008a95be75ef5574.
  * Independent bounded implementation; no global transfer state or worker. */
 #include "tuya_ble_internal.h"
-#include "log.h"
 #include <string.h>
 #define TUYA_BLE_PROTOCOL_VER_HI 4
-
-#undef TUYA_BLE_HAL_LOGI
-#undef TUYA_BLE_HAL_LOGW
-#define TUYA_BLE_HAL_LOGI(fmt, ...) log_emit(LOG_DEBUG, "[ble] " fmt, ##__VA_ARGS__)
-#define TUYA_BLE_HAL_LOGW(fmt, ...) log_emit(LOG_WARN, "[ble] " fmt, ##__VA_ARGS__)
 
 static int var_len_encode(uint32_t value, uint8_t *buf)
 {
@@ -169,10 +163,7 @@ int tuya_ble_prov_tx_ready(tuya_ble_prov_state_t *state)
             state->tx_started_ms = state->now_ms;
         }
     }
-    if (state->credentials_pending) {
-        state->credentials_pending = false;
-        if (state->cfg.cb) state->cfg.cb(&state->creds);
-    }
+    tuya_ble_prov_flush_credentials(state);
     return 0;
 }
 
