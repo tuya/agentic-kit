@@ -2,6 +2,7 @@
  * decrypts captured notifications. Test credentials are synthetic. */
 #include "tuya_ble_prov.h"
 #include "tuya_ble_bigdata.h"
+#include "log.h"
 #include "mbedtls/aes.h"
 #include "mbedtls/md5.h"
 #include <stdio.h>
@@ -272,6 +273,73 @@ static int credential_ack_backpressure(void)
     return 0;
 }
 
+static int pending_credentials_are_not_replaced(void)
+{
+    for (unsigned queued = 0; queued < TUYA_BLE_TX_QUEUE_DEPTH; queued++) {
+        tuya_ble_prov_state_t state;
+        peer_t peer;
+        uint8_t key[16], wire[512], plain[512];
+        CHECK(!handshake(&state, &peer, key, 244));
+        peer.busy = 1;
+        const char first[] = "\0\0\0\1{\"ssid\":\"router\",\"pwd\":\"password\",\"token\":\"1234567890123456\"}";
+        const char second[] = "\0\0\0\1{\"ssid\":\"other\",\"pwd\":\"different\",\"token\":\"6543210987654321\"}";
+        const uint8_t status[] = {0, 0, 0, 4};
+        CHECK(!deliver(&state, wire, packet(wire, 0x801b, 3, first, sizeof(first)-1, key, 0), 244));
+        for (unsigned i = 0; i < queued; i++) {
+            CHECK(!deliver(&state, wire, packet(wire, 0x801e, 4+i, status, sizeof(status), key, 0), 244));
+        }
+        CHECK(state.credentials_pending && !callbacks);
+        uint32_t outgoing_sn = state.sn;
+        CHECK(!deliver(&state, wire, packet(wire, 0x801b, 4+queued, second, sizeof(second)-1, key, 0), 244));
+        CHECK(state.sn == outgoing_sn && state.tx_count == queued+1);
+        CHECK(!strcmp(state.creds.ssid, "router"));
+        peer.busy = 0;
+        CHECK(!tuya_ble_prov_tx_ready(&state));
+        CHECK(callbacks == 1 && !state.credentials_pending && peer.complete == 4+queued);
+        CHECK(!crypt(0, key, peer.packet[3]+1, peer.packet[3]+17, peer.sizes[3]-17, plain));
+        CHECK(plain[8] == 0x80 && plain[9] == 0x1c && plain[7] == 3);
+        CHECK(!tuya_ble_prov_tx_ready(&state) && callbacks == 1);
+    }
+    return 0;
+}
+
+static unsigned transport_log_flags;
+static void capture_transport_log(log_level_t level, const char *fmt, va_list args)
+{
+    char message[256];
+    vsnprintf(message, sizeof(message), fmt, args);
+    if (level != LOG_WARN || !strstr(message, "[ble] [TRSMITR]")) return;
+    if (strstr(message, "out-of-order")) transport_log_flags |= 1;
+    if (strstr(message, "RX transfer expired")) transport_log_flags |= 2;
+    if (strstr(message, "TX stalled")) transport_log_flags |= 4;
+}
+
+static int transport_warnings_reach_log_facade(void)
+{
+    tuya_ble_prov_state_t state;
+    peer_t peer;
+    uint8_t key[16];
+    CHECK(!setup(&state, &peer, key));
+    uint8_t first[] = {0, 10, 0x40, 0xaa};
+    uint8_t skipped[] = {2, 0xbb};
+    log_level_t saved_level = log_get_level();
+    transport_log_flags = 0;
+    log_set_level(LOG_WARN);
+    log_set_handler(capture_transport_log);
+    int start = tuya_ble_prov_on_data(&state, first, sizeof(first));
+    int invalid = tuya_ble_prov_on_data(&state, skipped, sizeof(skipped));
+    int restart = tuya_ble_prov_on_data(&state, first, sizeof(first));
+    int expired = tuya_ble_prov_tick(&state, 10000);
+    peer.busy = 1;
+    int queued = tuya_ble_prov_send_frame(&state, 0x001e, NULL, 0, TUYA_BLE_ENCRYPTION_MODE_NONE);
+    int stalled = tuya_ble_prov_tick(&state, 20000);
+    log_set_handler(NULL);
+    log_set_level(saved_level);
+    CHECK(!start && invalid < 0 && !restart && !expired && !queued && stalled < 0);
+    CHECK(transport_log_flags == 7);
+    return 0;
+}
+
 static int permanent_send_failure(void)
 {
     tuya_ble_prov_state_t state;
@@ -396,6 +464,8 @@ int test_wire(void)
     RUN(entropy_failure);
     RUN(isolated_connections);
     RUN(credential_ack_backpressure);
+    RUN(pending_credentials_are_not_replaced);
+    RUN(transport_warnings_reach_log_facade);
     RUN(permanent_send_failure);
     RUN(bigdata_netcfg_status);
     RUN(bigdata_wifi_list);

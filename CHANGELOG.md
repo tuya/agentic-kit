@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- tuya-ble — preserve pending credentials under TX backpressure and route Trsmitr diagnostics through the log facade (PR pending).
+- Examples — isolate BLE WiFi scan completions across cancellation, join workers before teardown, and restart STA before connecting (PR pending).
 - tuya-ble — enforce Pairing/KEY_12 credential authorization, reject replayed Frames, and accept the app's extra CBC padding block (PR pending).
 - tuya-ble — reset Pairing state on device-info re-query and defer credential delivery until queued acknowledgements are accepted by the port (PR pending).
 - iot-client — US-East (`UEAZ`) fell back to an ATOP host that does not resolve(#31).

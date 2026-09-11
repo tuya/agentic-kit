@@ -433,6 +433,11 @@ static void handle_wifi_config(tuya_ble_prov_state_t *state, const uint8_t *data
 {
     TUYA_BLE_HAL_LOGI("[PROTO] FRM_DOWNLINK_TRANSPARENT_REQ (%d bytes):", data_len);
 
+    if (state->credentials_pending) {
+        TUYA_BLE_HAL_LOGW("[PROTO] Credentials awaiting acknowledgement; ignoring replacement");
+        return;
+    }
+
     if (data_len < 4) {
         TUYA_BLE_HAL_LOGW("[PROTO] Transparent data too short");
         return;

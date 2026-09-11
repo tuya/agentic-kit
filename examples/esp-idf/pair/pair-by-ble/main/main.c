@@ -106,6 +106,11 @@ static void wifi_init_sta(const char *ssid, const char *password)
         ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     }
 
+    /* Provisioning scans may already have started STA before our handler
+     * existed. Force a fresh STA_START after installing the credentials. */
+    err = esp_wifi_stop();
+    if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_STARTED) ESP_ERROR_CHECK(err);
+
     esp_event_handler_instance_t instance_any_id;
     esp_event_handler_instance_t instance_got_ip;
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
@@ -267,8 +272,7 @@ void app_main(void)
                         pdTRUE, pdFALSE, portMAX_DELAY);
 
     ESP_LOGI(TAG, "Credentials received, stopping BLE...");
-    tuya_ble_nimble_stop();
-    vTaskDelay(pdMS_TO_TICKS(500));
+    ESP_ERROR_CHECK(tuya_ble_nimble_stop());
 
     /* Connect WiFi with the credentials received over BLE */
     ESP_LOGI(TAG, "Connecting to WiFi");

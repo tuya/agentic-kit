@@ -1,18 +1,14 @@
 /* Trsmitr wire layout verified against TuyaOpen 1b92eb5a3b86a81d45290043008a95be75ef5574.
  * Independent bounded implementation; no global transfer state or worker. */
 #include "tuya_ble_internal.h"
+#include "log.h"
 #include <string.h>
 #define TUYA_BLE_PROTOCOL_VER_HI 4
 
-#ifndef TUYA_BLE_HAL_LOGI
-#define TUYA_BLE_HAL_LOGI(fmt, ...)
-#endif
-#ifndef TUYA_BLE_HAL_LOGW
-#define TUYA_BLE_HAL_LOGW(fmt, ...)
-#endif
-#ifndef TUYA_BLE_HAL_LOGE
-#define TUYA_BLE_HAL_LOGE(fmt, ...)
-#endif
+#undef TUYA_BLE_HAL_LOGI
+#undef TUYA_BLE_HAL_LOGW
+#define TUYA_BLE_HAL_LOGI(fmt, ...) log_emit(LOG_DEBUG, "[ble] " fmt, ##__VA_ARGS__)
+#define TUYA_BLE_HAL_LOGW(fmt, ...) log_emit(LOG_WARN, "[ble] " fmt, ##__VA_ARGS__)
 
 static int var_len_encode(uint32_t value, uint8_t *buf)
 {

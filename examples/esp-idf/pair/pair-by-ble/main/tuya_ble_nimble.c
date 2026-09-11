@@ -1,4 +1,10 @@
 #include <string.h>
+#include <stdatomic.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 
 #include "esp_log.h"
 #include "esp_random.h"
@@ -48,13 +54,28 @@ static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static struct ble_npl_callout s_transport_timer;
 static uint16_t s_notify_attr_handle;
 static bool s_notify_enabled;
-static bool s_wifi_started;
+typedef struct {
+    uint32_t token;
+    char ccode[3];
+} wifi_scan_request_t;
+
+typedef struct {
+    uint32_t token;
+    uint16_t count;
+    tuya_ble_wifi_ap_t aps[TUYA_BLE_WIFI_LIST_MAX];
+} wifi_scan_result_t;
+
+static QueueHandle_t s_scan_requests;
+static QueueHandle_t s_scan_results;
+static SemaphoreHandle_t s_owner_stopped;
+static SemaphoreHandle_t s_worker_stopped;
+static SemaphoreHandle_t s_host_stopped;
+static atomic_bool s_stop_requested;
+static bool s_running;
+/* BLE-owner state: cancellation must not release the worker's occupied slot. */
 static bool s_wifi_scan_pending;
+static bool s_wifi_scan_cancelled;
 static uint32_t s_wifi_scan_token;
-static tuya_ble_wifi_ap_t s_wifi_aps[TUYA_BLE_WIFI_LIST_MAX];
-static wifi_ap_record_t s_wifi_scan_records[TUYA_BLE_WIFI_LIST_MAX];
-static uint16_t s_wifi_ap_count;
-static struct ble_npl_event s_wifi_scan_done;
 
 static int prov_gap_event(struct ble_gap_event *event, void *arg);
 static int prov_gatt_write_access(uint16_t conn_handle, uint16_t attr_handle,
@@ -97,47 +118,89 @@ void tuya_ble_hal_random(uint8_t *buf, size_t len)
     esp_fill_random(buf, len);
 }
 
-static void wifi_scan_done_on_nimble(struct ble_npl_event *event)
+static esp_err_t wifi_scan_run(const wifi_scan_request_t *request,
+                               wifi_scan_result_t *result)
 {
-    (void)event;
-    if (!s_wifi_scan_pending) return;
-    s_wifi_scan_pending = false;
-    (void)tuya_ble_bigdata_wifi_list_complete(&s_prov, s_wifi_scan_token,
-                                              s_wifi_aps, s_wifi_ap_count);
+    wifi_mode_t mode = WIFI_MODE_NULL;
+    if (esp_wifi_get_mode(&mode) != ESP_OK) {
+        wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
+        esp_err_t err = esp_wifi_init(&config);
+        if (err != ESP_OK) return err;
+    }
+    esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (err != ESP_OK) return err;
+    err = esp_wifi_start();
+    if (err != ESP_OK) return err;
+
+    if (request->ccode[0]) {
+        wifi_country_t country = {.cc = "", .schan = 1, .nchan = 13,
+                                  .max_tx_power = 20, .policy = WIFI_COUNTRY_POLICY_AUTO};
+        country.cc[0] = request->ccode[0];
+        country.cc[1] = request->ccode[1];
+        (void)esp_wifi_set_country(&country);
+    }
+    /* A blocking scan has no SCAN_DONE event: its return belongs to this request,
+     * unlike an asynchronous event whose scan_id is not returned at submission. */
+    wifi_scan_config_t config = {.scan_type = WIFI_SCAN_TYPE_ACTIVE};
+    err = esp_wifi_scan_start(&config, true);
+    if (err != ESP_OK) {
+        (void)esp_wifi_clear_ap_list();
+        return err;
+    }
+    wifi_ap_record_t records[TUYA_BLE_WIFI_LIST_MAX];
+    uint16_t count = TUYA_BLE_WIFI_LIST_MAX;
+    err = esp_wifi_scan_get_ap_records(&count, records);
+    if (err != ESP_OK) {
+        (void)esp_wifi_clear_ap_list();
+        return err;
+    }
+    for (uint16_t i = 0; i < count; i++) {
+        size_t len = strnlen((const char *)records[i].ssid, TUYA_BLE_WIFI_SSID_MAX);
+        memcpy(result->aps[i].ssid, records[i].ssid, len);
+        result->aps[i].ssid[len] = '\0';
+        result->aps[i].rssi = records[i].rssi;
+        result->aps[i].sec = records[i].authmode == WIFI_AUTH_OPEN ? 0 : 1;
+    }
+    result->count = count;
+    return ESP_OK;
 }
 
-static void wifi_event_handler(void *arg, esp_event_base_t event_base,
-                               int32_t event_id, void *event_data)
+static void wifi_scan_worker(void *arg)
 {
     (void)arg;
-    (void)event_data;
-    if (event_base != WIFI_EVENT || event_id != WIFI_EVENT_SCAN_DONE ||
-        !s_wifi_scan_pending) return;
-
-    uint16_t count = TUYA_BLE_WIFI_LIST_MAX;
-    s_wifi_ap_count = 0;
-    esp_err_t err = esp_wifi_scan_get_ap_records(&count, s_wifi_scan_records);
-    if (err == ESP_OK) {
-        for (uint16_t i = 0; i < count; i++) {
-            size_t len = strnlen((const char *)s_wifi_scan_records[i].ssid, TUYA_BLE_WIFI_SSID_MAX);
-            memcpy(s_wifi_aps[i].ssid, s_wifi_scan_records[i].ssid, len);
-            s_wifi_aps[i].ssid[len] = '\0';
-            s_wifi_aps[i].rssi = s_wifi_scan_records[i].rssi;
-            s_wifi_aps[i].sec = s_wifi_scan_records[i].authmode == WIFI_AUTH_OPEN ? 0 : 1;
-        }
-        s_wifi_ap_count = count;
-        ESP_LOGI(TAG, "WiFi scan complete: %u APs", count);
-    } else {
-        ESP_LOGW(TAG, "esp_wifi_scan_get_ap_records failed: %s", esp_err_to_name(err));
+    wifi_scan_request_t request;
+    while (xQueueReceive(s_scan_requests, &request, portMAX_DELAY) == pdTRUE) {
+        if (request.token == 0) break;
+        wifi_scan_result_t result = {.token = request.token};
+        esp_err_t err = wifi_scan_run(&request, &result);
+        if (err != ESP_OK) ESP_LOGW(TAG, "WiFi scan failed: %s", esp_err_to_name(err));
+        /* One occupied slot, released only when the BLE owner drains this copy.
+         * Never enqueue onto NimBLE here, including during shutdown. */
+        BaseType_t sent = xQueueSend(s_scan_results, &result, 0);
+        configASSERT(sent == pdTRUE);
     }
-    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_wifi_scan_done);
+    xSemaphoreGive(s_worker_stopped);
+    vTaskDelete(NULL);
+}
+
+static void wifi_scan_poll(void)
+{
+    wifi_scan_result_t result;
+    if (xQueueReceive(s_scan_results, &result, 0) != pdTRUE) return;
+    bool deliver = s_wifi_scan_pending && !s_wifi_scan_cancelled &&
+                   result.token == s_wifi_scan_token;
+    s_wifi_scan_pending = false;
+    if (deliver) {
+        (void)tuya_ble_bigdata_wifi_list_complete(&s_prov, result.token,
+                                                 result.aps, result.count);
+    }
 }
 
 static void wifi_scan_cancel(void)
 {
-    if (s_wifi_scan_pending) (void)esp_wifi_scan_stop();
-    s_wifi_scan_pending = false;
-    s_wifi_ap_count = 0;
+    /* Logical cancellation only: do not wait for WiFi under a BLE host lock,
+     * and do not admit another request until the old radio operation returns. */
+    s_wifi_scan_cancelled = true;
 }
 
 static int wifi_scan_request(uint16_t count, const char *ccode,
@@ -145,33 +208,14 @@ static int wifi_scan_request(uint16_t count, const char *ccode,
 {
     (void)count;
     (void)ctx;
-    if (s_wifi_scan_pending) return -1;
+    if (s_prov_done || atomic_load(&s_stop_requested) || s_wifi_scan_pending) return -1;
 
-    if (!s_wifi_started) {
-        wifi_mode_t mode = WIFI_MODE_NULL;
-        if (esp_wifi_get_mode(&mode) != ESP_OK) {
-            wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
-            if (esp_wifi_init(&config) != ESP_OK) return -1;
-        }
-        if (esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK || esp_wifi_start() != ESP_OK) {
-            return -1;
-        }
-        s_wifi_started = true;
-    }
-    if (ccode[0]) {
-        wifi_country_t country = {.cc = "", .schan = 1, .nchan = 13,
-                                  .max_tx_power = 20, .policy = WIFI_COUNTRY_POLICY_AUTO};
-        country.cc[0] = ccode[0];
-        country.cc[1] = ccode[1];
-        (void)esp_wifi_set_country(&country);
-    }
-    wifi_scan_config_t config = {.scan_type = WIFI_SCAN_TYPE_ACTIVE};
+    wifi_scan_request_t request = {.token = token};
+    if (ccode[0]) memcpy(request.ccode, ccode, 2);
+    if (xQueueSend(s_scan_requests, &request, 0) != pdTRUE) return -1;
     s_wifi_scan_token = token;
+    s_wifi_scan_cancelled = false;
     s_wifi_scan_pending = true;
-    if (esp_wifi_scan_start(&config, false) != ESP_OK) {
-        s_wifi_scan_pending = false;
-        return -1;
-    }
     return 0;
 }
 
@@ -197,7 +241,8 @@ static int prov_gatt_write_access(uint16_t conn_handle, uint16_t attr_handle,
     (void)attr_handle;
     (void)arg;
 
-    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
+    if (s_prov_done || atomic_load(&s_stop_requested) ||
+        ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
         return BLE_ATT_ERR_UNLIKELY;
     }
 
@@ -250,6 +295,7 @@ static int prov_gatt_read_access(uint16_t conn_handle, uint16_t attr_handle,
 
 static void prov_start_advertise(void)
 {
+    if (s_prov_done || atomic_load(&s_stop_requested)) return;
     const uint8_t *adv_data;
     const uint8_t *rsp_data;
     uint8_t adv_len;
@@ -385,6 +431,16 @@ static void ble_on_reset(int reason)
 static void transport_tick(struct ble_npl_event *event)
 {
     (void)event;
+    if (atomic_load(&s_stop_requested)) {
+        if (!s_prov_done) {
+            s_prov_done = true;
+            wifi_scan_cancel();
+            tuya_ble_prov_close(&s_prov);
+            xSemaphoreGive(s_owner_stopped);
+        }
+        return;
+    }
+    wifi_scan_poll();
     if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE &&
         tuya_ble_prov_tick(&s_prov, (uint64_t)esp_timer_get_time() / 1000) < 0) {
         ble_gap_terminate(s_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
@@ -396,12 +452,29 @@ static void nimble_host_task(void *param)
 {
     (void)param;
     nimble_port_run();
-    nimble_port_freertos_deinit();
+    /* Let the application delete/join this task before deinitializing the port.
+     * Self-deletion in IDF leaves its host_task_h uncleared across a restart. */
+    xSemaphoreGive(s_host_stopped);
+    vTaskSuspend(NULL);
+}
+
+static void wifi_scan_resources_free(void)
+{
+    if (s_scan_requests) vQueueDelete(s_scan_requests);
+    if (s_scan_results) vQueueDelete(s_scan_results);
+    if (s_owner_stopped) vSemaphoreDelete(s_owner_stopped);
+    if (s_worker_stopped) vSemaphoreDelete(s_worker_stopped);
+    if (s_host_stopped) vSemaphoreDelete(s_host_stopped);
+    s_scan_requests = NULL;
+    s_scan_results = NULL;
+    s_owner_stopped = NULL;
+    s_worker_stopped = NULL;
+    s_host_stopped = NULL;
 }
 
 int tuya_ble_nimble_start(const tuya_ble_prov_cfg_t *cfg)
 {
-    if (cfg == NULL || cfg->device_name == NULL || cfg->product_key == NULL ||
+    if (s_running || cfg == NULL || cfg->device_name == NULL || cfg->product_key == NULL ||
         cfg->uuid == NULL || cfg->auth_key == NULL || cfg->cb == NULL) {
         return -1;
     }
@@ -421,7 +494,8 @@ int tuya_ble_nimble_start(const tuya_ble_prov_cfg_t *cfg)
     s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
     s_notify_enabled = false;
     s_wifi_scan_pending = false;
-    s_wifi_ap_count = 0;
+    s_wifi_scan_cancelled = false;
+    atomic_store(&s_stop_requested, false);
 
     tuya_ble_prov_cfg_ext_t prov_cfg = {
         .device_name = cfg->device_name,
@@ -459,36 +533,69 @@ int tuya_ble_nimble_start(const tuya_ble_prov_cfg_t *cfg)
     rc = ble_gatts_count_cfg(s_gatt_svcs);
     if (rc != 0) {
         ESP_LOGE(TAG, "ble_gatts_count_cfg failed, rc=%d", rc);
+        nimble_port_deinit();
         return -1;
     }
 
     rc = ble_gatts_add_svcs(s_gatt_svcs);
     if (rc != 0) {
         ESP_LOGE(TAG, "ble_gatts_add_svcs failed, rc=%d", rc);
+        nimble_port_deinit();
+        return -1;
+    }
+
+    s_scan_requests = xQueueCreate(1, sizeof(wifi_scan_request_t));
+    s_scan_results = xQueueCreate(1, sizeof(wifi_scan_result_t));
+    s_owner_stopped = xSemaphoreCreateBinary();
+    s_worker_stopped = xSemaphoreCreateBinary();
+    s_host_stopped = xSemaphoreCreateBinary();
+    if (!s_scan_requests || !s_scan_results || !s_owner_stopped ||
+        !s_worker_stopped || !s_host_stopped ||
+        xTaskCreate(wifi_scan_worker, "prov_scan", 8192, NULL, 5, NULL) != pdPASS) {
+        wifi_scan_resources_free();
+        nimble_port_deinit();
         return -1;
     }
 
     ble_npl_callout_init(&s_transport_timer, nimble_port_get_dflt_eventq(), transport_tick, NULL);
-    ble_npl_event_init(&s_wifi_scan_done, wifi_scan_done_on_nimble, NULL);
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_SCAN_DONE,
-                                                wifi_event_handler, NULL));
     ble_npl_callout_reset(&s_transport_timer, ble_npl_time_ms_to_ticks32(100));
     ble_store_clear();
     nimble_port_freertos_init(nimble_host_task);
+    s_running = true;
 
     ESP_LOGI(TAG, "BLE provisioning started, device=%s, notify_handle=%d",
              cfg->device_name, s_notify_attr_handle);
     return 0;
 }
 
+/* Start/stop are serialized by the application task, never called from a BLE
+ * callback or the ESP event loop. Only this task waits for producer shutdown. */
 int tuya_ble_nimble_stop(void)
 {
-    s_prov_done = true;
+    if (!s_running) return 0;
+    atomic_store(&s_stop_requested, true);
+    xSemaphoreTake(s_owner_stopped, portMAX_DELAY);
     int rc = nimble_port_stop();
-    if (rc == 0) {
-        ble_npl_callout_stop(&s_transport_timer);
-        nimble_port_deinit();
+    if (rc != 0) {
+        xSemaphoreGive(s_owner_stopped);
+        return rc;
     }
+    xSemaphoreTake(s_host_stopped, portMAX_DELAY);
+    nimble_port_freertos_deinit();
+
+    /* The owner can no longer submit work. Finish any admitted scan before
+     * releasing its queues or handing the WiFi radio to the application. */
+    wifi_scan_request_t stop = {0};
+    xQueueSend(s_scan_requests, &stop, portMAX_DELAY);
+    xSemaphoreTake(s_worker_stopped, portMAX_DELAY);
+    wifi_scan_resources_free();
+
+    /* The one-shot timer delivered the owner-stop acknowledgement without
+     * rearming, so there is no timer producer or queued tick left to drain. */
+    ble_npl_callout_deinit(&s_transport_timer);
+    rc = nimble_port_deinit();
+    ESP_ERROR_CHECK(rc);
+    s_running = false;
     ESP_LOGI(TAG, "BLE provisioning stopped");
     return 0;
 }

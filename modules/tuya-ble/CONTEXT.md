@@ -170,7 +170,8 @@ _Avoid_: net-status (`0x001E`, the separate legacy notification), activation res
   The compatibility `set_paired(true)` setter cannot grant authorization. Frame bounds,
   CRC, mode, command authorization and a nonzero increasing SN are checked before
   dispatch. Payload validation follows dispatch, so a rejected JSON payload can still
-  consume its Frame SN.
+  consume its Frame SN. While credentials await delivery, further credential requests
+  are ignored without replacing the pending credentials or enqueueing another ACK.
 - Ports must call `tuya_ble_prov_close` on GATT disconnect/host reset. The historical
   `reset_conn` clears transport queues and pending credential/scan delivery but preserves
   Pairing, keys and Frame SN counters; it is not a session close.
@@ -211,6 +212,13 @@ _Avoid_: net-status (`0x001E`, the separate legacy notification), activation res
   transport reset and accepted device-info re-query. Radio cancellation and safe
   cross-task result delivery remain port responsibilities. There is no SDK scan
   deadline; a provider that never completes leaves the scan pending until reset.
+- The NimBLE port owns a WiFi scan worker; the SDK itself still has no worker. Request
+  and result queues copy the original token with the data. The BLE-owner tick drains
+  results; the worker never accesses SDK state or the NimBLE event queue. Cancellation
+  discards delivery but occupies the scan slot until the radio operation returns.
+  Application-side stop waits for the BLE owner and worker before releasing resources;
+  a stalled radio operation can therefore delay stop. Before joining WiFi, the demo
+  stops the scan radio and starts STA with credentials to get a fresh STA_START event.
 - An accepted device-info re-query clears Pairing/authorization and generates a new
   pair_rand. It still requires an increasing Frame SN and an empty TX queue; it does
   not reset SN counters or cancel the port's radio operation.
