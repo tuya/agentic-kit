@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- tuya-ble — asynchronous nearby-WiFi lists over big-data, fixed CFG-status query replies, and an ESP-IDF scan provider (PR pending).
+  - Configure `wifi_scan_request`; complete scans with their original token via `tuya_ble_bigdata_wifi_list_complete()` on the BLE owner context.
+  - A scan provider enables WiFi-list/status capability discovery, not a complete PSK3.0 activation exchange.
+
 ### Changed
+
+- tuya-ble — bounded per-state Trsmitr reassembly, queued TX with backpressure, and configurable radio capability (PR pending).
+  - Ports drive `tuya_ble_prov_set_gatt_payload()`, `tuya_ble_prov_tx_ready()` and `tuya_ble_prov_tick()`; call `tuya_ble_prov_close()` on disconnect/reset.
+  - Recompile consumers for the public state/config layout changes; `comm_ability = 0` selects 2.4 GHz.
 
 - rtc-client — upgrade libstm(#33).
 - rtc-client — frames under `TAI_FRAME_COALESCE_LIMIT` (default 512 B) now coalesce into a
@@ -16,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- tuya-ble — enforce Pairing/KEY_12 credential authorization, reject replayed Frames, and accept the app's extra CBC padding block (PR pending).
+- tuya-ble — reset Pairing state on device-info re-query and defer credential delivery until queued acknowledgements are accepted by the port (PR pending).
 - iot-client — US-East (`UEAZ`) fell back to an ATOP host that does not resolve(#31).
   `IOT_UEAZ_HOST` is now `a1-ueaz.tuyaus.com`.
 
