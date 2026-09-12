@@ -49,6 +49,7 @@ static const pal_t g_stub_pal = {
     .mutex_destroy    = stub_mutex_destroy,
     .thread_create    = NULL,
     .thread_join      = NULL,
+    .sleep_ms         = NULL,
 };
 
 /* -------------------------------------------------------------------------

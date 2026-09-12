@@ -9,6 +9,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <time.h>
+#include <errno.h>
 
 #include "log.h"
 #include "../src/tai_internal.h"   /* frame/packet codec + key derivation for the handshake mock */
@@ -375,13 +376,14 @@ static int lb_tcp_send(void *tcp, const uint8_t *buf, size_t len,
     return (int)len; /* PAL contract: >0 = bytes written */
 }
 
-/* Sleep helper for timeout emulation. */
+/* Real CPU sleep for timeout emulation; never advances the virtual clock. */
 static void lb_sleep_ms(uint32_t ms)
 {
+    if (ms == 0) return;
     struct timespec ts;
     ts.tv_sec  = ms / 1000;
     ts.tv_nsec = (long)(ms % 1000) * 1000000L;
-    nanosleep(&ts, NULL);
+    while (nanosleep(&ts, &ts) < 0 && errno == EINTR) { }
 }
 
 static uint64_t lb_time_ms(void);   /* defined below; used for a real-time recv timeout */
@@ -513,6 +515,7 @@ static const pal_t g_loopback_pal = {
     .mutex_destroy    = lb_mutex_destroy,
     .thread_create    = lb_thread_create,
     .thread_join      = lb_thread_join,
+    .sleep_ms         = lb_sleep_ms,
 };
 
 const pal_t *tai_pal_loopback(void)
