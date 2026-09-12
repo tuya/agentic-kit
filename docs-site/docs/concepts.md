@@ -90,9 +90,9 @@ MCP 用统一协议描述工具名称、用途、参数和返回值。在 Physic
 Physical AI 的体验来自感知、推理、记忆和执行协同。这些能力不必部署在同一位置，也不必由同一家服务提供。
 
 <div className="doc-layers">
-  <div><strong>端侧感知</strong><small>EDGE</small><span>关键词唤醒 · 本地 VAD（可选） · 视觉预处理 · 传感器融合 · 安全急停</span></div>
-  <div className="doc-layers__accent"><strong>平台能力</strong><small>TUYA PHYSICAL AI</small><span>云端 VAD / ASR / TTS · 视觉算法 · Agent Core · OmniMem · PAM · MCP / A2A</span></div>
-  <div><strong>客户能力</strong><small>YOUR STACK</small><span>私有模型 · 私域知识 · 核心云服务 · 自研算法 · 产品业务</span></div>
+  <div className="doc-layer"><div className="doc-layer__label">端侧感知<small>EDGE</small></div><div className="doc-layer__content"><div className="doc-layer__chips"><span className="doc-layer__chip">关键词唤醒</span><span className="doc-layer__chip">本地 VAD（可选）</span><span className="doc-layer__chip">视觉预处理</span><span className="doc-layer__chip">传感器融合</span><span className="doc-layer__chip">安全急停</span></div></div></div>
+  <div className="doc-layer doc-layer--accent"><div className="doc-layer__label">平台能力<small>TUYA PHYSICAL AI</small></div><div className="doc-layer__content"><div className="doc-layer__chips"><span className="doc-layer__chip">云端 VAD / ASR / TTS</span><span className="doc-layer__chip">视觉算法</span><span className="doc-layer__chip">Agent Core</span><span className="doc-layer__chip">OmniMem</span><span className="doc-layer__chip">PAM</span><span className="doc-layer__chip">MCP / A2A</span></div></div></div>
+  <div className="doc-layer"><div className="doc-layer__label">客户能力<small>YOUR STACK</small></div><div className="doc-layer__content"><div className="doc-layer__chips"><span className="doc-layer__chip">私有模型</span><span className="doc-layer__chip">私域知识</span><span className="doc-layer__chip">核心云服务</span><span className="doc-layer__chip">自研算法</span><span className="doc-layer__chip">产品业务</span></div></div></div>
 </div>
 
 例如语音链路可组合流式 ASR、动态热词、云端 VAD 和客户自有 TTS；宠物相机可连接宠物个体识别、行为理解和事件记录；机器人可把平台任务规划与本体控制、安全策略和已授权家庭设备组合。部署位置取决于时延、功耗、带宽、隐私、算力和业务控制权。
