@@ -45,7 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- rtc-tcp-client — enforce receive backpressure between buffered Frames and drain reads; resume buffered data without another network read (PR pending).
+- rtc-tcp-client — enforce receive backpressure before reads and between Frames; resume buffered Frames first with a fresh liveness budget and timed CPU yields (PR pending).
+  - Custom PAL ports must supply the new mandatory `pal_t.sleep_ms` callback (IoT and TAI); rebuild all consumers because `pal_t` grows. `tcp_poll` timeout semantics are unchanged.
 
 - tuya-ble — accept incoming Trsmitr versions >= 2 for app Pairing compatibility while keeping TX at version 4 (#39).
 - Docs — the pair-by-ble callback sample no longer claims credentials are never logged; the

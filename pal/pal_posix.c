@@ -242,6 +242,13 @@ static uint64_t pal_time_ms(void)
     return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)(ts.tv_nsec / 1000000);
 }
 
+static void pal_sleep_ms(uint32_t ms)
+{
+    if (ms == 0) return;
+    struct timespec delay = { ms / 1000, (long)(ms % 1000) * 1000000L };
+    while (nanosleep(&delay, &delay) < 0 && errno == EINTR) { }
+}
+
 /* -------------------------------------------------------------------------
  * Memory
  * ------------------------------------------------------------------------- */
@@ -308,6 +315,7 @@ static const pal_t g_posix_pal = {
     .mutex_destroy    = pal_mutex_destroy,
     .thread_create    = pal_thread_create,
     .thread_join      = pal_thread_join,
+    .sleep_ms         = pal_sleep_ms,
 };
 
 const pal_t *tai_pal_posix(void)

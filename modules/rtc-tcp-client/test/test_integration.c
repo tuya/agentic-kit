@@ -18,10 +18,15 @@
 #include <string.h>
 #include <time.h>
 #include <pthread.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 #include "../src/tai_internal.h"
 #include "tai_pal_loopback.h"
 #include "test_log.h"
+
+extern const pal_t *tai_pal_posix(void);
 
 /* =========================================================================
  * Test harness
@@ -96,6 +101,8 @@ typedef struct {
     uint16_t disconnect_code;
     uint8_t  disconnect_reason;
     uint8_t  disconnect_detail;
+    int      text_calls_at_disconnect;
+    uint64_t disconnect_ms;
 
     char     last_text_event_id[64];
     char     last_event_event_id[64];
@@ -128,6 +135,8 @@ static void st_reset(void)
     g_st.disconnect_code  = 0;
     g_st.disconnect_reason = 0xFF;
     g_st.disconnect_detail = 0xFF;
+    g_st.text_calls_at_disconnect = 0;
+    g_st.disconnect_ms = 0;
     g_st.last_text_event_id[0]  = '\0';
     g_st.last_event_event_id[0] = '\0';
     pthread_mutex_unlock(&g_st.mtx);
@@ -211,6 +220,8 @@ static void on_disconnect(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void 
     g_st.disconnect_code   = msg->close_code;
     g_st.disconnect_reason = msg->reason;
     g_st.disconnect_detail = msg->detail;
+    g_st.text_calls_at_disconnect = g_st.text_calls;
+    g_st.disconnect_ms = ctx->pal->time_ms();
     pthread_mutex_unlock(&g_st.mtx);
 }
 
@@ -510,7 +521,7 @@ static int build_event_app(tai_ctx_t *ctx, uint16_t evt_type,
 /* =========================================================================
  * Common setup/teardown
  * ========================================================================= */
-static tai_ctx_t *setup_ctx(void *mem)
+static tai_ctx_t *setup_ctx_config(void *mem, const tai_config_t *options)
 {
     tai_loopback_reset();
     tai_loopback_seed_random(42);
@@ -535,12 +546,23 @@ static tai_ctx_t *setup_ctx(void *mem)
     cfg.on_image         = on_image;
     cfg.on_event         = on_event;
     cfg.on_disconnect    = on_disconnect;
+    if (options) {
+        if (options->pal) cfg.pal = options->pal;
+        cfg.on_flow_control = options->on_flow_control;
+        cfg.ping_interval_ms = options->ping_interval_ms;
+        cfg.ping_timeout_ms = options->ping_timeout_ms;
+    }
 
     /* The loopback completes the handshake (signs the SessionNew ack with the
      * key derived from this local_key), so confirmed-connect succeeds. */
     tai_loopback_set_local_key(cfg.local_key);
 
     return tai_ctx_init(mem, &cfg);
+}
+
+static tai_ctx_t *setup_ctx(void *mem)
+{
+    return setup_ctx_config(mem, NULL);
 }
 
 /* =========================================================================
@@ -2022,16 +2044,63 @@ static void test_disconnect_latency(void)
     tai_ctx_deinit(ctx);
 }
 
+static const pal_t *observed_base_pal;
+static pal_t observed_pal;
+static size_t observed_recv_calls;
+static size_t observed_sleep_calls;
+static size_t observed_empty_polls;
+
+static int observed_recv(void *tcp, uint8_t *buf, size_t len,
+                         uint32_t timeout_ms)
+{
+    pthread_mutex_lock(&g_st.mtx);
+    observed_recv_calls++;
+    pthread_mutex_unlock(&g_st.mtx);
+    return observed_base_pal->tcp_recv(tcp, buf, len, timeout_ms);
+}
+
+static int observed_poll(void *tcp, int events, uint32_t timeout_ms)
+{
+    pthread_mutex_lock(&g_st.mtx);
+    if (events == 0) observed_empty_polls++;
+    pthread_mutex_unlock(&g_st.mtx);
+    return observed_base_pal->tcp_poll(tcp, events, timeout_ms);
+}
+
+static void observed_sleep(uint32_t ms)
+{
+    pthread_mutex_lock(&g_st.mtx);
+    observed_sleep_calls++;
+    pthread_mutex_unlock(&g_st.mtx);
+    observed_base_pal->sleep_ms(ms);
+}
+
+static const pal_t *observe_pal(void)
+{
+    observed_base_pal = tai_pal_loopback();
+    observed_pal = *observed_base_pal;
+    observed_pal.tcp_recv = observed_recv;
+    observed_pal.tcp_poll = observed_poll;
+    observed_pal.sleep_ms = observed_sleep;
+    observed_recv_calls = 0;
+    observed_sleep_calls = 0;
+    observed_empty_polls = 0;
+    return &observed_pal;
+}
+
 /* Pause after each delivered Packet, including Packets buffered by one recv.
  * Resume without new network bytes to prove rx_buf work cannot be stranded. */
 static int flow_allowed_calls;
+static int flow_paused_queries;
+static uint64_t flow_resume_ms;
 
 static int test_flow_control(tai_ctx_t *ctx, void *user_data)
 {
-    (void)ctx;
     (void)user_data;
     pthread_mutex_lock(&g_st.mtx);
     int ready = g_st.audio_calls < flow_allowed_calls;
+    if (!ready) flow_paused_queries++;
+    else if (flow_resume_ms == 0) flow_resume_ms = ctx->pal->time_ms();
     pthread_mutex_unlock(&g_st.mtx);
     return ready;
 }
@@ -2040,12 +2109,22 @@ static void test_receive_backpressure(void)
 {
     SECTION("receive_backpressure");
     static uint8_t ctx_mem[sizeof(struct tai_ctx)];
-    tai_ctx_t *ctx = setup_ctx(ctx_mem);
-    CHECK(ctx != NULL);
     flow_allowed_calls = 0;
-    ctx->on_flow_control = test_flow_control;
+    flow_paused_queries = 0;
+    flow_resume_ms = 0;
+    tai_config_t options = {
+        .pal = observe_pal(),
+        .on_flow_control = test_flow_control,
+    };
+    tai_ctx_t *ctx = setup_ctx_config(ctx_mem, &options);
+    CHECK(ctx != NULL);
+    if (!ctx) return;
     CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+    CHECK(WAIT_FOR(flow_paused_queries > 0, 1000));
 
+    pthread_mutex_lock(&g_st.mtx);
+    size_t paused_recv_calls = observed_recv_calls;
+    pthread_mutex_unlock(&g_st.mtx);
     uint8_t audio[800];
     memset(audio, 0x5a, sizeof(audio));
     for (int i = 0; i < 40; i++) {
@@ -2054,23 +2133,136 @@ static void test_receive_backpressure(void)
                                 i == 0 ? "111 1 16 16000" : NULL,
                                 audio, sizeof(audio), (uint16_t)(100 + i)) > 0);
     }
+    sleep_ms(100);
+    pthread_mutex_lock(&g_st.mtx);
+    CHECK_EQ_INT(observed_recv_calls, paused_recv_calls);
+    pthread_mutex_unlock(&g_st.mtx);
 
     for (int allowed = 1; allowed <= 40; allowed++) {
         pthread_mutex_lock(&g_st.mtx);
         flow_allowed_calls = allowed;
         pthread_mutex_unlock(&g_st.mtx);
         CHECK(WAIT_FOR(g_st.audio_calls >= allowed, 1000));
-        sleep_ms(10);
+        sleep_ms(30);
         pthread_mutex_lock(&g_st.mtx);
         CHECK_EQ_INT(g_st.audio_calls, allowed);
         pthread_mutex_unlock(&g_st.mtx);
     }
 
     tai_disconnect(ctx);
+    CHECK(observed_sleep_calls > 0);
+    CHECK_EQ_INT(observed_empty_polls, 0);
     CHECK_EQ_INT(g_st.audio_calls, 40);
     CHECK_EQ_INT(g_st.audio_bytes, 40 * sizeof(audio));
     CHECK_EQ_INT(g_st.disconnect_calls, 0);
     tai_ctx_deinit(ctx);
+}
+
+static void test_long_receive_pause_liveness(void)
+{
+    SECTION("long_receive_pause_liveness");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    const uint32_t timeout_ms = 400;
+    flow_allowed_calls = 0;
+    flow_paused_queries = 0;
+    flow_resume_ms = 0;
+    tai_config_t options = {
+        .pal = observe_pal(),
+        .on_flow_control = test_flow_control,
+        .ping_interval_ms = 100,
+        .ping_timeout_ms = timeout_ms,
+    };
+    tai_ctx_t *ctx = setup_ctx_config(ctx_mem, &options);
+    CHECK(ctx != NULL);
+    if (!ctx) return;
+    CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+    CHECK(WAIT_FOR(flow_paused_queries > 0, 1000));
+
+    sleep_ms(timeout_ms + 250);
+    pthread_mutex_lock(&g_st.mtx);
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);
+    flow_allowed_calls = 100;
+    pthread_mutex_unlock(&g_st.mtx);
+    CHECK(WAIT_FOR(flow_resume_ms != 0, 1000));
+    sleep_ms(100);
+    pthread_mutex_lock(&g_st.mtx);
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);
+    pthread_mutex_unlock(&g_st.mtx);
+
+    uint8_t audio[40];
+    memset(audio, 0x6b, sizeof(audio));
+    uint64_t sent_ms = ctx->pal->time_ms();
+    CHECK(server_send_audio(ctx, TAI_STREAM_START,
+                            "111 1 16 16000 0 16000 20 40",
+                            audio, sizeof(audio), 10) > 0);
+    CHECK(WAIT_FOR(g_st.audio_calls == 1, 1000));
+    CHECK(WAIT_FOR(g_st.disconnect_calls > 0, timeout_ms + 1500));
+    tai_disconnect(ctx);
+    CHECK_EQ_INT(g_st.disconnect_reason, TAI_DISCONNECT_TRANSPORT);
+    CHECK_EQ_INT(g_st.disconnect_detail, TAI_TRANSPORT_PING_TIMEOUT);
+    CHECK(g_st.disconnect_ms >= sent_ms + timeout_ms);
+    tai_ctx_deinit(ctx);
+}
+
+static void check_pal_sleep(const pal_t *pal, void *tcp)
+{
+    uint8_t byte = 0;
+    CHECK_EQ_INT(pal->tcp_poll(tcp, 1, 1000), 1);
+    uint64_t start = pal->time_ms();
+    pal->sleep_ms(120);
+    uint64_t elapsed = pal->time_ms() - start;
+    CHECK(elapsed >= 120);
+    CHECK(elapsed < 2120);
+    CHECK_EQ_INT(pal->tcp_poll(tcp, 1, 0), 1);
+    CHECK_EQ_INT(pal->tcp_recv(tcp, &byte, 1, 0), 1);
+    CHECK_EQ_INT(byte, 0x5a);
+    start = pal->time_ms();
+    pal->sleep_ms(0);
+    CHECK(pal->time_ms() - start < 1000);
+}
+
+static void test_pal_sleep(void)
+{
+    SECTION("pal_sleep_required");
+    pal_t incomplete = *tai_pal_loopback();
+    CHECK(pal_is_valid(&incomplete));
+    incomplete.sleep_ms = NULL;
+    CHECK(!pal_is_valid(&incomplete));
+
+    SECTION("pal_sleep_loopback");
+    tai_loopback_reset();
+    const pal_t *pal = tai_pal_loopback();
+    void *tcp = pal->tcp_connect("loopback.test", 443, 1000);
+    const uint8_t byte = 0x5a;
+    tai_loopback_push_recv(&byte, 1);
+    check_pal_sleep(pal, tcp);
+    pal->tcp_close(tcp);
+
+    SECTION("pal_sleep_posix");
+    int listener = socket(AF_INET, SOCK_STREAM, 0);
+    CHECK(listener >= 0);
+    if (listener < 0) return;
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    CHECK_EQ_INT(bind(listener, (struct sockaddr *)&addr, sizeof(addr)), 0);
+    socklen_t addr_len = sizeof(addr);
+    CHECK_EQ_INT(getsockname(listener, (struct sockaddr *)&addr, &addr_len), 0);
+    CHECK_EQ_INT(listen(listener, 1), 0);
+    pal = tai_pal_posix();
+    tcp = pal->tcp_connect("127.0.0.1", ntohs(addr.sin_port), 1000);
+    CHECK(tcp != NULL);
+    if (tcp) {
+        int peer = accept(listener, NULL, NULL);
+        CHECK(peer >= 0);
+        if (peer >= 0) {
+            CHECK_EQ_INT(send(peer, &byte, 1, 0), 1);
+            check_pal_sleep(pal, tcp);
+            close(peer);
+        }
+        pal->tcp_close(tcp);
+    }
+    close(listener);
 }
 
 /* =========================================================================
@@ -2086,6 +2278,8 @@ int main(void)
     pthread_mutex_init(&g_st.mtx, NULL);
 
     test_receive_backpressure();
+    test_long_receive_pause_liveness();
+    test_pal_sleep();
     test_text_query();
     test_audio_roundtrip();
     test_image_query();

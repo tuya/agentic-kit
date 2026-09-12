@@ -77,8 +77,17 @@ The liveness exchange the background thread runs: it sends a Ping every `ping_in
 (default 60 s) and treats the Connection as dead if no inbound traffic — a Pong *or any*
 received data — arrives within `ping_timeout_ms` (default 90 s), then fires `on_disconnect`.
 Counting any receive, not just Pong, keeps a long downstream stream from tripping a spurious
-timeout.
+timeout. Intentional receive backpressure suspends only receive liveness; resuming grants a
+fresh timeout budget without counting as received traffic. Pings and requested stop remain
+active; a Ping send failure still disconnects, and the peer may enforce its own timeout.
 _Avoid_: heartbeat, poll.
+
+**Receive backpressure**:
+Application-controlled admission that pauses all inbound traffic, including buffered Frames,
+ChatBreak, ASR text, Pong and EOF detection, rather than only media delivery. Admission is at
+wire Frame boundaries, not codec-frame boundaries: one dispatched Packet can deliver multiple
+codec frames, so the application must also bound admission in its audio callback.
+_Avoid_: audio mute, selective pause, codec-frame flow control.
 
 **Chat break**:
 A client-sent Event (`TAI_EVT_CHAT_BREAK`) that interrupts the server's in-progress
@@ -202,8 +211,10 @@ The worker loops: check the liveness deadline, send a Ping when due, then block 
 `tai_recv_data` until bytes arrive or the next Ping falls due, then drain. The drain is
 time-bounded (`AGENTIC_KIT_TAI_DRAIN_BUDGET_MS`, default 150 ms) so a sustained downstream flood cannot
 starve the Ping / liveness / shutdown checks — leftover bytes wait for the next pass; and any
-successful receive refreshes the liveness clock. Bytes accumulate in a sliding receive buffer;
-EOF or a transport error makes the worker fire `on_disconnect`.
+successful receive refreshes the liveness clock. Receive backpressure pauses both reads and
+parsing; on resume, buffered complete Frames precede the next read or EOF detection, while
+partial input returns to bounded blocking reception. Bytes accumulate in a sliding receive
+buffer; detected EOF or a transport error makes the worker fire `on_disconnect`.
 
 `tai_process_rx` peels complete Frames off the front of that buffer:
 

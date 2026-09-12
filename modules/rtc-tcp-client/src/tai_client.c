@@ -404,7 +404,7 @@ void tai_ctx_deinit(tai_ctx_t *ctx)
 /* Forward declarations (defined below; used by the confirmed-connect wait) */
 static void *worker_thread(void *arg);
 static int   tai_recv_data(tai_ctx_t *ctx, uint32_t timeout_ms);
-static int   tai_process_rx(tai_ctx_t *ctx);
+static int   tai_process_rx(tai_ctx_t *ctx, int *paused);
 
 int tai_connect(tai_ctx_t *ctx)
 {
@@ -537,7 +537,7 @@ int tai_connect(tai_ctx_t *ctx)
                 tai_disconnect(ctx); return TAI_ERR_NET;
             }
             if (n > 0) {
-                int fatal = tai_process_rx(ctx);
+                int fatal = tai_process_rx(ctx, NULL);
                 if (fatal != TAI_OK) {
                     TAI_LOGE(ctx->pal, TAG, "connect: protocol error before ack (%d)", fatal);
                     tai_disconnect(ctx); return TAI_ERR_PROTO;
@@ -715,10 +715,14 @@ static int tai_recv_data(tai_ctx_t *ctx, uint32_t timeout_ms)
  * Returns a fail-fast cause for the worker: TAI_OK (no fatal; processed zero or
  * more frames), a TAI_PROTO_ERR_* detail on a protocol error, or
  * TAI_RX_PEER_CLOSE|code on a server CONNECTION_CLOSE. Never touches the
- * connection lifecycle itself — the worker owns that.
+ * connection lifecycle itself — the worker owns that. Sets @p paused when
+ * admission closes between complete Frames; NULL disables flow control during
+ * the synchronous connect handshake.
  * ========================================================================= */
-static int tai_process_rx(tai_ctx_t *ctx)
+static int tai_process_rx(tai_ctx_t *ctx, int *paused)
 {
+    if (paused) *paused = 0;
+
     /* Process all complete frames sitting in rx_buf. Any structural error is
      * fail-fast: on a reliable, ordered TLS stream a desync cannot be recovered
      * by dropping bytes/frames, so we RETURN the cause and let the worker tear
@@ -726,8 +730,9 @@ static int tai_process_rx(tai_ctx_t *ctx)
     while (ctx->rx_len >= 5) {
         /* One receive may contain several complete Frames. Stop before the next
          * one when the consumer fills while dispatching the previous Frame. */
-        if (!ctx->connecting && ctx->on_flow_control &&
+        if (paused && ctx->on_flow_control &&
             !ctx->on_flow_control(ctx, ctx->user_data)) {
+            *paused = 1;
             break;
         }
 
@@ -1246,11 +1251,9 @@ static void *worker_thread(void *arg)
     tai_ctx_t *ctx = (tai_ctx_t *)arg;
     TAI_LOGD(ctx->pal, TAG, "worker: started");
 
-    /* Before pal_t gained a sleep callback, a zero-event poll was the portable
-     * timed yield. The hardening follow-up replaces this with pal->sleep_ms. */
-    void *yield_tcp = ctx->tls ? tls_get_tcp_handle(ctx->tls) : ctx->raw_tcp;
-#define worker_yield(ms) \
-    do { if (yield_tcp) ctx->pal->tcp_poll(yield_tcp, 0, (ms)); } while (0)
+    int paused = 0;
+    int resume_buffered = 0;
+    uint64_t last_resume_ms = 0;
 
     /* The worker owns the disconnect decision: lower layers RETURN a fatal
      * cause, transport faults are detected here, and we fire on_disconnect once
@@ -1260,14 +1263,21 @@ static void *worker_thread(void *arg)
     uint16_t f_code   = 0;
 
     while (ctx->running) {
-        uint64_t now = ctx->pal->time_ms();
+        int was_paused = paused;
+        paused = ctx->on_flow_control &&
+                 !ctx->on_flow_control(ctx, ctx->user_data);
+        if (!ctx->running) break;
 
-        /* Liveness timeout: any inbound traffic counts as alive, not just
-         * PONGs. A busy downstream stream proves the link is up even while a
-         * ping is overdue, so we never kill an actively-receiving connection. */
+        uint64_t now = ctx->pal->time_ms();
+        if (was_paused && !paused) last_resume_ms = now;
+
+        /* Any inbound traffic proves liveness. An intentional receive pause
+         * suspends this deadline; reopening admission grants a fresh budget
+         * without pretending any bytes were received. */
         uint64_t last_alive = (ctx->last_rx_ms > ctx->last_pong_ms)
                                   ? ctx->last_rx_ms : ctx->last_pong_ms;
-        if (now - last_alive > ctx->ping_timeout_ms) {
+        if (last_resume_ms > last_alive) last_alive = last_resume_ms;
+        if (!paused && now - last_alive > ctx->ping_timeout_ms) {
             TAI_LOGW(ctx->pal, TAG, "worker: liveness timeout (%llu ms idle)",
                      (unsigned long long)(now - last_alive));
             f_reason = TAI_DISCONNECT_TRANSPORT;
@@ -1307,19 +1317,20 @@ static void *worker_thread(void *arg)
          * ~AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS instead of waiting out a whole ping interval. */
         if (wait_ms > AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS) wait_ms = AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS;
 
-        /* Pausing skips the read so the receive window can close. The worker
-         * continues housekeeping and checks admission on a bounded cadence. */
-        if (ctx->on_flow_control &&
-            !ctx->on_flow_control(ctx, ctx->user_data)) {
-            worker_yield(AGENTIC_KIT_TAI_FLOW_CONTROL_POLL_MS);
+        /* Pausing skips the read so the receive window can close. Keep Ping and
+         * shutdown housekeeping active while admission is closed. */
+        if (paused) {
+            ctx->pal->sleep_ms(AGENTIC_KIT_TAI_FLOW_CONTROL_POLL_MS);
             continue;
         }
 
         uint64_t drain_start = ctx->pal->time_ms();
-        /* Resume complete buffered Frames before waiting for more network data. */
-        int n = ctx->rx_len ? (int)ctx->rx_len : tai_recv_data(ctx, wait_ms);
+        /* Only a parser pause leaves complete work behind. Partial input must
+         * return to a bounded blocking receive rather than spin. */
+        int n = resume_buffered ? (int)ctx->rx_len : tai_recv_data(ctx, wait_ms);
+        resume_buffered = 0;
         while (n > 0 && ctx->running) {
-            int fatal = tai_process_rx(ctx);
+            int fatal = tai_process_rx(ctx, &paused);
             if (fatal != TAI_OK) {
                 if (fatal & TAI_RX_PEER_CLOSE) {
                     f_reason = TAI_DISCONNECT_CONNECTION_CLOSE;
@@ -1330,16 +1341,22 @@ static void *worker_thread(void *arg)
                 }
                 break;
             }
+            if (paused) {
+                /* Do not read past the buffered Frame that closed admission. */
+                resume_buffered = 1;
+                break;
+            }
+            if (!ctx->running) break;
             /* Bound the greedy drain so periodic ping / liveness / shutdown
              * checks run even under a sustained flood; leftover bytes wait for
              * the next pass. */
             if (ctx->pal->time_ms() - drain_start > AGENTIC_KIT_TAI_DRAIN_BUDGET_MS)
                 break;
-            if (ctx->on_flow_control &&
-                !ctx->on_flow_control(ctx, ctx->user_data)) {
-                break;
-            }
-            worker_yield(AGENTIC_KIT_TAI_WORKER_YIELD_MS);
+            ctx->pal->sleep_ms(AGENTIC_KIT_TAI_WORKER_YIELD_MS);
+            /* Admission is checked immediately before the next drain read. */
+            paused = ctx->on_flow_control &&
+                     !ctx->on_flow_control(ctx, ctx->user_data);
+            if (paused || !ctx->running) break;
             n = tai_recv_data(ctx, 0);   /* drain remainder non-blocking */
         }
         if (f_reason != 0xFF) break;     /* fail-fast / CONNECTION_CLOSE during drain */
@@ -1359,7 +1376,7 @@ static void *worker_thread(void *arg)
         /* n > 0: budget yield (running still set) -> loop, keep housekeeping.
          * n == TAI_ERR_AGAIN: wait timed out (ping due) or drain finished.
          * running cleared with no fatal: a clean tai_request_disconnect. */
-        worker_yield(AGENTIC_KIT_TAI_WORKER_YIELD_MS);
+        ctx->pal->sleep_ms(AGENTIC_KIT_TAI_WORKER_YIELD_MS);
     }
 
     /* Single-point disconnect: fire on_disconnect exactly once if the worker
@@ -1373,6 +1390,5 @@ static void *worker_thread(void *arg)
     }
 
     TAI_LOGD(ctx->pal, TAG, "worker: exiting");
-#undef worker_yield
     return NULL;
 }

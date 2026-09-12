@@ -50,6 +50,8 @@ extern "C" {
  * designated-initializer tables plus pal_is_valid() below:
  *   pal/pal_posix.c, pal/pal_freertos.c,
  *   modules/rtc-tcp-client/test/tai_pal_loopback.c, and .../test/test_core.c
+ * (test_core intentionally leaves networking/thread/sleep callbacks NULL because
+ * it never passes that table through pal_is_valid()).
  * The host build compiles three of them -- pal_freertos.c is in no CMake
  * target here, only the ESP-IDF component -- and C99 zero-fills whatever a
  * designated initializer omits, with no -Wmissing-field-initializers
@@ -126,6 +128,13 @@ typedef struct pal {
     int   (*thread_create)(void **handle, void *(*func)(void *), void *arg);
     int   (*thread_join)(void *handle);
 
+    /* --- Sleep -----------------------------------------------------------
+     * Suspend the calling thread without busy-waiting for at least ms
+     * milliseconds; 0 is a no-op. Scheduler delays and tick rounding may
+     * extend the sleep. No socket or socket-readiness dependency.
+     */
+    void  (*sleep_ms)(uint32_t ms);
+
 } pal_t;
 
 /* -------------------------------------------------------------------------
@@ -146,7 +155,8 @@ static inline bool pal_is_valid(const pal_t *p)
     return p && p->tcp_connect && p->tcp_send && p->tcp_recv && p->tcp_close
              && p->tcp_poll && p->time_ms && p->malloc && p->free
              && p->mutex_create && p->mutex_lock && p->mutex_unlock
-             && p->mutex_destroy && p->thread_create && p->thread_join;
+             && p->mutex_destroy && p->thread_create && p->thread_join
+             && p->sleep_ms;
 }
 
 #ifdef __cplusplus

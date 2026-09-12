@@ -14,6 +14,7 @@
  *   configSUPPORT_DYNAMIC_ALLOCATION 1  (pvPortMalloc, dynamic semaphores/tasks)
  *   INCLUDE_vTaskSuspend            1   (used by thread-join shim)
  *   INCLUDE_vTaskDelete             1   (joiner deletes the worker task)
+ *   INCLUDE_vTaskDelay              1   (sleep_ms blocks without busy-waiting)
  *
  * Also recommended: a FreeRTOS heap implementation that supports vPortFree
  * (heap_3.c / heap_4.c / heap_5.c -- NOT heap_1.c).
@@ -280,6 +281,19 @@ static uint64_t pal_time_ms(void)
     return (uint64_t)xTaskGetTickCount() * (uint64_t)portTICK_PERIOD_MS;
 }
 
+static void pal_sleep_ms(uint32_t ms)
+{
+    if (ms == 0) return;
+
+    uint64_t ticks = ((uint64_t)ms * configTICK_RATE_HZ + 999U) / 1000U;
+    const uint64_t max_chunk = (uint64_t)portMAX_DELAY - 1U;
+    while (ticks > 0) {
+        uint64_t chunk = ticks > max_chunk ? max_chunk : ticks;
+        vTaskDelay((TickType_t)(chunk + 1U));
+        ticks -= chunk;
+    }
+}
+
 /* -------------------------------------------------------------------------
  * Memory
  * ------------------------------------------------------------------------- */
@@ -392,6 +406,7 @@ static const pal_t g_freertos_pal = {
     .mutex_destroy    = pal_mutex_destroy,
     .thread_create    = pal_thread_create,
     .thread_join      = pal_thread_join,
+    .sleep_ms         = pal_sleep_ms,
 };
 
 const pal_t *tai_pal_freertos(void)
