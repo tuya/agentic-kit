@@ -245,41 +245,43 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
         }
     }
 
-    /* Report SDK version to cloud */
-    {
-        char meta_host[64] = {0};
-        uint16_t meta_port = IOT_DEFAULT_PORT;
-        const char *host;
-        if (client->https_url[0] != '\0') {
-            parse_host_port(client->https_url, meta_host, sizeof(meta_host), &meta_port);
-            host = meta_host;
-        } else {
-            host = iot_region_to_host(client->region, client->env);
+    if (!config->skip_version_report) {
+        /* Report SDK version to cloud */
+        {
+            char meta_host[64] = {0};
+            uint16_t meta_port = IOT_DEFAULT_PORT;
+            const char *host;
+            if (client->https_url[0] != '\0') {
+                parse_host_port(client->https_url, meta_host, sizeof(meta_host), &meta_port);
+                host = meta_host;
+            } else {
+                host = iot_region_to_host(client->region, client->env);
+            }
+            device_meta_save_request_t meta_req = {
+                .devid       = client->devid,
+                .key         = client->secret_key,
+                .sdk_version = SDK_VERSION,
+                .host        = host,
+                .port        = meta_port,
+                .cacert      = client->cacert,
+                .cert_bundle_attach = client->cert_bundle_attach,
+            };
+            device_meta_save_response_t meta_resp = {0};
+            int ret = atop_device_meta_save(pal, &meta_req, &meta_resp);
+            if (ret != OPRT_OK) {
+                log_warn("atop_device_meta_save failed: %d (non-fatal)", ret);
+            }
         }
-        device_meta_save_request_t meta_req = {
-            .devid       = client->devid,
-            .key         = client->secret_key,
-            .sdk_version = SDK_VERSION,
-            .host        = host,
-            .port        = meta_port,
-            .cacert      = client->cacert,
-            .cert_bundle_attach = client->cert_bundle_attach,
-        };
-        device_meta_save_response_t meta_resp = {0};
-        int ret = atop_device_meta_save(pal, &meta_req, &meta_resp);
-        if (ret != OPRT_OK) {
-            log_warn("atop_device_meta_save failed: %d (non-fatal)", ret);
-        }
-    }
 
-    /* Report firmware version to cloud (enables OTA upgrade checks) */
-    {
-        const char *fw_ver = (config->sw_ver && config->sw_ver[0])
-                             ? config->sw_ver
-                             : IOT_SDK_SW_VER;
-        int ret = iot_ota_report_version(client, fw_ver);
-        if (ret != OPRT_OK) {
-            log_warn("iot_ota_report_version failed: %d (non-fatal)", ret);
+        /* Report firmware version to cloud (enables OTA upgrade checks) */
+        {
+            const char *fw_ver = (config->sw_ver && config->sw_ver[0])
+                                 ? config->sw_ver
+                                 : IOT_SDK_SW_VER;
+            int ret = iot_ota_report_version(client, fw_ver);
+            if (ret != OPRT_OK) {
+                log_warn("iot_ota_report_version failed: %d (non-fatal)", ret);
+            }
         }
     }
 
@@ -452,6 +454,7 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
     client_config.env = ob_resp.env;
     client_config.mqtt_disable_tls = config->mqtt_disable_tls;
     client_config.mqtt_disable_auto_connect = config->mqtt_disable_auto_connect;
+    client_config.skip_version_report = config->skip_version_report;
     client_config.cacert = config->cacert;
     client_config.cert_bundle_attach = config->cert_bundle_attach;
     client_config.message_callback = config->message_callback;
@@ -548,6 +551,7 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
     client_config.env = ob_resp.env;
     client_config.mqtt_disable_tls = config->mqtt_disable_tls;
     client_config.mqtt_disable_auto_connect = config->mqtt_disable_auto_connect;
+    client_config.skip_version_report = config->skip_version_report;
     client_config.cacert = config->cacert;
     client_config.cert_bundle_attach = config->cert_bundle_attach;
     client_config.message_callback = config->message_callback;

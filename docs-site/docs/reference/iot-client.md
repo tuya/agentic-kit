@@ -151,6 +151,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | `env` | `iot_env_t` | 环境 |
 | `mqtt_disable_tls` | `bool` | `false`（默认）使用 MQTTS，`true` 使用明文 MQTT |
 | `mqtt_disable_auto_connect` | `bool` | `false`（默认）初始化后自动连接 MQTT；`true` 需手动调用 [`iot_client_connect()`](#iot_client_connect) |
+| `skip_version_report` | `bool` | `false`（默认）初始化时上报 SDK meta 和固件版本；`true` 跳过这两次上报（仅在云端已有当前版本时设置） |
 | `cacert` | `const char *` | CA 证书 PEM（用于 MQTT/HTTPS/IoT-DNS TLS，调用方持有，需在 client 生命周期内有效） |
 | `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | 平台证书包回调（如 ESP-IDF 的 `esp_crt_bundle_attach`），NULL 表示不使用。详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
 | `message_callback` | `iot_message_callback_t` | MQTT 消息回调，可为 NULL |
@@ -180,6 +181,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | `env` | `iot_env_t` | 环境：`PROD`（默认）或 `PRE` |
 | `mqtt_disable_tls` | `bool` | TLS 开关 |
 | `mqtt_disable_auto_connect` | `bool` | `false`（默认）激活后自动连接 MQTT；`true` 需手动调用 [`iot_client_connect()`](#iot_client_connect) |
+| `skip_version_report` | `bool` | `false`（默认）激活后上报 SDK meta 和固件版本；`true` 跳过这两次上报（仅在云端已有当前版本时设置） |
 | `cacert` | `const char *` | CA 证书 PEM（用于 MQTT/HTTPS/IoT-DNS TLS，调用方持有） |
 | `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | 平台证书包回调（如 ESP-IDF 的 `esp_crt_bundle_attach`），NULL 表示不使用。详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
 | `message_callback` | `iot_message_callback_t` | MQTT 消息回调 |

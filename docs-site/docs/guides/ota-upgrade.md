@@ -41,7 +41,7 @@ SDK 只提供**云端协议原语**——版本上报、升级查询、状态回
 
 | API | 云端接口 | 用途 |
 |-----|---------|------|
-| `iot_ota_report_version` | `tuya.device.versions.update` (v4.1) | 上报当前固件版本（`iot_client_init` 会用 `iot_client_config_t.sw_ver` 自动调用，NULL 时用 SDK 默认 `IOT_SDK_SW_VER`） |
+| `iot_ota_report_version` | `tuya.device.versions.update` (v4.1) | 上报当前固件版本（`iot_client_init` 会用 `iot_client_config_t.sw_ver` 自动调用，NULL 时用 SDK 默认 `IOT_SDK_SW_VER`）；若云端已有当前版本，可设置 `skip_version_report = true` 跳过 init 时的自动上报 |
 | `iot_ota_check_upgrade` | `tuya.device.upgrade.get` (v4.4) | 查询是否有待升级固件，返回 URL / 版本 / 大小 / 哈希（云端与已上报的版本比较，不再传版本号） |
 | `iot_ota_report_status` | `tuya.device.upgrade.status.update` (v4.1) | 回报升级生命周期状态 |
 | `iot_ota_verify_init/update/finish` | — | 流式校验下载固件的 md5/hmac 摘要（见下文） |
