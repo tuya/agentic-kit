@@ -1,6 +1,7 @@
 #include "iot_client.h"
 #include "iot_dp.h"
 #include "iot_dp_internal.h"
+#include "iot_client_internal.h"
 #include "iot_on_boarding.h"
 #include "iot_dns.h"
 #include "iot_client_message.h"
@@ -185,6 +186,64 @@ int iot_init_default(void)
     return iot_init(get_default_pal());
 }
 
+int iot_client_report_init_versions(iot_client_t *client,
+                                    const iot_client_config_t *config)
+{
+    if (client == NULL || config == NULL) {
+        return OPRT_INVALID_PARAMETER;
+    }
+    if (config->skip_version_report) {
+        log_info("skip_version_report set: skipping SDK-meta and firmware-version reports");
+        return OPRT_OK;
+    }
+
+    int ret = OPRT_OK;
+
+    /* Report SDK version to cloud */
+    {
+        char meta_host[64] = {0};
+        uint16_t meta_port = IOT_DEFAULT_PORT;
+        const char *host;
+        if (client->https_url[0] != '\0') {
+            parse_host_port(client->https_url, meta_host, sizeof(meta_host), &meta_port);
+            host = meta_host;
+        } else {
+            host = iot_region_to_host(client->region, client->env);
+        }
+        device_meta_save_request_t meta_req = {
+            .devid       = client->devid,
+            .key         = client->secret_key,
+            .sdk_version = SDK_VERSION,
+            .host        = host,
+            .port        = meta_port,
+            .cacert      = client->cacert,
+            .cert_bundle_attach = client->cert_bundle_attach,
+        };
+        device_meta_save_response_t meta_resp = {0};
+        int meta_ret = atop_device_meta_save(client->pal, &meta_req, &meta_resp);
+        if (meta_ret != OPRT_OK) {
+            log_warn("atop_device_meta_save failed: %d (non-fatal)", meta_ret);
+            ret = meta_ret;
+        }
+    }
+
+    /* Report firmware version to cloud (enables OTA upgrade checks) */
+    {
+        const char *fw_ver = (config->sw_ver && config->sw_ver[0])
+                             ? config->sw_ver
+                             : IOT_SDK_SW_VER;
+        int ver_ret = iot_ota_report_version(client, fw_ver);
+        if (ver_ret != OPRT_OK) {
+            log_warn("iot_ota_report_version failed: %d (non-fatal)", ver_ret);
+            if (ret == OPRT_OK) {
+                ret = ver_ret;
+            }
+        }
+    }
+
+    return ret;
+}
+
 IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
 {
     if (!config) {
@@ -245,45 +304,10 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
         }
     }
 
-    if (!config->skip_version_report) {
-        /* Report SDK version to cloud */
-        {
-            char meta_host[64] = {0};
-            uint16_t meta_port = IOT_DEFAULT_PORT;
-            const char *host;
-            if (client->https_url[0] != '\0') {
-                parse_host_port(client->https_url, meta_host, sizeof(meta_host), &meta_port);
-                host = meta_host;
-            } else {
-                host = iot_region_to_host(client->region, client->env);
-            }
-            device_meta_save_request_t meta_req = {
-                .devid       = client->devid,
-                .key         = client->secret_key,
-                .sdk_version = SDK_VERSION,
-                .host        = host,
-                .port        = meta_port,
-                .cacert      = client->cacert,
-                .cert_bundle_attach = client->cert_bundle_attach,
-            };
-            device_meta_save_response_t meta_resp = {0};
-            int ret = atop_device_meta_save(pal, &meta_req, &meta_resp);
-            if (ret != OPRT_OK) {
-                log_warn("atop_device_meta_save failed: %d (non-fatal)", ret);
-            }
-        }
-
-        /* Report firmware version to cloud (enables OTA upgrade checks) */
-        {
-            const char *fw_ver = (config->sw_ver && config->sw_ver[0])
-                                 ? config->sw_ver
-                                 : IOT_SDK_SW_VER;
-            int ret = iot_ota_report_version(client, fw_ver);
-            if (ret != OPRT_OK) {
-                log_warn("iot_ota_report_version failed: %d (non-fatal)", ret);
-            }
-        }
-    }
+    /* No test executes this call (a non-empty devid resolves DNS against the
+     * real IoT-DNS service here); the skip/no-skip contract is pinned at the
+     * helper against the ATOP mock — this wiring line is pinned by review. */
+    iot_client_report_init_versions(client, config);
 
     /* DP layer: build the registry from the (possibly restored) schema, then
      * restore persisted DP values without marking dirty / publishing. */
@@ -445,7 +469,12 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
 
     log_info("On-boarding successful, initializing client with activated credentials");
 
-    /* Build iot_client_config_t from activation results and call iot_client_init */
+    /* Build iot_client_config_t from activation results and call iot_client_init.
+     * Hand-copy block — AGENTS.md invariant: a new iot_client_config_t field must
+     * be written here AND in iot_client_init_on_boarding_with_token AND read in
+     * iot_client_init(). No test executes this forwarding (the public onboarding
+     * path resolves DNS against the real service), so a dropped line fails
+     * silently — pinned by review only. */
     iot_client_config_t client_config = {0};
     strncpy(client_config.devid, ob_resp.devid, sizeof(client_config.devid) - 1);
     strncpy(client_config.secret_key, ob_resp.secret_key, sizeof(client_config.secret_key) - 1);
@@ -543,6 +572,9 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
 
     log_info("On-boarding with token successful, initializing client with activated credentials");
 
+    /* Hand-copy block — same AGENTS.md invariant as in iot_client_init_on_boarding():
+     * a new iot_client_config_t field must be forwarded here too, and no test
+     * executes this forwarding — pinned by review only. */
     iot_client_config_t client_config = {0};
     strncpy(client_config.devid, ob_resp.devid, sizeof(client_config.devid) - 1);
     strncpy(client_config.secret_key, ob_resp.secret_key, sizeof(client_config.secret_key) - 1);

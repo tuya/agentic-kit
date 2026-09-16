@@ -209,6 +209,25 @@ def aes_gcm_encrypt(key, plaintext):
         return None
 
 
+def record_request(api):
+    """Append the API name to the file named by ATOP_MOCK_RECORD_FILE, if set.
+
+    Lets a test assert which reports were attempted (and, just as important,
+    which were NOT) by reading the file, instead of reaching into this
+    process. Recorded BEFORE decryption: an attempt whose crypto fails still
+    counts as an attempt, which is exactly what a "did the call happen" test
+    wants to observe.
+    """
+    path = os.getenv('ATOP_MOCK_RECORD_FILE', '')
+    if not path:
+        return
+    try:
+        with open(path, 'a') as f:
+            f.write(api + '\n')
+    except OSError as e:
+        print(f"⚠️  record_request failed: {e}", file=sys.stderr)
+
+
 def handle_activate_request(request_data, config):
     """Handle device activation request"""
     try:
@@ -651,6 +670,8 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
             print(f"   API: {api}")
             print(f"   UUID: {uuid}")
             print(f"   Device ID: {devid}")
+
+            record_request(api)
             
             # Determine encryption key
             # For activation: use authkey from config

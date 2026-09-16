@@ -11,6 +11,7 @@
 
 #include "iot_client.h"
 #include "iot_client_message.h"
+#include "iot_client_internal.h"
 #include "iot_config_defaults.h"
 
 
@@ -21,9 +22,17 @@
 
 #define RAW_TEST_MESSAGE "{\"type\":\"test\",\"payload\":\"hello_from_mock\"}"
 
+/* ATOP mock (version-report tests). The mock decrypts with the sec_key from
+ * test/config/atop.conf whenever a devId is present, so the client must sign
+ * with exactly this key. */
+#define ATOP_MOCK_PORT    8443
+#define ATOP_MOCK_SEC_KEY "1234567890abcdef"
+
 static pid_t mock_pid = -1;
 static pid_t mock_invalid_pid = -1;
 static pid_t mock_wrongkey_pid = -1;
+static pid_t atop_mock_pid = -1;
+static char g_record_path[96] = {0};
 static int tests_run = 0;
 static int tests_passed = 0;
 static char *g_cacert = NULL;
@@ -225,6 +234,79 @@ static void stop_mock_wrongkey(void)
         waitpid(mock_wrongkey_pid, NULL, 0);
         mock_wrongkey_pid = -1;
     }
+}
+
+static int start_atop_mock(void)
+{
+    snprintf(g_record_path, sizeof(g_record_path),
+             "/tmp/atop_mock_record_%d.txt", (int)getpid());
+    unlink(g_record_path);
+
+    atop_mock_pid = fork();
+    if (atop_mock_pid == 0) {
+        setenv("ATOP_MOCK_USE_SSL", "1", 1);
+        setenv("ATOP_MOCK_PORT", "8443", 1);
+        setenv("ATOP_MOCK_RECORD_FILE", g_record_path, 1);
+        execlp(PYTHON3_EXEC, PYTHON3_EXEC, ATOP_MOCK_PATH, NULL);
+        perror("execlp atop mock failed");
+        _exit(1);
+    }
+    if (atop_mock_pid < 0) {
+        perror("fork atop mock");
+        return -1;
+    }
+    printf("ATOP mock started (pid %d, port %u)\n", atop_mock_pid, ATOP_MOCK_PORT);
+    return wait_for_port(ATOP_MOCK_PORT);
+}
+
+static void stop_atop_mock(void)
+{
+    if (atop_mock_pid > 0) {
+        printf("Stopping ATOP mock (pid %d)...\n", atop_mock_pid);
+        kill(atop_mock_pid, SIGTERM);
+        waitpid(atop_mock_pid, NULL, 0);
+        atop_mock_pid = -1;
+    }
+    if (g_record_path[0] != '\0') {
+        unlink(g_record_path);
+    }
+}
+
+/* Count how often the ATOP mock recorded an attempt at the given API. A
+ * missing file means the mock recorded nothing yet (it creates the file
+ * lazily on the first request) — the same answer as a zero count. */
+static int count_report_attempts(const char *api)
+{
+    FILE *f = fopen(g_record_path, "r");
+    if (!f) {
+        return 0;
+    }
+    int count = 0;
+    char line[96];
+    size_t api_len = strlen(api);
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, api, api_len) == 0 &&
+            (line[api_len] == '\n' || line[api_len] == '\r' || line[api_len] == '\0')) {
+            count++;
+        }
+    }
+    fclose(f);
+    return count;
+}
+
+/* A stack client shaped like the one iot_client_init() returns, minus the
+ * DNS / activation path in front of it (same technique as the session-token
+ * suite): https_url points the ATOP host at the mock, so the version reports
+ * land there without any real-network DNS query. */
+static void shape_report_client(iot_client_t *client)
+{
+    memset(client, 0, sizeof(*client));
+    client->pal = get_default_pal();
+    strncpy(client->devid, TEST_DEVID, sizeof(client->devid) - 1);
+    strncpy(client->secret_key, ATOP_MOCK_SEC_KEY, sizeof(client->secret_key) - 1);
+    snprintf(client->https_url, sizeof(client->https_url),
+             "https://127.0.0.1:%u", ATOP_MOCK_PORT);
+    client->cacert = g_cacert;
 }
 
 /* ---------- Test 1: raw message (pv23_decrypt fails, raw forwarded) ---------- */
@@ -442,42 +524,109 @@ static int test_encrypted_message(void)
     return result;
 }
 
-/* ---------- Version reports during init ---------- */
+/* ---------- Init version reports (ATOP mock + request recorder) ---------- */
 
-static int test_init_skip_version_report_default_false(void)
+static int test_report_init_versions_null_params(void)
 {
+    iot_client_t client;
+    shape_report_client(&client);
     iot_client_config_t cfg = {0};
-    iot_client_t *client = iot_client_init(&cfg);
-    if (!client) {
-        printf("  iot_client_init returned NULL\n");
+
+    if (iot_client_report_init_versions(NULL, &cfg) != OPRT_INVALID_PARAMETER) {
+        printf("  expected OPRT_INVALID_PARAMETER for NULL client\n");
         return -1;
     }
-
-    iot_client_deinit(client);
+    if (iot_client_report_init_versions(&client, NULL) != OPRT_INVALID_PARAMETER) {
+        printf("  expected OPRT_INVALID_PARAMETER for NULL config\n");
+        return -1;
+    }
     return 0;
 }
 
-static int test_init_skip_version_report_true(void)
+/* Default (flag false): BOTH init reports must reach the ATOP mock — asserted
+ * via the recorder, not via a non-NULL client, so a dropped or broken report
+ * fails the test instead of passing green. */
+static int test_report_init_versions_reports_both(void)
 {
+    unlink(g_record_path);
+    iot_client_t client;
+    shape_report_client(&client);
     iot_client_config_t cfg = {0};
-    cfg.skip_version_report = true;
-    iot_client_t *client = iot_client_init(&cfg);
-    if (!client) {
-        printf("  iot_client_init returned NULL\n");
+    cfg.sw_ver = "1.0.0-msgtest";
+
+    int rt = iot_client_report_init_versions(&client, &cfg);
+    if (rt != OPRT_OK) {
+        printf("  expected OPRT_OK, got %d\n", rt);
         return -1;
     }
 
-    int result = 0;
-    if (client->mqtt_url[0] != '\0') {
-        printf("  expected mqtt_url unset, got '%s'\n", client->mqtt_url);
-        result = -1;
+    /* Existence first, so a broken recorder (silent OSError) reads as its own
+     * failure instead of blurring into "reports never attempted". */
+    if (access(g_record_path, F_OK) != 0) {
+        printf("  record file %s missing — recorder broken or no request recorded\n",
+               g_record_path);
+        return -1;
     }
-    if (client->mqtt != NULL) {
-        printf("  expected mqtt=NULL\n");
-        result = -1;
+
+    int metas = count_report_attempts("tuya.device.meta.save");
+    int versions = count_report_attempts("tuya.device.versions.update");
+    if (metas != 1 || versions != 1) {
+        printf("  expected 1 meta.save + 1 versions.update attempt, got %d + %d\n",
+               metas, versions);
+        return -1;
     }
-    iot_client_deinit(client);
-    return result;
+    return 0;
+}
+
+/* skip_version_report=true: NEITHER report may be attempted. */
+static int test_report_init_versions_skipped_by_flag(void)
+{
+    unlink(g_record_path);
+    iot_client_t client;
+    shape_report_client(&client);
+    iot_client_config_t cfg = {0};
+    cfg.skip_version_report = true;
+
+    int rt = iot_client_report_init_versions(&client, &cfg);
+    if (rt != OPRT_OK) {
+        printf("  expected OPRT_OK, got %d\n", rt);
+        return -1;
+    }
+
+    int metas = count_report_attempts("tuya.device.meta.save");
+    int versions = count_report_attempts("tuya.device.versions.update");
+    if (metas != 0 || versions != 0) {
+        printf("  expected no attempts, got %d meta.save + %d versions.update\n",
+               metas, versions);
+        return -1;
+    }
+    return 0;
+}
+
+/* Empty devid: both wrappers reject at their parameter checks, so nothing may
+ * reach the network even with the flag unset. */
+static int test_report_init_versions_empty_devid_attempts_nothing(void)
+{
+    unlink(g_record_path);
+    iot_client_t client;
+    shape_report_client(&client);
+    client.devid[0] = '\0';
+    iot_client_config_t cfg = {0};
+
+    int rt = iot_client_report_init_versions(&client, &cfg);
+    if (rt == OPRT_OK) {
+        printf("  expected an error return (both reports rejected), got OPRT_OK\n");
+        return -1;
+    }
+
+    int metas = count_report_attempts("tuya.device.meta.save");
+    int versions = count_report_attempts("tuya.device.versions.update");
+    if (metas != 0 || versions != 0) {
+        printf("  expected no attempts, got %d meta.save + %d versions.update\n",
+               metas, versions);
+        return -1;
+    }
+    return 0;
 }
 
 /* ---------- Test 5: auto-connect (the default) must short-circuit when there is no mqtt_url ---------- */
@@ -959,9 +1108,24 @@ int main(void)
     RUN_TEST(test_invalid_format_message);
     RUN_TEST(test_decrypt_fail_wrong_key);
 
-    /* iot_client_init version reports + auto-connect (no mocks needed: empty devid skips DNS) */
-    RUN_TEST(test_init_skip_version_report_default_false);
-    RUN_TEST(test_init_skip_version_report_true);
+    /* Init version reports: driven through the ATOP mock with a request
+     * recorder, so the flag's effect (reports made / not made) is asserted
+     * on the wire, not just inferred from a non-NULL client. */
+    if (start_atop_mock() != 0) {
+        fprintf(stderr, "Failed to start ATOP mock\n");
+        stop_atop_mock();
+        stop_mock_wrongkey();
+        stop_mock_invalid();
+        stop_mock();
+        return 1;
+    }
+    RUN_TEST(test_report_init_versions_null_params);
+    RUN_TEST(test_report_init_versions_reports_both);
+    RUN_TEST(test_report_init_versions_skipped_by_flag);
+    RUN_TEST(test_report_init_versions_empty_devid_attempts_nothing);
+    stop_atop_mock();
+
+    /* iot_client_init + auto-connect (no mocks needed: empty devid skips DNS) */
     RUN_TEST(test_iot_client_init_autoconnect_no_url);
     RUN_TEST(test_iot_client_init_no_autoconnect);
     RUN_TEST(test_iot_client_init_copies_ota_confirm_config);
