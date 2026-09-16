@@ -442,6 +442,44 @@ static int test_encrypted_message(void)
     return result;
 }
 
+/* ---------- Version reports during init ---------- */
+
+static int test_init_skip_version_report_default_false(void)
+{
+    iot_client_config_t cfg = {0};
+    iot_client_t *client = iot_client_init(&cfg);
+    if (!client) {
+        printf("  iot_client_init returned NULL\n");
+        return -1;
+    }
+
+    iot_client_deinit(client);
+    return 0;
+}
+
+static int test_init_skip_version_report_true(void)
+{
+    iot_client_config_t cfg = {0};
+    cfg.skip_version_report = true;
+    iot_client_t *client = iot_client_init(&cfg);
+    if (!client) {
+        printf("  iot_client_init returned NULL\n");
+        return -1;
+    }
+
+    int result = 0;
+    if (client->mqtt_url[0] != '\0') {
+        printf("  expected mqtt_url unset, got '%s'\n", client->mqtt_url);
+        result = -1;
+    }
+    if (client->mqtt != NULL) {
+        printf("  expected mqtt=NULL\n");
+        result = -1;
+    }
+    iot_client_deinit(client);
+    return result;
+}
+
 /* ---------- Test 5: auto-connect (the default) must short-circuit when there is no mqtt_url ---------- */
 
 static int test_iot_client_init_autoconnect_no_url(void)
@@ -921,7 +959,9 @@ int main(void)
     RUN_TEST(test_invalid_format_message);
     RUN_TEST(test_decrypt_fail_wrong_key);
 
-    /* iot_client_init + auto-connect (no mocks needed: empty devid skips DNS) */
+    /* iot_client_init version reports + auto-connect (no mocks needed: empty devid skips DNS) */
+    RUN_TEST(test_init_skip_version_report_default_false);
+    RUN_TEST(test_init_skip_version_report_true);
     RUN_TEST(test_iot_client_init_autoconnect_no_url);
     RUN_TEST(test_iot_client_init_no_autoconnect);
     RUN_TEST(test_iot_client_init_copies_ota_confirm_config);

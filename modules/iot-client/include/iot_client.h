@@ -191,6 +191,7 @@ typedef struct {
     iot_env_t env;                 // Environment
     bool mqtt_disable_tls;         // false = mqtts (TLS, default), true = mqtt (TCP)
     bool mqtt_disable_auto_connect; // false (default) = connect MQTT after init/activation; true = caller invokes iot_client_connect() manually
+    bool skip_version_report;       // false (default) = report both; true = skip both during init (set only when cloud already has current version)
     const char *cacert;            // CA cert for all TLS (MQTT/HTTPS/IoT-DNS) (PEM, caller-owned, must outlive client)
     tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (NULL = none)
     iot_message_callback_t message_callback; // MQTT message callback
@@ -221,6 +222,7 @@ typedef struct {
     iot_env_t env;                 // PROD (default) or PRE
     bool mqtt_disable_tls;         // false = mqtts (TLS, default), true = mqtt (TCP)
     bool mqtt_disable_auto_connect; // false (default) = connect MQTT after init/activation; true = caller invokes iot_client_connect() manually
+    bool skip_version_report;       // false (default) = report both; true = skip both during init (only when cloud already has current version)
     const char *cacert;            // CA cert for all TLS (MQTT/HTTPS/IoT-DNS) (PEM, caller-owned, must outlive client)
     tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (NULL = none)
     iot_message_callback_t message_callback; // MQTT message callback
