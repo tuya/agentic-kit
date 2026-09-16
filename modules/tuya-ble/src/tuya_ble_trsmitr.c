@@ -59,9 +59,10 @@ int tuya_ble_prov_on_data(tuya_ble_prov_state_t *state, const uint8_t *raw, uint
             goto invalid;
         }
         uint8_t ver_seq = raw[offset++];
-        if ((ver_seq >> 4) != TUYA_BLE_PROTOCOL_VER_HI) {
-            TUYA_BLE_HAL_LOGW("[TRSMITR] unsupported ver=%u (want %u)",
-                              ver_seq >> 4, TUYA_BLE_PROTOCOL_VER_HI);
+        /* TuyaOpen accepts RX versions >= 2 while transmitting version 4. */
+        if ((ver_seq >> 4) < 2) {
+            TUYA_BLE_HAL_LOGW("[TRSMITR] unsupported ver=%u (minimum 2)",
+                              ver_seq >> 4);
             goto invalid;
         }
         state->rx_total_len = total;
