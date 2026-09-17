@@ -177,6 +177,37 @@ static int transport_errors_and_timeout(void) {
     uint8_t overshoot[]={0,1,0x40,1,2};CHECK(tuya_ble_prov_on_data(&s,overshoot,5)<0);
     uint8_t varint[]={0x80,0x80,0x80,0x80};CHECK(tuya_ble_prov_on_data(&s,varint,4)<0);return 0;
 }
+static int transport_version_compatibility(void)
+{
+    for (unsigned version = 0; version < 16; version++) {
+        tuya_ble_prov_state_t state;
+        peer_t peer;
+        uint8_t key[16], wire[512], plain[512], size[2] = {0, 244};
+        CHECK(!setup(&state, &peer, key));
+        size_t n = packet(wire + 3, 0, 1, size, sizeof(size), key, 0);
+        CHECK(n == 33);
+        wire[0] = 0;
+        wire[1] = (uint8_t)n;
+        wire[2] = (uint8_t)((version << 4) | 15);
+        int rc = tuya_ble_prov_on_data(&state, wire, n + 3);
+        if (version < 2) {
+            CHECK(rc < 0 && !state.handshake_ready && !peer.complete);
+            CHECK(!state.rx_len && !state.rx_total_len && !state.rx_next_subpkg);
+            CHECK(!state.last_rx_sn);
+        } else {
+            CHECK(!rc && state.handshake_ready && peer.complete == 1);
+            CHECK(state.last_rx_sn == 1);
+            CHECK(!crypt(0, key, peer.packet[0] + 1, peer.packet[0] + 17,
+                         peer.sizes[0] - 17, plain));
+            CHECK(plain[8] == 0 && plain[9] == 0 && plain[7] == 1);
+            CHECK(plain[10] == 0 && plain[11] == 135);
+            CHECK(crc(plain, 147) == ((uint16_t)plain[147] << 8 | plain[148]));
+        }
+        tuya_ble_prov_close(&state);
+    }
+    return 0;
+}
+
 static int backpressure(void) {
     tuya_ble_prov_state_t s;peer_t p;uint8_t k[16],wire[512],size[2]={0,244};CHECK(!setup(&s,&p,k));
     p.busy=1;CHECK(!deliver(&s,wire,packet(wire,0,1,size,2,k,0),20));CHECK(s.tx_count==1&&p.complete==0);
@@ -458,6 +489,7 @@ int test_wire(void)
     RUN(unauthorized_and_invalid);
     RUN(malformed_credentials);
     RUN(transport_errors_and_timeout);
+    RUN(transport_version_compatibility);
     RUN(backpressure);
     RUN(aligned_crc_padding);
     RUN(strict_pkcs7_full_padding_block);

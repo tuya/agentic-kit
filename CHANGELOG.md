@@ -30,8 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- tuya-ble — accept incoming Trsmitr versions >= 2 for app Pairing compatibility while keeping TX at version 4 (#39).
 - Docs — the pair-by-ble callback sample no longer claims credentials are never logged; the
-  demo's DEBUG protocol log prints the credential JSON on purpose, for device bring-up (PR pending).
+  demo's DEBUG protocol log prints the credential JSON on purpose, for device bring-up.
 - Docs — the pair-by-ble stop section now also states the port's `nimble_port_deinit()` abort,
   instead of implying every `tuya_ble_nimble_stop()` failure is retryable (PR pending).
 - tuya-ble — preserve pending credentials under TX backpressure and route Trsmitr diagnostics through the log facade (PR pending).
