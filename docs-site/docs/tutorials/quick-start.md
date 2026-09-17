@@ -17,7 +17,7 @@ sidebar_position: 1
 先完成[配网](./pair-overall)获取凭据，或[领取免费授权码](../get-authkey)。
 :::
 
-## 依赖
+## 依赖 {#依赖}
 
 | 工具/库 | 版本 | macOS 安装 | Linux (Debian/Ubuntu) 安装 |
 |---------|------|-----------|---------------------------|
@@ -26,9 +26,9 @@ sidebar_position: 1
 
 > 构建系统会自动编译 bundled 的 mbedTLS、cJSON、coreHTTP、coreMQTT 依赖，无需单独安装。
 
-## 编译
+## 编译 {#编译}
 
-### agentic-kit 代码编译
+### agentic-kit 代码编译 {#agentic-kit-代码编译}
 
 ```sh
 git clone https://github.com/tuya/agentic-kit.git
@@ -51,9 +51,9 @@ CMakeLists.txt 会自动选择平台对应的预编译库目录（位于 `module
 其他可用预编译库：`modules/rtc-client/libs/rockchip830-arm/`、`modules/rtc-client/libs/ingenic-mips/`。交叉编译这两个平台时，库目录的选择逻辑硬编码在根 `CMakeLists.txt` 的平台判断中（`STEAM_CLIENT_LIB_DIR`），需自行修改该处指向对应目录。
 
 
-### 示例代码编译
+### 示例代码编译 {#示例代码编译}
 
-#### POSIX 系统示例
+#### POSIX 系统示例 {#posix-系统示例}
 
 Posix 示例位于 `examples/posix/` 目录下，使用 CMake 构建系统：
 
@@ -66,7 +66,7 @@ cmake .. && make
 > 构建时会通过 FetchContent 自动拉取示例所需的第三方库（qrcodegen、quirc、stb），无需手动安装。
 
 
-#### ESP-IDF 系统示例
+#### ESP-IDF 系统示例 {#esp-idf-系统示例}
 
 ESP-IDF 示例位于 `examples/esp-idf/` 目录下，使用 ESP-IDF 构建系统：
 
@@ -76,7 +76,7 @@ idf.py build
 idf.py flash monitor
 ```
 
-## 运行示例
+## 运行示例 {#运行示例}
 
 编译成功后，在 `examples/posix/` 目录下运行（POSIX 平台示例）：
 

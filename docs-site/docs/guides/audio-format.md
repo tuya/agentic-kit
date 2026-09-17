@@ -8,14 +8,14 @@ sidebar_position: 1
 
 本指南说明如何选择和配置上行/下行音频的编码格式和参数。
 
-## 支持的编码格式
+## 支持的编码格式 {#支持的编码格式}
 
 | 编码 | RTC TCP Client 常量 | RTC Client codec_type | 说明 |
 |------|--------------------|-----------------------|------|
 | PCM | `TAI_AUDIO_PCM` (101) | 101 | 原始无压缩音频，实现简单，带宽占用大 |
 | Opus | `TAI_AUDIO_OPUS` (111) | 111 | 压缩编码，带宽占用小，需要编解码器 |
 
-## 推荐参数
+## 推荐参数 {#推荐参数}
 
 | 参数 | 推荐值 | 说明 |
 |------|--------|------|
@@ -24,7 +24,7 @@ sidebar_position: 1
 | 位深 | 16-bit | PCM 标准位深 |
 | 帧时长 | 60-120 ms | 兼顾延迟和效率 |
 
-## RTC TCP Client 配置
+## RTC TCP Client 配置 {#rtc-tcp-client-配置}
 
 ```c
 // 开始音频流（指定编码参数）
@@ -44,7 +44,7 @@ tai_send_audio_end(ctx);   // 手动模式收尾；云端 VAD 模式下整个会
 
 > 何时调用 `tai_send_audio_end` 取决于 VAD 模式（云端 VAD 连续对话 vs 设备端 VAD/手动按键），详见 [VAD 与打断](./vad-and-interrupt)。
 
-## RTC Client 配置
+## RTC Client 配置 {#rtc-client-配置}
 
 ```c
 stm_open_data_t d = {0};
@@ -63,7 +63,7 @@ d.payload_length = frame_len;
 stm_open_session_send(session, &d, 0);  // fin=0, 还有更多帧
 ```
 
-## PCM vs Opus 选择
+## PCM vs Opus 选择 {#pcm-vs-opus-选择}
 
 | | PCM | Opus |
 |---|---|---|
@@ -73,7 +73,7 @@ stm_open_session_send(session, &d, 0);  // fin=0, 还有更多帧
 | 适用场景 | 带宽充足、CPU 受限 | 带宽受限（WiFi 弱信号、移动网络） |
 | 实现复杂度 | 简单 | 需集成 Opus 库 |
 
-## 下行音频格式
+## 下行音频格式 {#下行音频格式}
 
 下行 TTS 音频格式由设备在建立会话时通过 `session_attrs_json` 中的 `tts.order.supports` 字段告知云端，云端会按照设备声明的支持格式下发音频。
 
@@ -131,7 +131,7 @@ void on_data_recv(stm_open_session_t *session, stm_open_data_t *data,
 }
 ```
 
-## 注意事项
+## 注意事项 {#注意事项}
 
 - 上行和下行音频格式可以不同（例如上行 PCM，下行 Opus）
 - Opus 编码时建议使用 `OPUS_APPLICATION_VOIP` 模式

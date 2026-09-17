@@ -2,6 +2,10 @@ import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
+const developerUrl = process.env.DOCUSAURUS_CURRENT_LOCALE === 'en'
+  ? 'https://developer.tuya.com/en/'
+  : 'https://developer.tuya.com/cn/';
+
 const config: Config = {
   title: 'Tuya Agentic-kit',
   tagline: 'Multimodal AI SDK for IoT Devices',
@@ -21,12 +25,23 @@ const config: Config = {
 
   i18n: {
     defaultLocale: 'zh-Hans',
-    locales: ['zh-Hans'],
+    locales: ['zh-Hans', 'en'],
+    localeConfigs: {
+      'zh-Hans': {
+        label: '简体中文',
+        htmlLang: 'zh-Hans',
+      },
+      en: {
+        label: 'English',
+        htmlLang: 'en',
+      },
+    },
   },
 
   markdown: {
     mermaid: true,
     mdx1Compat: {
+      headingIds: true,
       admonitions: true,
     },
   },
@@ -63,7 +78,11 @@ const config: Config = {
           label: '文档',
         },
         {
-          href: 'https://developer.tuya.com',
+          type: 'localeDropdown',
+          position: 'right',
+        },
+        {
+          href: developerUrl,
           label: '涂鸦开发者',
           position: 'right',
         },
@@ -97,7 +116,7 @@ const config: Config = {
           title: '资源',
           items: [
             { label: '涂鸦 IoT 平台', href: 'https://iot.tuya.com' },
-            { label: '涂鸦开发者文档', href: 'https://developer.tuya.com' },
+            { label: '涂鸦开发者文档', href: developerUrl },
           ],
         },
       ],

@@ -12,7 +12,7 @@ SDK 为其中一部分接口提供了**具名接口**（`iot_ota_*`、`iot_dp_*`
 
 签名、请求体 AES-GCM 加密、TLS、host 解析、信封解析都在 SDK 内部完成，**设备密钥不会离开 SDK**。
 
-## 先确认有没有具名接口
+## 先确认有没有具名接口 {#先确认有没有具名接口}
 
 已经封装好的接口不要用通用入口重新实现——它们额外处理了云端返回的各种变体，并且有单测覆盖：
 
@@ -27,7 +27,7 @@ SDK 为其中一部分接口提供了**具名接口**（`iot_ota_*`、`iot_dp_*`
 | `thing.device.opensdk.active` | 2.0 | `iot_client_init_on_boarding()` |
 | `tuya.device.meta.save` | 1.0 | 激活流程内部调用 |
 
-## 什么时候该要一个具名接口
+## 什么时候该要一个具名接口 {#什么时候该要一个具名接口}
 
 通用入口是逃生通道，不是首选。满足下面**任意一条**时，这个接口值得进 SDK 变成具名接口，欢迎提 issue：
 
@@ -37,7 +37,7 @@ SDK 为其中一部分接口提供了**具名接口**（`iot_ota_*`、`iot_dp_*`
 
 三条都不满足的接口，留在业务层用通用入口调是合适的终态，不是技术债。
 
-## API
+## API {#api}
 
 ```c
 #include "iot_atop.h"
@@ -61,7 +61,7 @@ int  iot_atop_call(iot_client_t *client,
 void iot_atop_response_free(iot_client_t *client, iot_atop_response_t *response);
 ```
 
-## 示例
+## 示例 {#示例}
 
 ```c
 #include "iot_atop.h"
@@ -92,7 +92,7 @@ if (rc == OPRT_OK) {
 iot_atop_response_free(client, &resp);   /* 每条路径都要调，包括失败路径 */
 ```
 
-## 返回值：区分"云端拒绝"和"没连上"
+## 返回值：区分"云端拒绝"和"没连上" {#返回值区分云端拒绝和没连上}
 
 这是使用通用入口时最重要的一点。你调的接口 SDK 并不认识，所以 SDK 无法替你判断业务是否成功，**云端自己的 errorCode 是唯一可靠的线索**：
 
@@ -106,7 +106,7 @@ iot_atop_response_free(client, &resp);   /* 每条路径都要调，包括失败
 
 `error_code[0] == '\0'` 等价于"业务成功"。
 
-## 限制
+## 限制 {#限制}
 
 **只支持已激活的设备。** 通用入口用 `devid` + `secret_key` 签名。激活本身用的是 `uuid` + `authkey`，是另一条路径，仍然只能通过 `iot_client_init_on_boarding()` 走。在没有凭据的 client 上调用返回 `OPRT_UNINITIALIZED`。
 

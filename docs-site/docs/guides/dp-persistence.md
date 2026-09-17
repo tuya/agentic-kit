@@ -10,16 +10,16 @@ DP（Data Point，数据点）的当前状态和 schema 需要跨重启保留,�
 
 本指南说明如何正确地保存与恢复 DP 状态,以及保存回调在嵌入式上的注意事项。
 
-## 需要持久化的两类数据
+## 需要持久化的两类数据 {#需要持久化的两类数据}
 
 | 数据 | 来源 | 何时变化 |
 |---|---|---|
 | `schema_id` + `schema` | 激活响应(首次),或 schema 升级回调 | 很少(仅产品 schema 升版) |
 | DP 当前状态(`{"dps":{...}}`) | 设备运行中 set / 下发 | 频繁 |
 
-## 保存:两种通道
+## 保存:两种通道 {#保存两种通道}
 
-### 通道一(推荐):变化即推送的保存回调
+### 通道一(推荐):变化即推送的保存回调 {#通道一推荐变化即推送的保存回调}
 
 注册 `iot_dp_set_save_callback()` 后,**任何改变 DP 值的操作**(本地 `iot_dp_set` / `iot_dp_report`,或云端下发)在锁外触发一次回调,携带当前完整快照 `{"dps":{...}}`:
 
@@ -33,7 +33,7 @@ static void on_dp_save(const char *dp_state_json, void *user_data)
 iot_dp_set_save_callback(client, on_dp_save, NULL);
 ```
 
-### 通道二:按需主动拉取
+### 通道二:按需主动拉取 {#通道二按需主动拉取}
 
 ```c
 char *json = NULL;
@@ -45,7 +45,7 @@ if (iot_dp_dump_json(client, &json) == OPRT_OK && json) {
 
 `iot_dp_dump_json` 与 `iot_dp_restore_json` 产出 / 消费同一种 `{"dps":{...}}` 格式,可往返恢复。**注意:`iot_dp_dump_json` 的快照不含 RAW 类型 DP**(见 `iot_dp.h` 中 RAW omission 说明),因此 dump→restore 周期会丢失运行中的 RAW 值;如需保留 RAW,请通过保存回调(回调快照同样不含 RAW,需应用自行另行保存)或避免依赖其往返。
 
-## 保存回调在嵌入式上的注意事项
+## 保存回调在嵌入式上的注意事项 {#保存回调在嵌入式上的注意事项}
 
 > 这几条直接决定 flash 寿命与稳定性,务必遵守。
 
@@ -72,7 +72,7 @@ if (iot_dp_dump_json(client, &json) == OPRT_OK && json) {
 
 - **回调在哪个线程触发?** 本地 `set`/`report` 在你的应用线程触发;云端下发在 `iot_client_process()` 所在线程触发。若你的存储 API 非线程安全,要么统一在单 loop 里落盘,要么自行加锁。
 
-## 恢复:启动时回灌
+## 恢复:启动时回灌 {#恢复启动时回灌}
 
 重启后,把上次持久化的三项填进 `iot_client_config_t`,`iot_client_init()` 会自动按 `schema` 重建 DP registry,并用 `dp_state` 恢复各 DP 当前值(**不置 dirty、不上报**):
 
@@ -87,11 +87,11 @@ iot_client_t *client = iot_client_init(&cfg);
 
 运行期也可随时显式调 `iot_dp_restore_json(client, json)` 达到同样效果。
 
-## 上报由应用负责
+## 上报由应用负责 {#上报由应用负责}
 
 恢复的值只填本地缓存,**SDK 不会自动上报**。请在每次(重)连成功后由应用调一次 `iot_dp_report_all()` 刷新云端缓存,否则 App 端看到的是旧状态。详见 [iot-client 参考](../reference/iot-client.md)。
 
-## schema 升级时的持久化
+## schema 升级时的持久化 {#schema-升级时的持久化}
 
 应用周期调用 `iot_dp_schema_check_update()` 轮询最新 schema。若有更新,SDK 会**保留仍存在的 DP 的当前值、给新增 DP 填默认值**,然后触发 `iot_schema_update_callback_t`。在该回调里:
 

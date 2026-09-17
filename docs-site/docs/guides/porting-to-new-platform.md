@@ -8,7 +8,7 @@ sidebar_position: 3
 
 RTC TCP Client 通过 PAL（Platform Abstraction Layer）实现跨平台移植。将 SDK 移植到新平台只需实现 `pal.h` 中定义的接口。
 
-## PAL 接口总览
+## PAL 接口总览 {#pal-接口总览}
 
 | 接口类别 | 函数 | 说明 |
 |----------|------|------|
@@ -20,13 +20,13 @@ RTC TCP Client 通过 PAL（Platform Abstraction Layer）实现跨平台移植�
 
 > **注意：** PAL 只需实现原始 TCP（`tcp_*`）、轮询（`tcp_poll`）、互斥锁（`mutex_*`）和时间（`time_ms`）等接口，无需在 PAL 中实现 TLS。TLS 现位于共享库 `common/tls.c`（TLS-over-TCP，被 iot-client 的 mqtt/http 与 rtc-tcp-client 共用；rtc-tcp-client 旧的 `src/tai_tls.c` 已删除）。TLS 握手在内部复用 PAL 的 `tcp_poll` / `mutex_*` / `time_ms`，因此这些 PAL 接口必须正确实现。
 
-### 随机数 (RNG)
+### 随机数 (RNG) {#随机数-rng}
 
 `common/rng.c` 是进程级唯一的 CTR-DRBG，在启动时由 `tai_ctx_init()`（以及 iot-client 的初始化）调用 `rng_init()` 仅播种一次。它**要求** PAL 提供 `mutex_create`（见 `rng.c:51`）：若 PAL 缺少 `mutex_create`，`rng_init()` 会直接失败（fail closed），整个初始化随之失败。
 
-## 移植步骤
+## 移植步骤 {#移植步骤}
 
-### 1. 实现 PAL 接口
+### 1. 实现 PAL 接口 {#1-实现-pal-接口}
 
 创建一个 `pal_xxx.c` 文件，实现所有 PAL 函数并填充 `pal_t` 结构体：
 
@@ -59,7 +59,7 @@ const pal_t my_platform_pal = {
 };
 ```
 
-### 2. 传入配置
+### 2. 传入配置 {#2-传入配置}
 
 ```c
 tai_config_t cfg = {
@@ -68,13 +68,13 @@ tai_config_t cfg = {
 };
 ```
 
-### 3. 编译集成
+### 3. 编译集成 {#3-编译集成}
 
 将 `modules/rtc-tcp-client/src/` 下的源文件和你的 PAL 实现一起编译即可。
 
-## 平台实现参考
+## 平台实现参考 {#平台实现参考}
 
-### ESP-IDF
+### ESP-IDF {#esp-idf}
 
 | PAL 接口 | ESP-IDF 实现 |
 |----------|-------------|
@@ -86,7 +86,7 @@ tai_config_t cfg = {
 
 现成实现参考：`pal/pal_freertos.c` 和 `examples/esp-idf/components/agentic_kit/`
 
-### Linux / macOS (POSIX)
+### Linux / macOS (POSIX) {#linux--macos-posix}
 
 | PAL 接口 | POSIX 实现 |
 |----------|-----------|
@@ -98,7 +98,7 @@ tai_config_t cfg = {
 
 现成实现参考：`pal/pal_posix.c`
 
-### FreeRTOS（通用）
+### FreeRTOS（通用） {#freertos通用}
 
 | PAL 接口 | FreeRTOS 实现 |
 |----------|--------------|
@@ -110,9 +110,9 @@ tai_config_t cfg = {
 
 TCP 部分取决于具体的网络协议栈（lwIP、AT 指令等）。
 
-## ESP-IDF 特殊注意事项
+## ESP-IDF 特殊注意事项 {#esp-idf-特殊注意事项}
 
-### 内存规划
+### 内存规划 {#内存规划}
 
 | 组件 | 内存需求 | 建议分配位置 |
 |------|---------|-------------|
@@ -126,7 +126,7 @@ TCP 部分取决于具体的网络协议栈（lwIP、AT 指令等）。
 void *mem = heap_caps_malloc(tai_ctx_size(), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 ```
 
-### sdkconfig 推荐
+### sdkconfig 推荐 {#sdkconfig-推荐}
 
 ```ini
 CONFIG_ESP32S3_SPIRAM_SUPPORT=y
@@ -136,7 +136,7 @@ CONFIG_MBEDTLS_SSL_MAX_CONTENT_LEN=16384
 CONFIG_FREERTOS_HZ=1000
 ```
 
-### 任务优先级
+### 任务优先级 {#任务优先级}
 
 | 任务 | 优先级 |
 |------|--------|
@@ -144,7 +144,7 @@ CONFIG_FREERTOS_HZ=1000
 | RTC TCP Client 后台线程 | 中 (10-12) |
 | 应用主逻辑 | 中 (5-8) |
 
-## 通用注意事项
+## 通用注意事项 {#通用注意事项}
 
 - PAL `thread_create` 需要设置足够的栈大小；`pal_freertos.c` 默认使用 `PAL_FR_TASK_STACK_WORDS`（6144 words，32 位平台上约 24KB，可按平台内存情况调小或调大）
 - SDK 内部通过 mbedTLS 处理 TLS，需要正确的系统时间用于证书验证；若未提供 CA 证书，TLS 连接可能退化为不校验证书的模式
@@ -152,7 +152,7 @@ CONFIG_FREERTOS_HZ=1000
 - `tcp_poll` 用于检查套接字的可读/可写状态，需正确实现 events 位掩码
 - 如使用 Opus 编码，需额外集成 Opus 库
 
-### PAL I/O 返回值契约
+### PAL I/O 返回值契约 {#pal-io-返回值契约}
 
 PAL 的 TCP 接口必须严格遵循以下返回值约定（见 `pal.h`），否则 SDK 无法正确区分超时、对端关闭与致命错误：
 

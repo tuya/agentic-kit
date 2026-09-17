@@ -12,7 +12,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 使用任何 SDK 函数前，必须先调用 [`iot_init()` 或 `iot_init_default()`](#iot_init--iot_init_default) 初始化 PAL。未初始化时 `iot_client_init()` 直接返回 `NULL`，`iot_get_qrcode_info()` 返回 `OPRT_UNINITIALIZED`。
 :::
 
-## 激活请求补充说明
+## 激活请求补充说明 {#激活请求补充说明}
 
 设备激活时，底层会调用 `atop_activate_request()` 向 `thing.device.opensdk.active` 发送请求。该接口使用 `activite_request_t` 组织请求参数，其中 `options` 字段会按入参动态拼接。
 
@@ -29,7 +29,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 
 `sdkFullVer` 的默认来源是 `SDK_VERSION` 宏，当前在 on-boarding 流程中会写入 `activite_request_t.sdk_version`；如果调用方自行构造 `activite_request_t`，也可以显式传入其他版本值。相关定义可参考源码 `modules/iot-client/src/atop.h` 与 `modules/iot-client/src/atop.c`。
 
-## 错误码
+## 错误码 {#错误码}
 
 | 值 | 宏 | 说明 |
 |----|-----|------|
@@ -42,7 +42,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | -6 | `OPRT_MALLOC_FAILED` | 内存分配失败 |
 | -7 | `OPRT_TLS_HANDSHAKE_FAILED` | TLS 握手失败 |
 
-### MQTT 状态码（`MQTTStatus_t`）
+### MQTT 状态码（`MQTTStatus_t`） {#mqtt-状态码mqttstatus_t}
 
 日志形如 `MQTT_Connect failed: MQTTServerRefused (6)` 中括号里的数字。**现在的日志会同时打出名字**，本表主要用于查阅早期日志和历史工单里只有裸数字的情况。
 
@@ -61,7 +61,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | 10 | `MQTTKeepAliveTimeout` | 等待 PINGRESP 超时，链路已死但 socket 未报错 |
 | 11 | `MQTTNeedMoreBytes` | 报文不完整，需再次调用（非错误）|
 
-### CONNACK 拒绝原因
+### CONNACK 拒绝原因 {#connack-拒绝原因}
 
 `MQTTServerRefused (6)` 只说明「被拒了」，具体哪一种由 broker 在 CONNACK 里给出。一次被拒的连接实际会打出四行，**第一行**就是原因：
 
@@ -88,9 +88,9 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 `[mqtt]` 前缀的行来自 coreMQTT 内部，由 `common/core_mqtt_config.h` 接入日志门面。若这些行没有出现，说明该构建仍带着 `MQTT_DO_NOT_USE_CUSTOM_CONFIG`，拒绝原因会被丢弃，只剩一个裸的 `6`。
 :::
 
-## 枚举类型
+## 枚举类型 {#枚举类型}
 
-### Region（`iot_region_t`）
+### Region（`iot_region_t`） {#regioniot_region_t}
 
 | 值 | 名称 | 说明 |
 |----|------|------|
@@ -105,7 +105,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 注:如果设备用Tuya智能或智能生活配网,目前无法支持美国东部或欧洲西部数据中心。 用API
 配网方式可以支持。
 
-### Environment（`iot_env_t`）
+### Environment（`iot_env_t`） {#environmentiot_env_t}
 
 | 值 | 名称 | 说明 |
 |----|------|------|
@@ -113,7 +113,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | 1 | `PRE` | 预发布环境 |
 | 2 | `TEST` | 测试环境 |
 
-### Reset Type（`iot_reset_type_t`）
+### Reset Type（`iot_reset_type_t`） {#reset-typeiot_reset_type_t}
 
 云端设备移除（protocol 11）通知的分类，由 `reset_callback` 收到。
 
@@ -122,7 +122,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | 0 | `IOT_RESET_REMOTE_UNBIND` | 用户在 App 上移除设备（可重新配网绑定） |
 | 1 | `IOT_RESET_REMOTE_FACTORY` | 云端下发恢复出厂设置 |
 
-### Log Level（`log_level_t`）
+### Log Level（`log_level_t`） {#log-levellog_level_t}
 
 日志通过 `common/log.h` 的全局日志门面控制，使用 `log_set_level()` 设置运行时级别，使用 `log_set_handler()` 自定义输出。
 
@@ -136,9 +136,9 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | 3 | `LOG_INFO` |
 | 4 | `LOG_DEBUG` |
 
-## 配置结构体
+## 配置结构体 {#配置结构体}
 
-### `iot_client_config_t`
+### `iot_client_config_t` {#iot_client_config_t}
 
 用于已激活设备的初始化配置。
 
@@ -164,7 +164,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | `dp_state` | `const char *` | 持久化的 DP 当前状态 `{"dps":{...}}`，用于恢复（不置脏、不上报，可为 NULL） |
 | `sw_ver` | `const char *` | 应用固件版本号（如 `"1.2.3"`），`iot_client_init` 时自动上报供云端 OTA 比较；NULL 表示使用 SDK 默认 `IOT_SDK_SW_VER`。详见 [OTA 升级](../guides/ota-upgrade.md) |
 
-### `iot_on_boarding_config_t`
+### `iot_on_boarding_config_t` {#iot_on_boarding_config_t}
 
 用于设备配网激活的配置。
 
@@ -191,7 +191,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | `ota_confirm_user_data` | `void *` | 透传给 `ota_confirm_callback` 的用户指针，可为 NULL |
 | `sw_ver` | `const char *` | 应用固件版本号（如 `"1.2.3"`），激活后自动上报供云端 OTA 比较；NULL 表示使用 SDK 默认 `IOT_SDK_SW_VER`。详见 [OTA 升级](../guides/ota-upgrade.md) |
 
-### `iot_client_t`（返回实例）
+### `iot_client_t`（返回实例） {#iot_client_t返回实例}
 
 由 `iot_client_init()` 或配网 API 返回的客户端实例，包含以下关键字段：
 
@@ -203,9 +203,9 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | `region` | `iot_region_t` | 服务器区域 |
 | `env` | `iot_env_t` | 环境 |
 
-## API 函数
+## API 函数 {#api-函数}
 
-### `iot_init` / `iot_init_default`
+### `iot_init` / `iot_init_default` {#iot_init--iot_init_default}
 
 ```c
 int iot_init(const pal_t *pal);
@@ -218,7 +218,7 @@ int iot_init_default(void);
 
 ---
 
-### `iot_client_init`
+### `iot_client_init` {#iot_client_init}
 
 ```c
 iot_client_t *iot_client_init(const iot_client_config_t *config);
@@ -230,7 +230,7 @@ iot_client_t *iot_client_init(const iot_client_config_t *config);
 
 ---
 
-### `iot_client_init_on_boarding`
+### `iot_client_init_on_boarding` {#iot_client_init_on_boarding}
 
 ```c
 iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t *config);
@@ -242,7 +242,7 @@ iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t *config
 
 ---
 
-### `iot_client_init_on_boarding_with_token`
+### `iot_client_init_on_boarding_with_token` {#iot_client_init_on_boarding_with_token}
 
 ```c
 iot_client_t *iot_client_init_on_boarding_with_token(
@@ -260,7 +260,7 @@ iot_client_t *iot_client_init_on_boarding_with_token(
 
 ---
 
-### `iot_client_reset`
+### `iot_client_reset` {#iot_client_reset}
 
 ```c
 int iot_client_reset(iot_client_t *client, iot_reset_scope_t scope,
@@ -310,7 +310,7 @@ int iot_client_reset(iot_client_t *client, iot_reset_scope_t scope,
 不要在 `iot_client_process()` 触发的回调（`message_callback` / `reset_callback` / `ota_confirm_callback`）里调用本函数——它会释放 coreMQTT 接收循环当前栈上仍在使用的 mqtt client。正确做法是置标志位，回到应用主循环再重置。
 :::
 
-### 被拒绝时必须看 `error_code`
+### 被拒绝时必须看 `error_code` {#被拒绝时必须看-error_code}
 
 `OPRT_ATOP_BUSINESS_ERROR` 只说明「云端拒绝了」，而两种拒绝的处理**完全相反**——单看返回码无法区分，这是 `error_code` 出参存在的唯一理由：
 
@@ -345,7 +345,7 @@ if (rc == OPRT_OK) {
 
 ---
 
-### `iot_client_deinit`
+### `iot_client_deinit` {#iot_client_deinit}
 
 ```c
 void iot_client_deinit(iot_client_t *client);
@@ -355,7 +355,7 @@ void iot_client_deinit(iot_client_t *client);
 
 ---
 
-### `iot_client_connect`
+### `iot_client_connect` {#iot_client_connect}
 
 ```c
 int iot_client_connect(iot_client_t *client);
@@ -374,7 +374,7 @@ int iot_client_connect(iot_client_t *client);
 
 ---
 
-### `iot_client_disconnect`
+### `iot_client_disconnect` {#iot_client_disconnect}
 
 ```c
 void iot_client_disconnect(iot_client_t *client);
@@ -390,7 +390,7 @@ void iot_client_disconnect(iot_client_t *client);
 
 ---
 
-### `iot_client_get_session_token`
+### `iot_client_get_session_token` {#iot_client_get_session_token}
 
 ```c
 int iot_client_get_session_token(iot_client_t *client, const char *agent_code, char *token, size_t token_len);
@@ -408,7 +408,7 @@ int iot_client_get_session_token(iot_client_t *client, const char *agent_code, c
 
 ---
 
-### `iot_client_process`
+### `iot_client_process` {#iot_client_process}
 
 ```c
 int iot_client_process(iot_client_t *client, uint32_t timeout_ms);
@@ -424,7 +424,7 @@ int iot_client_process(iot_client_t *client, uint32_t timeout_ms);
 
 ---
 
-### `iot_client_publish`
+### `iot_client_publish` {#iot_client_publish}
 
 ```c
 int iot_client_publish(iot_client_t *client, const uint8_t *data, size_t data_len);
@@ -441,7 +441,7 @@ int iot_client_publish(iot_client_t *client, const uint8_t *data, size_t data_le
 
 ---
 
-### `iot_get_qrcode_info`
+### `iot_get_qrcode_info` {#iot_get_qrcode_info}
 
 ```c
 int iot_get_qrcode_info(const iot_qrcode_request_t *request, char *url, size_t url_len);
@@ -470,7 +470,7 @@ int iot_get_qrcode_info(const iot_qrcode_request_t *request, char *url, size_t u
 
 ---
 
-### `iot_get_ca_certificate`
+### `iot_get_ca_certificate` {#iot_get_ca_certificate}
 
 ```c
 int iot_get_ca_certificate(iot_client_t *client, const char *host, uint16_t port,
@@ -490,7 +490,7 @@ int iot_get_ca_certificate(iot_client_t *client, const char *host, uint16_t port
 
 ---
 
-### 日志配置
+### 日志配置 {#日志配置}
 
 IoT Client 使用 `common/log.h` 提供的全局日志门面，不再提供单独的日志回调设置 API。
 

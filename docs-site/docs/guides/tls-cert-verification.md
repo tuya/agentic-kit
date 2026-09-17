@@ -17,7 +17,7 @@ SDK 提供两种方式启用服务器证书验证：
 
 两者可以同时不设（向后兼容，退化为不校验），但不建议在生产环境中这样做。
 
-## 验证优先级
+## 验证优先级 {#验证优先级}
 
 当两个字段同时提供时，`.cacert` 优先。底层 `tls_connect()` 的逻辑：
 
@@ -29,7 +29,7 @@ SDK 提供两种方式启用服务器证书验证：
 
 第 3 步的 `cfg->verify` 由各上层模块设定，不通过 iot-client 的公开配置暴露：**iot-client 固定传 `TLS_VERIFY_NONE`**（即两者都空时不校验、仅加密，并打印一条警告）；而 RTC/TAI 通道传的是 `TLS_VERIFY_OPTIONAL`。所以对 iot-client 用户而言，“两者都空 = 不校验”成立；这也正是生产环境必须至少设置 `.cacert` 或 `.cert_bundle_attach` 之一的原因。
 
-## 涉及的连接
+## 涉及的连接 {#涉及的连接}
 
 配置生效后，以下**所有**连接都会使用证书验证：
 
@@ -41,11 +41,11 @@ SDK 提供两种方式启用服务器证书验证：
 
 ---
 
-## 方式一：`.cacert`（PEM 字符串）
+## 方式一：`.cacert`（PEM 字符串） {#方式一cacertpem-字符串}
 
 适用于 POSIX 平台或内存充裕、可以直接在代码中嵌入 PEM 文本的场景。
 
-### 用法
+### 用法 {#用法}
 
 ```c
 /* 根 CA 证书 PEM —— 指向静态字符串或堆分配的 PEM 文本均可，
@@ -66,7 +66,7 @@ iot_client_config_t cfg = {
 iot_client_t *client = iot_client_init(&cfg);
 ```
 
-### 运行时获取 CA 证书
+### 运行时获取 CA 证书 {#运行时获取-ca-证书}
 
 如果不想在固件中硬编码 PEM，可以通过 IoT-DNS 在运行时查询**某个目标端点**的 CA 证书。签名要求传入目标主机名与端口（`host` 不能为 NULL，否则返回 `OPRT_INVALID_PARAMETER`）：
 
@@ -91,7 +91,7 @@ if (rc == OPRT_OK) {
 >
 > 所以运行时获取 CA 更适合用来**取回一份 CA 加以持久化**，下次启动前通过 `cfg.cacert` 在 `iot_client_init()` **之前**传入，从第一条连接起即校验；对安全要求严格的场景，建议直接硬编码根 CA 或改用 `.cert_bundle_attach`。
 
-### 内存注意事项
+### 内存注意事项 {#内存注意事项}
 
 - 完整的 Mozilla CA 证书包约 200KB，在 RAM 紧凑的 MCU 上可能过大。
 - 单个 Tuya 云端 CA 证书约 1-2KB，可接受。
@@ -99,15 +99,15 @@ if (rc == OPRT_OK) {
 
 ---
 
-## 方式二：`.cert_bundle_attach`（平台证书包回调）
+## 方式二：`.cert_bundle_attach`（平台证书包回调） {#方式二cert_bundle_attach平台证书包回调}
 
 适用于 ESP-IDF 等 RTOS 平台。平台以编译后的二进制形式管理证书包（存储在 flash 分区或固件镜像中），不需要在 RAM 中持有 PEM 文本。
 
-### 原理
+### 原理 {#原理}
 
 ESP-IDF 提供 `esp_crt_bundle_attach()`，它将一个预编译的 CA 证书包（包含主流公共根 CA）直接挂载到 mbedTLS 的 `ssl_config` 上。SDK 在 TLS 握手前调用这个回调，握手时 mbedTLS 会用证书包中的 CA 校验服务器证书。
 
-### ESP-IDF 用法
+### ESP-IDF 用法 {#esp-idf-用法}
 
 ```c
 #include "esp_crt_bundle.h"
@@ -138,7 +138,7 @@ iot_on_boarding_config_t ob_cfg = {
 iot_client_t *client = iot_client_init_on_boarding(&ob_cfg);
 ```
 
-### ESP-IDF sdkconfig 配置
+### ESP-IDF sdkconfig 配置 {#esp-idf-sdkconfig-配置}
 
 确保在 `sdkconfig` 中启用了证书包：
 
@@ -148,11 +148,11 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 ```
 
-### 类型转换说明
+### 类型转换说明 {#类型转换说明}
 
 `esp_crt_bundle_attach` 的签名是 `esp_err_t (*)(void *conf)`，而 SDK 定义的 `tls_cert_bundle_attach_fn` 是 `void (*)(void *ssl_config)`。两者签名不完全一致，需要通过 `(tls_cert_bundle_attach_fn)` 强制转换。这是安全的——回调的语义是"向 `mbedTLS_ssl_config` 挂载证书"，ESP-IDF 的实现与 mbedTLS 的 `mbedtls_ssl_conf_verify` / CA 链操作兼容。
 
-### RTC/TAI 连接（AI 对话通道）
+### RTC/TAI 连接（AI 对话通道） {#rtctai-连接ai-对话通道}
 
 RTC TCP Client 同样支持 `cert_bundle_attach`，设置方式与 iot-client 一致：
 
@@ -167,13 +167,13 @@ tai_config_t tai_cfg = {
 
 这样 iot-client 和 RTC/TAI 两个模块使用同一个证书包，所有云端连接都经过验证。
 
-### 其他 RTOS 平台
+### 其他 RTOS 平台 {#其他-rtos-平台}
 
 如果目标平台不是 ESP-IDF，但提供了类似的证书包机制，可以实现一个签名匹配 `tls_cert_bundle_attach_fn` 的回调函数，在函数内将平台的证书包挂载到传入的 `mbedTLS_ssl_config *` 上。
 
 ---
 
-## 哪些 API 受影响
+## 哪些 API 受影响 {#哪些-api-受影响}
 
 以下公开 API 的配置结构体均支持 `.cacert` 和 `.cert_bundle_attach`：
 
@@ -188,9 +188,9 @@ tai_config_t tai_cfg = {
 
 ---
 
-## 如何确认验证是否生效
+## 如何确认验证是否生效 {#如何确认验证是否生效}
 
-### 查看日志
+### 查看日志 {#查看日志}
 
 SDK 在 TLS 握手时会输出日志。启用证书验证时：
 
@@ -203,7 +203,7 @@ SDK 在 TLS 握手时会输出日志。启用证书验证时：
 
 如果看到上述警告，说明该连接未启用证书验证。
 
-### 验证失败的错误
+### 验证失败的错误 {#验证失败的错误}
 
 当证书验证启用但服务器证书不受信任时，TLS 握手会失败。MQTT / ATOP HTTPS 路径返回 `OPRT_TLS_HANDSHAKE_FAILED`（-7）；而 **IoT-DNS 查询路径会把 TLS 失败归一为 `OPRT_COMMUNICATION_ERROR`（-1）**，因此排查 DNS/CA 获取阶段的失败时不要只匹配 -7。常见原因：
 
@@ -213,7 +213,7 @@ SDK 在 TLS 握手时会输出日志。启用证书验证时：
 
 ---
 
-## 最佳实践
+## 最佳实践 {#最佳实践}
 
 1. **生产环境必须启用证书验证。** 无论是 `.cacert` 还是 `.cert_bundle_attach`，至少设置一个。
 2. **ESP-IDF 平台优先使用 `.cert_bundle_attach`。** 不占用 RAM 存放 PEM，证书包存储在 flash，支持主流公共 CA。

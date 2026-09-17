@@ -1,0 +1,50 @@
+{
+  "link.title.文档": {
+    "message": "Docs",
+    "description": "The title of the footer links column with title=文档 in the footer"
+  },
+  "link.title.SDK 参考": {
+    "message": "SDK Reference",
+    "description": "The title of the footer links column with title=SDK 参考 in the footer"
+  },
+  "link.title.资源": {
+    "message": "Resources",
+    "description": "The title of the footer links column with title=资源 in the footer"
+  },
+  "link.item.label.介绍": {
+    "message": "Introduction",
+    "description": "The label of footer link with label=介绍 linking to /docs/intro"
+  },
+  "link.item.label.快速开始": {
+    "message": "Quick Start",
+    "description": "The label of footer link with label=快速开始 linking to /docs/tutorials/quick-start"
+  },
+  "link.item.label.FAQ": {
+    "message": "FAQ",
+    "description": "The label of footer link with label=FAQ linking to /docs/faq"
+  },
+  "link.item.label.RTC TCP Client": {
+    "message": "RTC TCP Client",
+    "description": "The label of footer link with label=RTC TCP Client linking to /docs/reference/rtc-tcp-client"
+  },
+  "link.item.label.RTC Client": {
+    "message": "RTC Client",
+    "description": "The label of footer link with label=RTC Client linking to /docs/reference/rtc-client"
+  },
+  "link.item.label.IoT Client": {
+    "message": "IoT Client",
+    "description": "The label of footer link with label=IoT Client linking to /docs/reference/iot-client"
+  },
+  "link.item.label.涂鸦 IoT 平台": {
+    "message": "Tuya IoT Platform",
+    "description": "The label of footer link with label=涂鸦 IoT 平台 linking to https://iot.tuya.com"
+  },
+  "link.item.label.涂鸦开发者文档": {
+    "message": "Tuya Developer Docs",
+    "description": "The label of footer link with label=涂鸦开发者文档 linking to https://developer.tuya.com"
+  },
+  "copyright": {
+    "message": "Copyright © 2026 Tuya Inc. Built with Docusaurus.",
+    "description": "The footer copyright"
+  }
+}

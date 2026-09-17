@@ -8,7 +8,7 @@ sidebar_position: 2
 
 本指南涵盖两个密切相关的主题：VAD（语音活动检测）的使用方式，以及如何处理聊天打断事件。
 
-## 两种工作模式
+## 两种工作模式 {#两种工作模式}
 
 设备端语音交互有两种 VAD 模式，两者的 SDK 调用契约完全不同：
 
@@ -23,7 +23,7 @@ sidebar_position: 2
 当前云端（AI 基础平台）在云端 VAD 模式下**只下发 `TAI_EVT_CHAT_BREAK`（type=4）**，不再下发 `TAI_EVT_SERVER_VAD`（type=5，协议常量仍保留以兼容旧服务端）。设备端应以收到 `TAI_EVT_CHAT_BREAK` 作为回合边界：清除本轮下行 TTS 播放、更新本地"聆听/播报"状态；上行音频流保持打开，等待下一回合。不要按旧文档在 `TAI_EVT_SERVER_VAD` 分支里写业务逻辑——它不会触发。
 :::
 
-## 云端 VAD vs 设备端 VAD：SDK 调用对比
+## 云端 VAD vs 设备端 VAD：SDK 调用对比 {#云端-vad-vs-设备端-vadsdk-调用对比}
 
 | 对比项 | 云端 VAD（Server VAD，连续对话） | 设备端 VAD / 手动按键模式 |
 |--------|--------------------------------|--------------------------|
@@ -36,9 +36,9 @@ sidebar_position: 2
 | `tai_chat_break()`（设备主动打断） | 用户按键打断 AI 回复时调用；幂等；调用后上行流保持打开 | 同左；调用后按需重新 start 新流 |
 | 典型适用场景 | WiFi 音箱、持续供电设备、高交互连续对话 | 电池供电、带宽受限（2G/NB-IoT）设备、按键对讲 |
 
-## 云端 VAD
+## 云端 VAD {#云端-vad}
 
-### 工作原理
+### 工作原理 {#工作原理}
 
 Tuya AI 平台提供云端 VAD 能力——设备**在整个会话期间持续发送音频**，云端检测回合边界并在用户停止说话后主动通知设备：
 
@@ -65,7 +65,7 @@ tai_send_audio_start()（整个会话仅此一次）
 
 **回合（turn）的定义**：从用户开始说话，到 AI 开始回复为止。用户说话中短于静音阈值的停顿不会切分回合。
 
-### 处理回合结束事件
+### 处理回合结束事件 {#处理回合结束事件}
 
 **RTC TCP Client：**
 
@@ -88,7 +88,7 @@ void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *ud)
 云端 VAD 模式下，收到回合结束信号（当前为 `TAI_EVT_CHAT_BREAK`）**不要**调用 `tai_send_audio_end()`。该函数会结束上行 Event 并通知云端"输入完毕"，在连续对话中调用它会导致云端截断用户语音。`TAI_EVT_SERVER_VAD` 是旧服务端的回合结束信号，当前云端不再下发，仅为协议兼容保留。
 :::
 
-### 何时使用 `tai_send_audio_end`
+### 何时使用 `tai_send_audio_end` {#何时使用-tai_send_audio_end}
 
 `tai_send_audio_end()` 并非云端 VAD 模式的接口，它只属于设备端 VAD / 手动按键模式：
 
@@ -99,7 +99,7 @@ void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *ud)
 | 设备端本地 VAD 判停（自带 VAD 算法） | 是，本地判定说完时调用 |
 | 用户主动结束会话 | 直接 `tai_disconnect()`，无需先 end |
 
-### 启用/配置云端 VAD
+### 启用/配置云端 VAD {#启用配置云端-vad}
 
 通过 `event_user_data_json` 传入 `chatAttributes`，该字符串会随每个 EventStart 包发送给云端。SDK 默认已启用云端 VAD（留空时使用内置默认值），如需自定义可覆盖：
 
@@ -118,7 +118,7 @@ tai_config_t cfg = {
 | `asr.enableVad` | bool | 是否启用云端 VAD |
 | `processing.interrupt` | bool | 是否启用打断处理 |
 
-### 设备端 VAD 是否需要？
+### 设备端 VAD 是否需要？ {#设备端-vad-是否需要}
 
 | 场景 | 建议 |
 |------|------|
@@ -129,18 +129,18 @@ tai_config_t cfg = {
 
 ---
 
-## 处理聊天打断
+## 处理聊天打断 {#处理聊天打断}
 
 当用户在 AI 回复过程中再次说话时，需要"打断"当前回复。
 
-### 打断的两种方向
+### 打断的两种方向 {#打断的两种方向}
 
 | 方向 | 触发者 | 事件 | 说明 |
 |------|--------|------|------|
 | 服务端打断 | 云端检测到用户说话 | `TAI_EVT_CHAT_BREAK` | 设备应停止播放 |
 | 客户端打断 | 设备端主动通知 | `tai_chat_break()` | 通知云端停止生成 |
 
-### RTC TCP Client
+### RTC TCP Client {#rtc-tcp-client}
 
 **接收服务端打断（`TAI_EVT_CHAT_BREAK`，type=4）：**
 
@@ -178,9 +178,9 @@ tai_chat_break(ctx);   // 幂等，可安全多次调用
 
 ---
 
-## 典型交互流程
+## 典型交互流程 {#典型交互流程}
 
-### 云端 VAD 连续对话模式
+### 云端 VAD 连续对话模式 {#云端-vad-连续对话模式}
 
 ```
 会话建立（tai_connect 成功）
@@ -209,7 +209,7 @@ on_text / on_audio 回调 → 播放 AI 响应
 一段时间无交互（如 1 分钟）→ tai_disconnect() 进入待机/唤醒词状态
 ```
 
-### 手动按键 / 设备端 VAD 模式
+### 手动按键 / 设备端 VAD 模式 {#手动按键--设备端-vad-模式}
 
 ```
 用户按下按钮 / 本地 VAD 检测到语音
@@ -231,7 +231,7 @@ tai_send_audio_start()  ←── 每句话调用一次
 tai_chat_break(ctx) → 停止播放 → 重新 tai_send_audio_start() 开启新流
 ```
 
-## 注意事项
+## 注意事项 {#注意事项}
 
 - 云端 VAD 模式下回合结束信号是 `TAI_EVT_CHAT_BREAK`：只清除本轮下行播放，**不要**调用 `tai_send_audio_end()`（整个会话都不调用），也不要调用 `tai_send_audio_start()` 重开上行流
 - `TAI_EVT_SERVER_VAD` 是旧服务端的回合结束信号，当前云端不再下发；协议常量仅为兼容保留，不要在新代码中依赖它

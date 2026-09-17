@@ -10,7 +10,7 @@ sidebar_position: 7
 
 本章介绍如何在嵌入式设备上通过 BLE（蓝牙低功耗）实现设备配网。涂鸦 App 通过 BLE 连接将 Wi-Fi 凭据和配网 Token 传递给设备，设备无需摄像头或屏幕即可完成配网。
 
-## 适用场景
+## 适用场景 {#适用场景}
 
 - 设备支持蓝牙功能（支持 BLE 4.2+，NimBLE 协议栈）
 - 设备没有摄像头或屏幕，但需要通过涂鸦 App 配网
@@ -20,7 +20,7 @@ sidebar_position: 7
 当前示例基于 ESP-IDF + NimBLE 协议栈，其他平台需自行适配 BLE 层。
 :::
 
-## 整体流程
+## 整体流程 {#整体流程}
 
 ```
 nvs_flash_init()                    // 1. 初始化 NVS（BLE 需要）
@@ -53,9 +53,9 @@ iot_client_init_on_boarding_with_token(token)  // 6. 用 Token 激活设备
 `iot_client_connect()`。
 :::
 
-## 关键代码
+## 关键代码 {#关键代码}
 
-### 配置与启动
+### 配置与启动 {#配置与启动}
 
 ```c
 #include "tuya_ble_nimble.h"
@@ -98,7 +98,7 @@ void app_main(void)
 }
 ```
 
-### 配置文件 `app_config.h`
+### 配置文件 `app_config.h` {#配置文件-app_configh}
 
 ```c
 #define TUYA_BLE_DEVICE_NAME  "TYBLE"   // 最长 5 字符（TUYA_BLE_NAME_MAX_LEN），超出会被截断
@@ -109,9 +109,9 @@ void app_main(void)
 
 > 说明：当前示例直接从 `main/app_config.h` 读取这些配置项，请以仓库中的实际示例文件为准。
 
-## API 参考
+## API 参考 {#api-参考}
 
-### `tuya_ble_nimble_start`
+### `tuya_ble_nimble_start` {#tuya_ble_nimble_start}
 
 ```c
 int tuya_ble_nimble_start(const tuya_ble_prov_cfg_t *cfg);
@@ -131,7 +131,7 @@ int tuya_ble_nimble_start(const tuya_ble_prov_cfg_t *cfg);
 | `auth_key` | `const char *` | 设备 Auth Key |
 | `cb` | callback | 配网完成回调 |
 
-### `tuya_ble_nimble_stop`
+### `tuya_ble_nimble_stop` {#tuya_ble_nimble_stop}
 
 ```c
 int tuya_ble_nimble_stop(void);
@@ -147,7 +147,7 @@ int tuya_ble_nimble_stop(void);
 成功停止后，示例先停止扫描阶段启动的 WiFi，再配置凭据并重新启动 STA，
 不依赖对已启动 STA 再次调用 start 产生连接事件。
 
-### `tuya_ble_wifi_creds_t`
+### `tuya_ble_wifi_creds_t` {#tuya_ble_wifi_creds_t}
 
 回调中收到的结构体：
 
@@ -157,7 +157,7 @@ int tuya_ble_nimble_stop(void);
 | `password` | `char[]` | WiFi 密码 |
 | `token` | `char[]` | 配网 Token（用于后续设备激活） |
 
-## 编译与运行
+## 编译与运行 {#编译与运行}
 
 ```sh
 cd examples/esp-idf/pair/pair-by-ble
@@ -166,7 +166,7 @@ idf.py build
 idf.py flash monitor
 ```
 
-## sdkconfig 要点
+## sdkconfig 要点 {#sdkconfig-要点}
 
 `sdkconfig.defaults` 中当前包含的关键配置：
 
@@ -174,7 +174,7 @@ idf.py flash monitor
 - `CONFIG_BT_NIMBLE_ENABLED=y` — 使用 NimBLE 协议栈
 - `CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y` — 仅启用 BLE 控制器模式
 
-## 注意事项
+## 注意事项 {#注意事项}
 
 - BLE 配网完成后应尽快停止 BLE 广播（`tuya_ble_nimble_stop`），避免与 WiFi 共存时的射频冲突。
 - Token 格式与其他配网方式一致：前两字符为 Region 编码。
@@ -182,7 +182,7 @@ idf.py flash monitor
 - 切勿在激活配置中设 `.mqtt_disable_auto_connect = true`：**App 以设备 MQTT 上线作为配网成功的判定条件**，不连接 MQTT 时 App 会显示配网失败/超时。
 - 需确保项目正确引用了 `modules/tuya-ble/` 和 `modules/iot-client/` 组件。
 
-## BLE 核心移植约定
+## BLE 核心移植约定 {#ble-核心移植约定}
 
 配置字符串必须在核心状态生命周期内有效，并以 NUL 结尾：`product_key` 为
 16 字节、`auth_key` 为 32 字节，`uuid` 为 16 字节或 20 个字母/数字。

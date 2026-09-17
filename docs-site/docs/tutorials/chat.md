@@ -20,7 +20,7 @@ sidebar_position: 2
 - 设备凭据（`devid`、`secret_key`、`local_key`）—— 示例内置默认测试凭据，可直接运行。用自己的设备时需先完成[配网](./scan-by-device)获取凭据。
 :::
 
-## 功能概述
+## 功能概述 {#功能概述}
 
 语音聊天示例支持两种模式：
 
@@ -48,7 +48,7 @@ sidebar_position: 2
 2. 将 AI 返回的 TTS 音频保存到 `output_chat.pcm`
 3. 统计并输出延迟信息（发送开始到首包文字、发送结束到首包音频等）
 
-## 运行方式
+## 运行方式 {#运行方式}
 
 ```sh
 # 纯文本模式（不需要 PCM 文件）
@@ -58,9 +58,9 @@ sidebar_position: 2
 ./build/udp_chat_demo input.pcm
 ```
 
-## 关键实现
+## 关键实现 {#关键实现}
 
-### 初始化与连接
+### 初始化与连接 {#初始化与连接}
 
 ```c
 // 初始化 SDK
@@ -79,7 +79,7 @@ stm_open_session_config_t sess_cfg = {
 stm_open_session_t *session = stm_open_session_create(&sess_cfg);
 ```
 
-### 音频分包发送
+### 音频分包发送 {#音频分包发送}
 
 ```c
 int chunk_size = 3840;   // 120ms 对应的字节数
@@ -99,7 +99,7 @@ while (offset < pcm_len) {
 - 最后一个包的 `fin` 标志设为 `1`，通知服务端数据发送完毕
 - `codec_type = 101` 表示原始 PCM 格式
 
-### 文本发送
+### 文本发送 {#文本发送}
 
 纯文本模式下直接发送一条文本消息：
 
@@ -112,7 +112,7 @@ d.payload_length = strlen(text);
 stm_open_session_send(session, &d, 1);  // fin=1, 一次性发送
 ```
 
-## 注意事项
+## 注意事项 {#注意事项}
 
 - 设备凭据需要通过配网流程获取，示例中的默认凭据仅供测试使用。
 - PCM 文件必须是无文件头的裸 PCM 数据，不支持 WAV 等容器格式。
