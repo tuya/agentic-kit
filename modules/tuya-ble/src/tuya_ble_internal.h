@@ -5,6 +5,11 @@
 
 #include <stdio.h>
 
+/* tuya-ble knob defaults (none yet) live in include/tuya_ble_config_defaults.h,
+ * included here so future knobs are wired from day one; it pulls common/log.h
+ * first -- that header is where integrator overrides are picked up. */
+#include "tuya_ble_config_defaults.h"
+
 /* Shared SDK-internal binding of the HAL log macros onto the PAL log facade:
  * every module diagnostic carries the "[ble] " prefix. */
 #undef TUYA_BLE_HAL_LOGI

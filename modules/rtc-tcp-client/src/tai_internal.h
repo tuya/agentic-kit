@@ -15,6 +15,11 @@
 #include "pal.h"
 #include "log.h"
 
+/* TAI knob defaults live in include/tai_config_defaults.h, pulled in below;
+ * it includes common/log.h first -- that header is where integrator
+ * overrides are picked up (log.h is also included above). */
+#include "tai_config_defaults.h"
+
 #include "tls.h"
 
 /* =========================================================================
@@ -65,99 +70,21 @@
 #endif
 
 /* =========================================================================
- * Buffer-size compile-time knobs
- * Reduce these for memory-constrained targets (e.g. ESP32 without PSRAM).
- *
- * Send path (§6): media packets (audio / image / large text / MCP JSON) are
- * streamed scatter-gather — only a small header is built (tx_hdr_buf) and the
- * caller's payload is signed + sent zero-copy, so there is NO large TX buffer.
- * Control packets (hello, session, event start/end, ping) are still assembled
- * contiguously in tx_ctrl_buf because their attribute block can carry the user
- * session/event JSON (escaped) — which must fit, hence the kilobyte sizing.
+ * Buffer sizes — defaults & docs: include/tai_config_defaults.h
+ * (AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD, AGENTIC_KIT_TAI_FRAG_BUF_SIZE, AGENTIC_KIT_TAI_TX_HDR_BUF_SIZE,
+ *  AGENTIC_KIT_TAI_FRAME_COALESCE_LIMIT, AGENTIC_KIT_TAI_TX_CTRL_BUF_SIZE, AGENTIC_KIT_TAI_MAX_ATTRS,
+ *  AGENTIC_KIT_TAI_DRAIN_BUDGET_MS, AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS; reduce for
+ *  memory-constrained targets, e.g. ESP32 without PSRAM.)
  * ========================================================================= */
 
-/* Maximum bytes per transport fragment payload. Used both to fragment OUTBOUND
- * packets and — crucially — advertised to the server in ClientHello as
- * TAI_ATTR_MAX_FRAGMENT_LEN, so the server must not send an inbound fragment
- * whose frame exceeds rx_buf (see TAI_RX_BUF_SIZE). Smaller = less RX RAM but
- * more frames (per-frame 5+sig overhead) for large payloads. */
-#ifndef TAI_MAX_FRAGMENT_PAYLOAD
-#  define TAI_MAX_FRAGMENT_PAYLOAD  4096U
-#endif
-
 /* RX sliding-window buffer. Sized to EXACTLY one maximum wire frame —
- * 5 (frame header) + TAI_MAX_FRAGMENT_PAYLOAD (max fragment) + 32 (max HMAC) —
+ * 5 (frame header) + AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD (max fragment) + 32 (max HMAC) —
  * so it is derived, not independently tunable. NOTE: zero headroom. This relies
  * on the server honouring the TAI_ATTR_MAX_FRAGMENT_LEN we advertise: an inbound
  * frame larger than this cannot be assembled, so the receive loop stalls and the
  * connection is torn down by the liveness timeout. There is also no batching —
  * the worker processes at most one max-size frame per recv pass. */
-#define TAI_RX_BUF_SIZE   (TAI_MAX_FRAGMENT_PAYLOAD + 37U)
-
-/* Fragment reassembly buffer. A transport-fragmented packet (FRAG_FIRST..LAST)
- * is reassembled here before the whole packet is decoded, so this bounds the
- * largest INBOUND application packet (not fragment): it must be >= the largest
- * downstream packet the server may send (a big Event / MCP-command / context
- * JSON). A packet that reassembles larger is fail-fast (TAI_PROTO_ERR_FRAG).
- * 32000 ≈ 7 max fragments. */
-#ifndef TAI_FRAG_BUF_SIZE
-#  define TAI_FRAG_BUF_SIZE     32000U
-#endif
-
-/* Scatter-gather header buffer: [5-byte frame header][app header] for one
- * frame. Bounds the application header (pkt byte + attr block + media/text
- * header); the streamed payload is never copied here. */
-#ifndef TAI_TX_HDR_BUF_SIZE
-#  define TAI_TX_HDR_BUF_SIZE    256U
-#endif
-
-/* Small-frame coalesce threshold: a whole frame (frame hdr + app hdr + payload
- * + signature) STRICTLY smaller than this is copied into tx_ctrl_buf and sent
- * as one transport write (one TLS record instead of 2-3); at or above it the
- * frame keeps the zero-copy scatter-gather path. The send path also caps
- * coalescing at TAI_TX_CTRL_BUF_SIZE, so shrinking either knob is safe — it
- * only narrows the size window that gets coalesced. */
-#ifndef TAI_FRAME_COALESCE_LIMIT
-#  define TAI_FRAME_COALESCE_LIMIT 512U
-#endif
-
-/* Control-packet assembly buffer. Must hold the largest control application
- * packet — dominated by the session/event JSON escaped into attr 111. The
- * SessionNew / EventStart packet is roughly 2*strlen(JSON) + ~115 bytes of
- * framing/attrs, so the session/event JSON must satisfy that bound or
- * SessionNew/EventStart returns TAI_ERR_MEM. Default 1024 ≈ 4x the largest
- * packet the bundled examples build (~260 B) and fits JSON up to ~700 chars;
- * raise it (e.g. 2048/4096) for richer session configs. It doubles as the
- * small-frame coalesce scratch (see TAI_FRAME_COALESCE_LIMIT) — a control
- * packet is shifted in place inside the same buffer, never copied out. */
-#ifndef TAI_TX_CTRL_BUF_SIZE
-#  define TAI_TX_CTRL_BUF_SIZE   1024U
-#endif
-
-/* Maximum attributes decoded from a single packet */
-#ifndef TAI_MAX_ATTRS
-#  define TAI_MAX_ATTRS  32
-#endif
-
-/* Max wall-clock the receive worker spends draining buffered frames before
- * yielding to periodic ping / pong-timeout / shutdown checks. Bounds keepalive
- * and shutdown latency under a sustained downstream flood; any leftover bytes
- * stay buffered and are processed on the next loop iteration. */
-#ifndef TAI_DRAIN_BUDGET_MS
-#  define TAI_DRAIN_BUDGET_MS  150U
-#endif
-
-/* Upper bound on a single idle receive-block in the worker loop. The worker
- * would otherwise block until the next ping is due (up to ping_interval_ms,
- * default 60 s); capping it bounds how long tai_disconnect (running=0) waits for
- * the worker to notice and exit, without depending on the PAL to cap its own
- * recv timeout. Idle cost: the worker wakes ~1000/cap times per second to
- * re-check; it does not affect inbound-data latency (recv returns as soon as
- * bytes arrive). */
-#ifndef TAI_WORKER_POLL_CAP_MS
-#  define TAI_WORKER_POLL_CAP_MS  2000U
-#endif
-
+#define TAI_RX_BUF_SIZE   (AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD + 37U)
 
 /* =========================================================================
  * Attribute type codes  (Appendix A)
@@ -319,7 +246,7 @@ struct tai_ctx {
     size_t  rx_len;
 
     /* Fragment reassembly */
-    uint8_t frag_buf[TAI_FRAG_BUF_SIZE];
+    uint8_t frag_buf[AGENTIC_KIT_TAI_FRAG_BUF_SIZE];
     size_t  frag_len;
     uint8_t frag_state;                  /* 0=idle, 1=assembling */
 
@@ -331,10 +258,10 @@ struct tai_ctx {
      * assembles a control packet (its attribute block can carry the user
      * session/event JSON) which is then sent as that zero-copy payload, and
      * doubles as the coalesce scratch for whole frames under
-     * TAI_FRAME_COALESCE_LIMIT (one transport write; a control packet shifts
+     * AGENTIC_KIT_TAI_FRAME_COALESCE_LIMIT (one transport write; a control packet shifts
      * in place within the same buffer). */
-    uint8_t tx_ctrl_buf[TAI_TX_CTRL_BUF_SIZE];
-    uint8_t tx_hdr_buf[TAI_TX_HDR_BUF_SIZE];
+    uint8_t tx_ctrl_buf[AGENTIC_KIT_TAI_TX_CTRL_BUF_SIZE];
+    uint8_t tx_hdr_buf[AGENTIC_KIT_TAI_TX_HDR_BUF_SIZE];
     uint8_t tx_sig[32];
 
     /* Background worker thread (auto-started by tai_connect) */

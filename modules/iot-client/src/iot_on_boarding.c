@@ -2,7 +2,7 @@
 #include "iot_client.h"
 #include "mqtt.h"
 #include "iot_dns.h"
-#include "iot_config_defaults.h"
+#include "iot_client_config_defaults.h"
 #include "cJSON.h"
 #include "cipher_wrapper.h"
 #include "atop.h"

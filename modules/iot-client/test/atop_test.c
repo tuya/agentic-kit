@@ -16,7 +16,7 @@
 #include "atop.h"
 #include "atop_base.h"
 #include "iot_client.h"
-#include "iot_config_defaults.h"
+#include "iot_client_config_defaults.h"
 
 #define MOCK_HOST "127.0.0.1"
 #define MOCK_PORT 8443

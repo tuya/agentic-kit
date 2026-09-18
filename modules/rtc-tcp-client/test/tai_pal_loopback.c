@@ -272,10 +272,10 @@ static void lb_hs_feed(const uint8_t *buf, size_t len)
     if (tai_frame_decode(g_hs.acc, need, 0, &frag, &fseq, &pl, &pl_len) != TAI_OK) {
         g_hs.done = 1; return;
     }
-    uint8_t pkt_type; tai_attr_t attrs[TAI_MAX_ATTRS]; int na = 0;
+    uint8_t pkt_type; tai_attr_t attrs[AGENTIC_KIT_TAI_MAX_ATTRS]; int na = 0;
     const uint8_t *payload; size_t payload_len;
     if (tai_packet_decode(TAI_VER_21, pl, pl_len, &pkt_type,
-                          attrs, TAI_MAX_ATTRS, &na, &payload, &payload_len) != TAI_OK
+                          attrs, AGENTIC_KIT_TAI_MAX_ATTRS, &na, &payload, &payload_len) != TAI_OK
         || pkt_type != TAI_PKT_CLIENT_HELLO) {
         g_hs.done = 1; return;
     }

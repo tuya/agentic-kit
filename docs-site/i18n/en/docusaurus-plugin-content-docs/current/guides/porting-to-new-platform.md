@@ -117,11 +117,11 @@ The TCP implementation depends on the specific network stack, such as lwIP or AT
 
 | Component | Memory requirement | Recommended location |
 |------|---------|-------------|
-| `tai_ctx_size()` | Depends on compile-time buffer configuration; approximately 38 KB by default (it grows if buffers such as `TAI_FRAG_BUF_SIZE` are increased) | Prefer large external memory, such as ESP32-S3 PSRAM, if the platform supports it |
+| `tai_ctx_size()` | Depends on compile-time buffer configuration; approximately 38 KB by default (it grows when buffers such as `AGENTIC_KIT_TAI_FRAG_BUF_SIZE` are raised — knob defaults live in `modules/rtc-tcp-client/include/tai_config_defaults.h`) | Prefer large external memory, such as ESP32-S3 PSRAM, if the platform supports it |
 | TLS workspace | ~30 KB | PSRAM |
 | Audio send buffer | ~4-8 KB | Internal SRAM |
 | Audio receive buffer | ~8-16 KB | Internal SRAM or PSRAM |
-| FreeRTOS task stack | ~4-8 KB per task | Internal SRAM |
+| FreeRTOS task stack | The SDK worker task defaults to 6144 words ≈ 24 KB (`AGENTIC_KIT_PAL_FR_TASK_STACK_WORDS` — the unit is words, not bytes; the TLS handshake runs on this task, so do not cut it to 4-8 KB); other tasks ~4-8 KB | Internal SRAM |
 
 ```c
 void *mem = heap_caps_malloc(tai_ctx_size(), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -147,7 +147,8 @@ CONFIG_FREERTOS_HZ=1000
 
 ## General Considerations {#通用注意事项}
 
-- PAL `thread_create` must configure a sufficiently large stack. `pal_freertos.c` uses `PAL_FR_TASK_STACK_WORDS` by default (6144 words, approximately 24 KB on a 32-bit platform), which can be reduced or increased according to the platform's memory constraints.
+- Defaults and documentation for every SDK compile-time knob (TAI buffers and scheduling, MQTT timeouts and packet size, ATOP HTTP buffers, the FreeRTOS task stack, log levels) live with the subsystem that owns them: the log ceiling and the single integrator-override pickup live in `common/log.h` (every SDK translation unit includes it), the FreeRTOS task knobs in `pal/pal_config_defaults.h`, and the per-module knobs in each module's include/ directory — `modules/iot-client/include/iot_client_config_defaults.h`, `modules/rtc-tcp-client/include/tai_config_defaults.h`, `modules/tuya-ble/include/tuya_ble_config_defaults.h`. To override per product, pick one (see the banner in `common/log.h`; the full guide is [Compile-Time Knobs](./compile-time-knobs)): create your own `agentic_kit_config.h` (only the `#define`s you want to change — one file regardless of which subsystem a knob belongs to), add its directory to the include path of every target that compiles SDK sources (CMake: `target_include_directories(<target> PRIVATE <dir>)`) and it is picked up automatically; or keep using `-D<MACRO>=<value>`; or use `-DAGENTIC_KIT_USER_CONFIG='"my_opts.h"'` to name an arbitrary file (for toolchains without `__has_include`). Note: knob values must stay identical for every target that compiles SDK sources
+- PAL `thread_create` must configure a sufficiently large stack. `pal_freertos.c` defaults to `AGENTIC_KIT_PAL_FR_TASK_STACK_WORDS` (6144 words, approximately 24 KB on a 32-bit platform), which can be reduced or increased according to the platform's memory constraints.
 - The SDK handles TLS internally through mbedTLS and requires the correct system time for certificate verification. If no CA certificate is provided, the TLS connection may fall back to a mode that does not verify certificates.
 - `tcp_recv` should support blocking and timeout semantics; the background thread calls it repeatedly.
 - `tcp_poll` checks whether the socket is readable or writable and must implement the events bitmask correctly.

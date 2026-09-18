@@ -8,7 +8,7 @@
 #include "iot_ota.h"
 #include "iot_atop.h"
 #include "cipher_wrapper.h"
-#include "iot_config_defaults.h"
+#include "iot_client_config_defaults.h"
 #include "rng.h"
 
 #include "atop.h"

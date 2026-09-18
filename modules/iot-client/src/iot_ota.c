@@ -1,7 +1,7 @@
 #include "iot_ota.h"
 #include "atop.h"
 #include "iot_dp_internal.h"
-#include "iot_config_defaults.h"
+#include "iot_client_config_defaults.h"
 
 #include <string.h>
 

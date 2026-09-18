@@ -83,7 +83,11 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
 3. **`modules/*/include/` is the public API; `src/` is not** — but the host build puts
    iot-client's `src/` on the *PUBLIC* include path, so app code that includes a private header
    compiles here and fails on ESP-IDF (two shipped demos do this). To expose something, promote
-   the declaration into `iot_client.h` with `IOT_API`.
+   the declaration into `iot_client.h` with `IOT_API`. The `*_config_defaults.h` knob-default
+   sheets are the one deliberate exception: they sit on the public include path because they
+   are integration config surface (integrators derive buffer sizes from the `AGENTIC_KIT_*`
+   defaults; the ESP-IDF component compiles against that path), but they are not API — the
+   stable names are the knobs themselves, not the files' contents.
 4. **Every new `.c` goes in two source lists**: the root `CMakeLists.txt` and `AK_SRCS` in
    `examples/esp-idf/components/agentic_kit/CMakeLists.txt`. No CI job runs `idf.py`, so an
    omission is invisible until someone flashes a board. They diverge on purpose — `pal_posix.c`
@@ -298,7 +302,7 @@ ordinary changes.
   leaving both NULL is not "use the system trust store" (there is none on an embedded target),
   it connects with verification disabled behind one `log_warn`.
 - **`iot_client_process(client, timeout_ms)` ignores `timeout_ms`.** The real blocking budget is
-  the compile-time `MQTT_RECV_TIMEOUT_MS` (1000 ms), and the CONNECT sets a 60 s keepalive. Do
+  the compile-time `AGENTIC_KIT_MQTT_RECV_TIMEOUT_MS` (1000 ms), and the CONNECT sets a 60 s keepalive. Do
   not use the argument to pace the app loop.
 - **`iot_client_connect()` never refreshes the CA and never retries.** The app owns cert
   recovery: on `OPRT_TLS_HANDSHAKE_FAILED`, call `iot_get_ca_certificate()` and reassign

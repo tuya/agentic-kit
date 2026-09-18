@@ -71,10 +71,14 @@ idf_component_register(
 # No MQTT_DO_NOT_USE_CUSTOM_CONFIG: coreMQTT must pick up common/core_mqtt_config.h
 # here too, or a refused CONNECT logs only a bare MQTTServerRefused on exactly the
 # target this diagnostic exists for. ${AK_DIR}/common is already in INCLUDE_DIRS
-# above, so the header resolves with no further wiring.
-target_compile_definitions(${COMPONENT_LIB} PRIVATE
-    IOT_DO_NOT_USE_CUSTOM_CONFIG
-)
+# above, so common/log.h (the override pickup) resolves with
+# no further wiring; knob defaults resolve the same way from each module's include/
+# dir and ${AK_DIR}/pal listed above.
+#
+# Per-product knob overrides (optional): create agentic_kit_config.h holding only
+# the #defines you want to change, put it anywhere in your project, and point this
+# component at its directory (must reach EVERY target that compiles SDK sources):
+# target_include_directories(${COMPONENT_LIB} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../kit_opts")
 
 target_compile_options(${COMPONENT_LIB} PRIVATE
     -Wno-error=format
