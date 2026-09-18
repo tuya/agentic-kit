@@ -1,6 +1,7 @@
 /*
  * tuya_ble_config_defaults.h -- tuya-ble build-time knobs. There are none
- * today (why the file still exists: see below).
+ * today: the module's only config dependency is the SDK-wide log ceiling
+ * (AGENTIC_KIT_LOG_LEVEL, applied in src/tuya_ble_internal.h).
  *
  * What looks like knobs in the module's public headers is deliberately not
  * movable into this file:
@@ -18,8 +19,8 @@
  * src/tuya_ble_internal.h includes this file (mirroring the other modules),
  * so future knobs are wired from day one; it pulls common/log.h FIRST --
  * that header is where integrator overrides (agentic_kit_config.h on the
- * include path, -D, AGENTIC_KIT_USER_CONFIG) are applied. Not a public
- * API header.
+ * include path, -D, AGENTIC_KIT_USER_CONFIG) are applied and the SDK-wide
+ * log ceiling defaults. Not a public API header.
  */
 
 #ifndef AGENTIC_KIT_TUYA_BLE_CONFIG_DEFAULTS_H

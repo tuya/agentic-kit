@@ -9,8 +9,8 @@
  *
  * It pulls common/log.h FIRST: that header is where integrator overrides
  * (agentic_kit_config.h on the include path, -D, AGENTIC_KIT_USER_CONFIG)
- * are applied -- so overrides win over every knob below. Not a public
- * API header.
+ * are applied and the SDK-wide log ceiling defaults -- so overrides win
+ * over every default below. Not a public API header.
  *
  * @copyright Copyright (c) 2021-2025 Tuya Inc. All Rights Reserved.
  */
@@ -134,11 +134,12 @@ const pal_t *get_default_pal(void);
 
 /* Module-tagged dispatch into the global log facade.  Tag is folded
  * into the format string at compile time, so the log handler stays
- * tag-agnostic and the call site reads exactly like printf(). */
-#define log_error(fmt, ...) log_emit(LOG_ERROR, "[iot] " fmt, ##__VA_ARGS__)
-#define log_warn(fmt,  ...) log_emit(LOG_WARN,  "[iot] " fmt, ##__VA_ARGS__)
-#define log_info(fmt,  ...) log_emit(LOG_INFO,  "[iot] " fmt, ##__VA_ARGS__)
-#define log_debug(fmt, ...) log_emit(LOG_DEBUG, "[iot] " fmt, ##__VA_ARGS__)
+ * tag-agnostic and the call site reads exactly like a printf call.
+ * Compile-time ceiling: AGENTIC_KIT_LOG_LEVEL, gated once in log.h. */
+#define log_error(fmt, ...) log_tag_error("iot", fmt, ##__VA_ARGS__)
+#define log_warn(fmt,  ...) log_tag_warn("iot",  fmt, ##__VA_ARGS__)
+#define log_info(fmt,  ...) log_tag_info("iot",  fmt, ##__VA_ARGS__)
+#define log_debug(fmt, ...) log_tag_debug("iot", fmt, ##__VA_ARGS__)
 
 /**
  * @brief Duplicate a string using PAL's allocator.

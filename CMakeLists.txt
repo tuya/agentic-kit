@@ -288,6 +288,27 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     )
     add_test(NAME tai_unit_tests COMMAND tai_unit_tests)
 
+    # Compile the same unit suite with the SDK-wide log ceiling fully closed.
+    # Its packet-log regression verifies both no dispatch and no argument
+    # evaluation at the call site.
+    add_executable(tai_log_level_zero_tests
+        ${AI_TCP_SOURCES}
+        "${AI_TCP_TESTS_DIR}/test_core.c"
+    )
+    target_include_directories(tai_log_level_zero_tests PRIVATE
+        "${AI_TCP_DIR}/include"
+        "${AI_TCP_DIR}/src"
+        "${PAL_DIR}"
+    )
+    target_compile_definitions(tai_log_level_zero_tests PRIVATE
+        AGENTIC_KIT_LOG_LEVEL=0
+    )
+    target_link_libraries(tai_log_level_zero_tests PRIVATE
+        agentic_kit_pal
+        Threads::Threads
+    )
+    add_test(NAME tai_log_level_zero_tests COMMAND tai_log_level_zero_tests)
+
     add_executable(tai_integration_tests
         ${AI_TCP_SOURCES}
         "${AI_TCP_TESTS_DIR}/tai_pal_loopback.c"
@@ -349,5 +370,4 @@ endif()
 if(AGENTIC_KIT_BUILD_EXAMPLES)
     add_subdirectory(examples/posix)
 endif()
-
 

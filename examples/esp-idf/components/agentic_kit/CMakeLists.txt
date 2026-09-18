@@ -71,7 +71,7 @@ idf_component_register(
 # No MQTT_DO_NOT_USE_CUSTOM_CONFIG: coreMQTT must pick up common/core_mqtt_config.h
 # here too, or a refused CONNECT logs only a bare MQTTServerRefused on exactly the
 # target this diagnostic exists for. ${AK_DIR}/common is already in INCLUDE_DIRS
-# above, so common/log.h (the override pickup) resolves with
+# above, so common/log.h (the override pickup + log-ceiling default) resolves with
 # no further wiring; knob defaults resolve the same way from each module's include/
 # dir and ${AK_DIR}/pal listed above.
 #

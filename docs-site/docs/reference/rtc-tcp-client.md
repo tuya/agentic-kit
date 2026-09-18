@@ -544,7 +544,7 @@ static inline int  tai_get_log_level(void);
 | 3 | `TAI_LOG_INFO`（运行时默认） |
 | 4 | `TAI_LOG_DEBUG` |
 
-运行时默认级别为 `TAI_LOG_INFO`（3），需要 DEBUG 输出时显式调用 `tai_set_log_level(4)`。编译时可通过定义 `TAI_LOG_LEVEL` 宏设置最大编译级别（默认 4，超过的日志在编译期消除）。
+运行时默认级别为 `TAI_LOG_INFO`（3），需要 DEBUG 输出时显式调用 `tai_set_log_level(4)`。编译时可通过定义 `AGENTIC_KIT_LOG_LEVEL` 宏设置最大编译级别（默认 4，超过的日志在编译期消除）。该旋钮作用于整个 SDK，不限于本模块；原 `TAI_LOG_LEVEL` 已并入。
 
 ---
 

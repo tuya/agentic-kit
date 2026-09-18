@@ -414,8 +414,9 @@ int tai_send_mcp_response(tai_ctx_t *ctx, const char *json_rpc_response);
  * The SDK emits log messages through the global log facade.  Two
  * filters apply:
  *
- *   1. Compile-time maximum (TAI_LOG_LEVEL, default 4 = DEBUG).
- *      Messages above this level are optimised away at build time.
+ *   1. Compile-time maximum (AGENTIC_KIT_LOG_LEVEL, default 4 = DEBUG;
+ *      SDK-wide, gated once in common/log.h). Messages above this level
+ *      are optimised away at build time.
  *   2. Runtime level, set via tai_set_log_level().  Default: TAI_LOG_INFO.
  *
  * These thin inlines exist for source-compatibility with callers; new

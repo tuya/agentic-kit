@@ -544,7 +544,7 @@ Sets/gets the runtime log level. Valid values:
 | 3 | `TAI_LOG_INFO` (runtime default) |
 | 4 | `TAI_LOG_DEBUG` |
 
-The runtime default level is `TAI_LOG_INFO` (3). Explicitly call `tai_set_log_level(4)` when DEBUG output is required. The maximum compiled log level can be set at compile time by defining the `TAI_LOG_LEVEL` macro (default 4); logs above that level are eliminated during compilation.
+The runtime default level is `TAI_LOG_INFO` (3). Explicitly call `tai_set_log_level(4)` when DEBUG output is required. The maximum compiled log level can be set at compile time by defining `AGENTIC_KIT_LOG_LEVEL` (default 4); logs above that level are eliminated during compilation. This knob applies to the entire SDK, not only this module; it replaces the former `TAI_LOG_LEVEL`.
 
 ---
 

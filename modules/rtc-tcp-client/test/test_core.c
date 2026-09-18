@@ -54,6 +54,7 @@ static const pal_t g_stub_pal = {
  * Test framework
  * ------------------------------------------------------------------------- */
 static int g_pass = 0, g_fail = 0;
+static int g_log_calls = 0, g_log_arg_evals = 0;
 
 #define CHECK(expr)                                               \
     do {                                                          \
@@ -68,6 +69,47 @@ static int g_pass = 0, g_fail = 0;
 
 #define TEST(name) do { printf("  %-50s", name); } while (0)
 #define PASS()     do { printf("OK\n"); } while (0)
+
+static void count_log_handler(log_level_t level, const char *fmt, va_list args)
+{
+    (void)level;
+    (void)fmt;
+    (void)args;
+    g_log_calls++;
+}
+
+static size_t counted_zero(void)
+{
+    g_log_arg_evals++;
+    return 0;
+}
+
+static void test_compile_time_log_ceiling(void)
+{
+    TEST("compile-time log ceiling gates packet logs");
+
+    log_level_t old_level = log_get_level();
+    g_log_calls = 0;
+    g_log_arg_evals = 0;
+    log_set_handler(count_log_handler);
+    log_set_level(LOG_DEBUG);
+
+    TAI_LOGI((g_log_arg_evals++, &g_stub_pal), "test", "compiled log");
+    tai_log_packet(TAI_VER_21, 1, TAI_PKT_SESSION_CLOSE,
+                   NULL, 0, NULL, counted_zero());
+
+#if AGENTIC_KIT_LOG_LEVEL >= 3
+    CHECK(g_log_arg_evals == 2);
+    CHECK(g_log_calls == 2);
+#else
+    CHECK(g_log_arg_evals == 0);
+    CHECK(g_log_calls == 0);
+#endif
+
+    log_set_handler(NULL);
+    log_set_level(old_level);
+    PASS();
+}
 
 /* -------------------------------------------------------------------------
  * 1. Varint encode/decode
@@ -558,6 +600,7 @@ int main(void)
     test_crypto();
     test_proto_client_hello();
     test_hmac_sg();
+    test_compile_time_log_ceiling();
 
     printf("\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

@@ -6,7 +6,7 @@ sidebar_position: 9
 
 # 编译期旋钮配置
 
-SDK 的全部编译期旋钮——TAI 收发缓冲与调度、MQTT 超时与包大小、ATOP HTTP 缓冲、FreeRTOS 任务栈——共 18 个，默认值按**所属子系统**存放（集成方覆盖的统一挂载点在 `common/log.h`，原因见下文）：FreeRTOS 任务旋钮在 `pal/pal_config_defaults.h`；模块旋钮在各自 include/ 目录——`modules/iot-client/include/iot_client_config_defaults.h`（MQTT + ATOP HTTP）、`modules/rtc-tcp-client/include/tai_config_defaults.h`（TAI 缓冲与调度）、`modules/tuya-ble/include/tuya_ble_config_defaults.h`（目前没有旋钮，原因见其文件头注释）。每个旋钮的完整说明（单位、联动、踩过的坑）在各自文件的注释里；本页讲怎么按产品覆盖它们、这套机制为什么长这样，并给出速查表。
+SDK 的全部编译期旋钮——TAI 收发缓冲与调度、MQTT 超时与包大小、ATOP HTTP 缓冲、FreeRTOS 任务栈、日志级别——共 19 个，默认值按**所属子系统**存放：日志上限 `AGENTIC_KIT_LOG_LEVEL` 在 `common/log.h`（这个头同时承载集成方覆盖的统一挂载点，原因见下文）；FreeRTOS 任务旋钮在 `pal/pal_config_defaults.h`；模块旋钮在各自 include/ 目录——`modules/iot-client/include/iot_client_config_defaults.h`（MQTT + ATOP HTTP）、`modules/rtc-tcp-client/include/tai_config_defaults.h`（TAI 缓冲与调度）、`modules/tuya-ble/include/tuya_ble_config_defaults.h`（目前没有旋钮，原因见其文件头注释）。每个旋钮的完整说明（单位、联动、踩过的坑）在各自文件的注释里；本页讲怎么按产品覆盖它们、这套机制为什么长这样，并给出速查表。
 
 ## 三种覆盖方式（任选其一） {#三种覆盖方式任选其一}
 
@@ -18,6 +18,7 @@ SDK 的全部编译期旋钮——TAI 收发缓冲与调度、MQTT 超时与包�
 /* agentic_kit_config.h —— 只写要改的，其余用 SDK 默认 */
 #define AGENTIC_KIT_RESPONSE_BUFFER_SIZE  8192   /* 产品 DP schema 大 */
 #define AGENTIC_KIT_TAI_FRAG_BUF_SIZE    16000U  /* ESP32 无 PSRAM：缩小收包缓冲 */
+#define AGENTIC_KIT_LOG_LEVEL                2   /* 量产只留 error+warn；代价见下文"日志"一节 */
 ```
 
 ESP-IDF 工程（SDK 以组件形式编译）：把文件放进项目任意目录，加一行让组件看得到它——
@@ -39,7 +40,8 @@ cmake -B build -DCMAKE_C_FLAGS="-I<config 所在目录>"
 
 ```cmake
 target_compile_definitions(my_sdk_target PRIVATE
-    AGENTIC_KIT_RESPONSE_BUFFER_SIZE=8192)
+    AGENTIC_KIT_RESPONSE_BUFFER_SIZE=8192
+    AGENTIC_KIT_LOG_LEVEL=2)
 ```
 
 ### 方式三：`AGENTIC_KIT_USER_CONFIG` 指定任意文件名 {#方式三-agentic_kit_user_config-指定任意文件名}
@@ -58,7 +60,7 @@ target_compile_definitions(my_sdk_target PRIVATE
 
 ## 为什么这样设计 {#为什么这样设计}
 
-**为什么默认值分散在各子系统、覆盖挂载点却只有一个。** 这些默认值原本散落在各调用点，缓冲大小实际是**产品属性**（schema 多大、有没有 PSRAM、音频帧长多少），选型时需要按内存预算逐项审；生产事故复盘时也要能一眼回答"这块内存是哪个旋钮、为什么是这个值"。现在默认值跟着所属子系统走——FreeRTOS 任务在 `pal/pal_config_defaults.h`、模块旋钮在各自 include/——审预算、做评审时对着所属文件即可。而集成方覆盖的**捡起逻辑**只存在于 `common/log.h` 一处：SDK 每个编译单元都包含这个头，各 `*_config_defaults.h` 也都先包含它，因此任何 `#ifndef` 默认值生效前，你的覆盖一定已经就位——一份 `agentic_kit_config.h` 打动全部 18 个旋钮，不需要按子系统拆多个覆盖文件。
+**为什么默认值分散在各子系统、覆盖挂载点却只有一个。** 这些默认值原本散落在各调用点，缓冲大小实际是**产品属性**（schema 多大、有没有 PSRAM、音频帧长多少），选型时需要按内存预算逐项审；生产事故复盘时也要能一眼回答"这块内存是哪个旋钮、为什么是这个值"。现在默认值跟着所属子系统走——日志在 `common/log.h`、FreeRTOS 任务在 `pal/pal_config_defaults.h`、模块旋钮在各自 include/——审预算、做评审时对着所属文件即可。而集成方覆盖的**捡起逻辑**只存在于 `common/log.h` 一处：SDK 每个编译单元都包含这个头，各 `*_config_defaults.h` 也都先包含它，因此任何 `#ifndef` 默认值生效前，你的覆盖一定已经就位——一份 `agentic_kit_config.h` 打动全部 19 个旋钮，不需要按子系统拆多个覆盖文件。
 
 **为什么都加 `AGENTIC_KIT_` 前缀。** 撞名不是假设出来的风险：coreMQTT 自带的 `core_mqtt_config_defaults.h` 定义了同名 `MQTT_SEND_TIMEOUT_MS`（默认 20000U），与 SDK 的 2000U 谁生效取决于包含顺序；`LOG_LEVEL` 也被多个平台 SDK 占用。前缀把这些名字搬进 SDK 自己的命名空间——你的 `-D` 不会再打到别人的宏，别人的也不会打到你的。
 
@@ -66,9 +68,25 @@ target_compile_definitions(my_sdk_target PRIVATE
 
 **为什么是 `#ifndef` 默认 + 先包含你的文件，而不是让你直接改 SDK 文件。** 你不碰 SDK 源文件，升级没有合并冲突；你的文件里没写的旋钮自动跟随 SDK 默认值。
 
+## 日志：编译期闸门 + 运行时过滤，两层 {#日志编译期闸门--运行时过滤两层}
+
+`AGENTIC_KIT_LOG_LEVEL` 是整个 SDK 唯一的编译期日志上限：**0 = 全关，1 = error，2 = +warn，3 = +info，4 = +debug（默认）**。高于上限的日志在编译期整体消失——没有函数调用、不求值参数、格式字符串也不进固件（直接省 flash/RAM）。
+
+上限以下仍有运行时过滤：`log_set_level()`（默认 3 = INFO；rtc-tcp-client 的 `tai_set_log_level()` 是它的薄包装）。两层各管一件事：**编译期上限决定固件里"最多有什么"，运行时级别决定"此刻放行什么"**——运行时只能在上限以下收放，找不回没编译进去的行。
+
+因此典型组合是：**用默认上限 4 编译，量产在启动时 `log_set_level(2)` 压到 error + warn，现场排查时临时 `log_set_level(4)`**——不重编固件就能拿到全部日志。只有确定永远不需要 info/debug 时，才用 `AGENTIC_KIT_LOG_LEVEL` 把它们编译掉换 flash/RAM；上限一旦砍到 2，现场就再也无法看到 info/debug 了。
+
+> **迁移**：原来的 per-module `-DTAI_LOG_LEVEL=N` 已并入 `-DAGENTIC_KIT_LOG_LEVEL=N`。注意它现在作用于**整个 SDK**，不只 rtc-tcp-client。
+
 ## 旋钮速查 {#旋钮速查}
 
-默认值与详细理由以各 config 文件的注释为准；"何时调整"是最常见的场景提示。各表所在文件：PAL 表在 `pal/pal_config_defaults.h`；iot-client 两表在 `modules/iot-client/include/iot_client_config_defaults.h`；TAI 表在 `modules/rtc-tcp-client/include/tai_config_defaults.h`。
+默认值与详细理由以各 config 文件的注释为准；"何时调整"是最常见的场景提示。各表所在文件：全 SDK 日志表在 `common/log.h`；PAL 表在 `pal/pal_config_defaults.h`；iot-client 两表在 `modules/iot-client/include/iot_client_config_defaults.h`；TAI 表在 `modules/rtc-tcp-client/include/tai_config_defaults.h`。
+
+### 全 SDK {#全-sdk}
+
+| 旋钮 | 默认 | 何时调整 |
+|------|------|---------|
+| `AGENTIC_KIT_LOG_LEVEL` | 4（debug） | 量产降到 1–2（代价见上文）；见两层日志 |
 
 ### iot-client：MQTT {#iot-client-mqtt}
 
@@ -114,6 +132,8 @@ target_compile_definitions(my_sdk_target PRIVATE
 
 | 旧名 | 新名 |
 |------|------|
+| `LOG_LEVEL` | `AGENTIC_KIT_LOG_LEVEL` |
+| `TAI_LOG_LEVEL` | 并入 `AGENTIC_KIT_LOG_LEVEL`（现作用于整个 SDK） |
 | `MQTT_MAX_PACKET_SIZE` | `AGENTIC_KIT_MQTT_MAX_PACKET_SIZE` |
 | `MQTT_SEND_TIMEOUT_MS` | `AGENTIC_KIT_MQTT_SEND_TIMEOUT_MS` |
 | `MQTT_RECV_TIMEOUT_MS` | `AGENTIC_KIT_MQTT_RECV_TIMEOUT_MS` |
@@ -138,7 +158,7 @@ target_compile_definitions(my_sdk_target PRIVATE
 - **`TUYA_BLE_HAL_LOGI/LOGW/LOGE/HEXDUMP`** —— 定义在 `modules/tuya-ble/include/tuya_ble_prov.h`，是该公开头文件的端口绑定契约，由端口在包含前覆盖。
 - **`TUYA_BLE_RX_BUF_SIZE` / `TUYA_BLE_TX_BUF_SIZE` / `TUYA_BLE_TX_QUEUE_DEPTH`** —— 同样在 `tuya_ble_prov.h`，但原因不同：它们决定公共结构体 `tuya_ble_prov_state_t` 的布局，端口按它们设定自己的缓冲尺寸，属于端口 API 的一部分；改它们改的是端口要跟着重编、重定尺寸的结构体布局（该头文件本身声明布局不保证 ABI 稳定），不是构建旋钮。tuya-ble 目前因此没有任何编译期旋钮（`modules/tuya-ble/include/tuya_ble_config_defaults.h` 的文件头注释有完整说明）。
 - **`IOT_SDK_SW_VER` / `PV` / `BV` 与区域 ATOP 域名** —— `modules/iot-client/include/iot_client_config_defaults.h`，发版管理的值，不是构建旋钮（与旋钮同住一个头，但不走覆盖机制）。
-- **coreMQTT / coreHTTP 日志路由** —— `common/core_mqtt_config.h`、`common/core_http_config.h`；它们把 coreMQTT/coreHTTP 的内部日志路由到全局日志 facade，不是构建旋钮。
+- **coreMQTT / coreHTTP 日志路由** —— `common/core_mqtt_config.h`、`common/core_http_config.h`；路由后的日志行同样过 `AGENTIC_KIT_LOG_LEVEL` 闸门，无需单独调整。
 
 ## 怎么确认覆盖生效了 {#怎么确认覆盖生效了}
 

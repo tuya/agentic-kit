@@ -143,25 +143,25 @@ int tuya_ble_bigdata_on_downlink(tuya_ble_prov_state_t *state,
     uint16_t flag = ((uint16_t)payload[0] << 8) | payload[1];
     uint16_t subcmd = ((uint16_t)payload[2] << 8) | payload[3];
     if (flag & BIGDATA_FLAG_SEGMENTED) {
-        log_emit(LOG_WARN, "[ble] bigdata: segmented downlink unsupported");
+        TUYA_BLE_HAL_LOGW("bigdata: segmented downlink unsupported");
         return -1;
     }
     if (subcmd == TUYA_BLE_SUB_NCFG_STAT) {
         return send_netcfg_status(state);
     }
     if (subcmd != TUYA_BLE_SUB_WIFI_LIST) {
-        log_emit(LOG_WARN, "[ble] bigdata: unsupported subcommand 0x%04x", subcmd);
+        TUYA_BLE_HAL_LOGW("bigdata: unsupported subcommand 0x%04x", subcmd);
         return -1;
     }
     if (state->wifi_scan_pending) {
-        log_emit(LOG_WARN, "[ble] bigdata: WiFi scan already pending");
+        TUYA_BLE_HAL_LOGW("bigdata: WiFi scan already pending");
         return send_empty_list(state);
     }
 
     char ccode[3];
     uint16_t count = parse_count_and_ccode(payload + 4, len - 4, ccode);
     if (state->cfg.wifi_scan_request == NULL) {
-        log_emit(LOG_WARN, "[ble] bigdata: no WiFi scan provider");
+        TUYA_BLE_HAL_LOGW("bigdata: no WiFi scan provider");
         return send_empty_list(state);
     }
 
@@ -171,7 +171,7 @@ int tuya_ble_bigdata_on_downlink(tuya_ble_prov_state_t *state,
     if (state->cfg.wifi_scan_request(count, ccode, state->wifi_scan_token,
                                      state->cfg.wifi_scan_ctx) != 0) {
         state->wifi_scan_pending = false;
-        log_emit(LOG_WARN, "[ble] bigdata: WiFi scan start failed");
+        TUYA_BLE_HAL_LOGW("bigdata: WiFi scan start failed");
         return send_empty_list(state);
     }
     return 0;

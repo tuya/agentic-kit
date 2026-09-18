@@ -29,6 +29,11 @@
 
 #define TAG "pkt"
 
+/* Packet diagnostics have only INFO and DEBUG outcomes. Keep the entire
+ * formatter out of lower-ceiling builds so its calls, work and strings vanish
+ * together; tai_internal.h removes the corresponding call sites. */
+#if AGENTIC_KIT_LOG_LEVEL >= 3
+
 /* AGENTIC_KIT_TAI_LOG_MEDIA_SAMPLE_N default & docs: include/tai_config_defaults.h. */
 
 /* snprintf into buf at *pos; advances pos.  Bails (returning 0) if there is
@@ -533,6 +538,14 @@ void tai_log_packet(uint8_t proto_ver,
         }
     }
 
+#if AGENTIC_KIT_LOG_LEVEL < 4
+    /* Below a DEBUG ceiling the DEBUG dispatch at the bottom compiles away,
+     * so flood mode (sampling disabled, MIDDLE frames dynamically selecting
+     * DEBUG) would format a line nothing will emit -- discard before the
+     * expensive formatting, not after. */
+    if (log_level > TAI_LOG_INFO) return;
+#endif
+
     /* Runtime filter: bail before doing any expensive formatting. */
     if (log_get_level() < log_level) return;
 
@@ -575,5 +588,14 @@ void tai_log_packet(uint8_t proto_ver,
     bput(buf, cap, &pos, "}");
     buf[pos] = '\0';
 
-    log_emit(log_level, "[" TAG "] %s:  %s", dir, buf);
+    /* Only two runtime levels are possible here (INFO, or DEBUG in flood
+     * mode), so dispatch over the gated log_tag_* macros instead of calling
+     * log_emit directly: the ceiling then removes the call itself, and no
+     * module code holds a raw log_emit sink. */
+    if (log_level == TAI_LOG_DEBUG)
+        log_tag_debug(TAG, "%s:  %s", dir, buf);
+    else
+        log_tag_info(TAG, "%s:  %s", dir, buf);
 }
+
+#endif /* AGENTIC_KIT_LOG_LEVEL >= 3 */

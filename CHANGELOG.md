@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **BREAKING** `TAI_FRAG_BUF_SIZE` → `AGENTIC_KIT_TAI_FRAG_BUF_SIZE`, `RESPONSE_BUFFER_SIZE` → `AGENTIC_KIT_RESPONSE_BUFFER_SIZE`, and likewise the rest — old→new table in `docs-site/docs/guides/compile-time-knobs.md`.
   - Knob defaults live at: the override pickup in `common/log.h`; PAL task sizing in `pal/pal_config_defaults.h`; per-module knobs in each module's include/ (`iot_client_config_defaults.h`, `tai_config_defaults.h`, `tuya_ble_config_defaults.h` — none yet).
   - Removed the dead `IOT_DO_NOT_USE_CUSTOM_CONFIG` flag from the ESP-IDF component.
+- SDK-wide — one compile-time log ceiling `AGENTIC_KIT_LOG_LEVEL` (0–4, default 4) gates every SDK log macro via the new `log_tag_*` facade in `common/log.h`; module code no longer calls `log_emit()` directly (PR pending).
+  - **BREAKING** `-DTAI_LOG_LEVEL=N` (rtc-tcp-client only) and the dead `-DLOG_LEVEL` both move to `-DAGENTIC_KIT_LOG_LEVEL=N`, which now silences the whole SDK at compile time; runtime filtering stays `log_set_level()`.
+  - rtc-tcp-client packet logging keeps only INFO/DEBUG runtime levels, dispatches over the gated macros, and its JSON formatter compiles out below INFO.
 - tuya-ble — the SDK-internal log-facade binding, scan-token rotation and pending-credential
   delivery are each defined once in `tuya_ble_internal.h` instead of being repeated per module (PR pending).
 - tuya-ble — bounded per-state Trsmitr reassembly, queued TX with backpressure, and configurable radio capability (#35).

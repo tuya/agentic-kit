@@ -21,14 +21,14 @@
 #include <stddef.h>
 
 /* -------------------------------------------------------------------------
- * Build-time config: the integrator-override pickup. Every SDK subsystem
- * keeps its knob defaults in its own *_config_defaults.h
- * (modules/<m>/include/, pal/pal_config_defaults.h); the one thing they
- * all share is this header, because every SDK translation unit includes
- * it.  That makes log.h the right home for the override pickup: it must
- * run BEFORE any #ifndef knob default, whichever file that default lives
- * in -- and each defaults file includes this header first for exactly
- * that reason.
+ * Build-time config: the integrator-override pickup + the SDK-wide log
+ * ceiling. Every SDK subsystem keeps its knob defaults in its own
+ * *_config_defaults.h (modules/<m>/include/, pal/pal_config_defaults.h);
+ * the one thing they all share is this header, because every SDK
+ * translation unit includes it.  That makes log.h the right home for the
+ * override pickup: it must run BEFORE any #ifndef knob default, whichever
+ * file that default lives in -- and each defaults file includes this
+ * header first for exactly that reason.
  *
  * Integrators override by defining a knob FIRST -- pick whichever fits the
  * build system (all of them must apply to every target that compiles SDK
@@ -39,8 +39,8 @@
  *      picked up automatically, before every default.
  *   2. Add -D<NAME>=<value> to the compile options.
  *   3. -DAGENTIC_KIT_USER_CONFIG='"my_kit_opts.h"' names an override
- *      header with an arbitrary file name (its directory still needs
- *      to be on the include path) -- for toolchains without __has_include.
+ *      header with an arbitrary file name (its directory still needs to
+ *      be on the include path) -- for toolchains without __has_include.
  *      When set, it wins and the agentic_kit_config.h search is skipped.
  *
  * Why the SDK never owns a file named agentic_kit_config.h: a quoted
@@ -74,6 +74,18 @@
 #endif
 #endif
 
+/* The single compile-time log ceiling for the whole SDK: every log macro
+ * (log_tag_* below; iot-client's log_error family, TAI_LOG* and
+ * TUYA_BLE_HAL_LOG* re-tagged on top of those) compiles out above it --
+ * no call, no argument evaluation, no format string in the image.
+ *   0 = none, 1 = error, 2 = +warn, 3 = +info, 4 = +debug (default).
+ * Below the ceiling, log_emit()'s runtime filter (log_set_level()) still
+ * applies on top. The former per-module TAI_LOG_LEVEL gate is absorbed
+ * here: one knob for the whole SDK. */
+#ifndef AGENTIC_KIT_LOG_LEVEL
+#define AGENTIC_KIT_LOG_LEVEL 4 /* LOG_DEBUG */
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -84,8 +96,38 @@ extern "C" {
 #define LOG_INFO   3
 #define LOG_DEBUG  4
 
-#ifndef LOG_LEVEL
-#  define LOG_LEVEL LOG_DEBUG  /* compile-time ceiling */
+/* Compile-time ceiling — the single gate for SDK logging.
+ *
+ * AGENTIC_KIT_LOG_LEVEL (default 4 = debug) is the maximum level compiled
+ * into the SDK. Every log macro the SDK itself uses dispatches through one
+ * of the four below — the per-module families (iot-client's log_error,
+ * TAI_LOG*, TUYA_BLE_HAL_LOG*) are thin re-tags of these — and expands to
+ * ((void)0) above the ceiling: no call, no argument evaluation, no format
+ * string in the image. Below the ceiling, log_emit()'s runtime filter
+ * (log_set_level()) still applies on top.
+ *
+ * `tag` must be a string literal (folded into the format so the facade
+ * stays tag-agnostic). Direct log_emit() calls bypass the ceiling and are
+ * runtime-filtered only — reserved for runtime-chosen levels. */
+#if AGENTIC_KIT_LOG_LEVEL >= 1
+#define log_tag_error(tag, fmt, ...) log_emit(LOG_ERROR, "[" tag "] " fmt, ##__VA_ARGS__)
+#else
+#define log_tag_error(tag, fmt, ...) ((void)0)
+#endif
+#if AGENTIC_KIT_LOG_LEVEL >= 2
+#define log_tag_warn(tag, fmt, ...)  log_emit(LOG_WARN,  "[" tag "] " fmt, ##__VA_ARGS__)
+#else
+#define log_tag_warn(tag, fmt, ...)  ((void)0)
+#endif
+#if AGENTIC_KIT_LOG_LEVEL >= 3
+#define log_tag_info(tag, fmt, ...)  log_emit(LOG_INFO,  "[" tag "] " fmt, ##__VA_ARGS__)
+#else
+#define log_tag_info(tag, fmt, ...)  ((void)0)
+#endif
+#if AGENTIC_KIT_LOG_LEVEL >= 4
+#define log_tag_debug(tag, fmt, ...) log_emit(LOG_DEBUG, "[" tag "] " fmt, ##__VA_ARGS__)
+#else
+#define log_tag_debug(tag, fmt, ...) ((void)0)
 #endif
 
 /* Runtime level type — int-typedef so the LOG_* macros above remain
