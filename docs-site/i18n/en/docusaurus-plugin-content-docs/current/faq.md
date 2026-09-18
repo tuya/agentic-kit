@@ -7,21 +7,6 @@ slug: /faq
 
 # Frequently Asked Questions (FAQ)
 
-## What is the difference between Agentic-kit and TuyaOpen, and how do I choose? {#agentic-kit-和-tuyaopen-的区别是什么如何选择}
-
-**Agentic-kit** is a lightweight C SDK focused on integrating AI capabilities; its core features are voice chat, image understanding, and MCP device commands. It has a small footprint and few dependencies, making it suitable for RTOS or bare-metal environments.
-
-**TuyaOpen** is Tuya's full-featured IoT SDK, covering complete IoT capabilities such as WiFi Provisioning, OTA upgrades, DP control, scene linkage, and device management. It has a larger footprint.
-
-**Selection guidance:**
-
-| Product type | Recommended approach |
-|----------|----------|
-| AI interaction is the core feature (AI speakers, image-based learning devices, AI robots) | Agentic-kit |
-| Traditional smart devices with added AI capabilities (smart lights + voice control) | TuyaOpen + AI plugin |
-| Complete IoT management + AI required | TuyaOpen as the primary SDK, with Agentic-kit modules as a supplement |
-| Resource-constrained MCUs (RAM < 512 KB) | Agentic-kit (lighter weight) |
-
 ## How do I request RTC Client library support for a new platform/architecture? {#如何请求-rtc-client-库支持新的平台架构}
 
 The RTC Client (`stm_open_*`) is provided as a precompiled static library. It currently supports:
