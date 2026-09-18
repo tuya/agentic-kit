@@ -1,7 +1,7 @@
 #include "http_client_interface.h"
 #include "core_http_client.h"
 #include "transport_interface.h"
-#include "iot_config_defaults.h"
+#include "iot_client_config_defaults.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -223,31 +223,27 @@ http_client_status_t http_client_request(const http_client_request_t *request,
 
     // One block holds both the request-header and response buffers (both alive
     // through HTTPClient_Send) -- one allocation instead of two.
-    /* Both are overridable at build time (-D...) because the right size is a
-     * property of the PRODUCT, not of the SDK: an ATOP activation response
-     * carries the device's DP schema, so a product with a moderately large
-     * schema overflows any fixed default. Observed on a Tuya alarm-clock
-     * product: contentLength 6558 with a 4096 buffer -> HTTPInsufficientMemory,
-     * even though the server had returned 200 and the activation had SUCCEEDED
-     * on its side. The buffer is taken from the PAL allocator, so raising it
+    /* Sizes are overridable at build time (-D or your own agentic_kit_config.h
+     * on the include path; defaults and rationale in
+     * include/iot_client_config_defaults.h) because the right size is a property of
+     * the PRODUCT, not of the SDK: an ATOP activation response carries the
+     * device's DP schema, so a product with a moderately large schema
+     * overflows any fixed default. Observed on a Tuya alarm-clock product:
+     * contentLength 6558 with a 4096 buffer -> HTTPInsufficientMemory, even
+     * though the server had returned 200 and the activation had SUCCEEDED on
+     * its side. The buffer is taken from the PAL allocator, so raising it
      * lands in PSRAM on targets that route large allocations there. */
-    #ifndef REQUEST_HEADER_BUFFER_SIZE
-    #define REQUEST_HEADER_BUFFER_SIZE 1024
-    #endif
-    #ifndef RESPONSE_BUFFER_SIZE
-    #define RESPONSE_BUFFER_SIZE 4096
-    #endif
-    uint8_t *http_buf = (uint8_t *)pal->malloc(REQUEST_HEADER_BUFFER_SIZE + RESPONSE_BUFFER_SIZE);
+    uint8_t *http_buf = (uint8_t *)pal->malloc(AGENTIC_KIT_REQUEST_HEADER_BUFFER_SIZE + AGENTIC_KIT_RESPONSE_BUFFER_SIZE);
     if (!http_buf) {
         log_error("Failed to allocate HTTP buffers");
         disconnect(network_ctx);
         return HTTP_CLIENT_ERROR;
     }
     uint8_t *request_header_buffer = http_buf;
-    uint8_t *response_buffer       = http_buf + REQUEST_HEADER_BUFFER_SIZE;
+    uint8_t *response_buffer       = http_buf + AGENTIC_KIT_REQUEST_HEADER_BUFFER_SIZE;
     HTTPRequestHeaders_t request_headers = {
         .pBuffer = request_header_buffer,
-        .bufferLen = REQUEST_HEADER_BUFFER_SIZE,
+        .bufferLen = AGENTIC_KIT_REQUEST_HEADER_BUFFER_SIZE,
         .headersLen = 0
     };
 
@@ -288,7 +284,7 @@ http_client_status_t http_client_request(const http_client_request_t *request,
 
     HTTPResponse_t http_response = {
         .pBuffer = response_buffer,
-        .bufferLen = RESPONSE_BUFFER_SIZE,
+        .bufferLen = AGENTIC_KIT_RESPONSE_BUFFER_SIZE,
         .pHeaderParsingCallback = NULL,
         .getTime = NULL,
         .pHeaders = NULL,
@@ -351,10 +347,10 @@ http_client_status_t http_client_request(const http_client_request_t *request,
         if (http_status == HTTPInsufficientMemory) {
             log_error("HTTP response does not fit: need %u B body + %u B headers, "
                       "buffer is %d B (server said %u). Rebuild with a larger "
-                      "-DRESPONSE_BUFFER_SIZE.",
+                      "-DAGENTIC_KIT_RESPONSE_BUFFER_SIZE.",
                       (unsigned)http_response.contentLength,
                       (unsigned)http_response.headersLen,
-                      RESPONSE_BUFFER_SIZE,
+                      AGENTIC_KIT_RESPONSE_BUFFER_SIZE,
                       (unsigned)http_response.statusCode);
         } else {
             log_error("HTTP request failed: %d", http_status);

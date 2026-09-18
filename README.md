@@ -72,7 +72,7 @@ cmake --build build-examples
 
 ## 版本与发布
 
-SDK 版本定义在 `modules/iot-client/src/iot_config_defaults.h` 的 `SDK_VERSION` 宏中，有两种状态（类似 maven 的 release / `-SNAPSHOT`）：
+SDK 版本定义在 `modules/iot-client/include/iot_client_config_defaults.h` 的 `SDK_VERSION` 宏中，有两种状态（类似 maven 的 release / `-SNAPSHOT`）：
 
 - `agentic-kit_X.Y.Z` — 已发布状态（该值对应 `vX.Y.Z` 标签）
 - `agentic-kit_X.Y.Z-dev` — 开发周期状态

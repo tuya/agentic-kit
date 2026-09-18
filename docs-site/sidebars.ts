@@ -58,6 +58,7 @@ const sidebars: SidebarsConfig = {
             'guides/atop-generic-call',
             'guides/tls-cert-verification',
             'guides/porting-to-new-platform',
+            'guides/compile-time-knobs',
           ],
         },
       ],

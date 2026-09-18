@@ -693,7 +693,7 @@ static int tai_link_up(tai_ctx_t *ctx, demo_reconnect_t *r)
  * Deliberately deadline-driven rather than a fixed iteration count:
  * iot_client_process() DISCARDS its timeout argument (mqtt.c does
  * `(void)timeout_ms;`) and blocks for up to the compile-time
- * MQTT_RECV_TIMEOUT_MS -- 1000 ms, five times the 200 we pass. Counting
+ * AGENTIC_KIT_MQTT_RECV_TIMEOUT_MS -- 1000 ms, five times the 200 we pass. Counting
  * iterations therefore overshoots by 5x on an idle link. Overshoot here is
  * bounded by one recv budget instead. */
 static void pump_for(iot_client_t *iot, int seconds)

@@ -1,4 +1,4 @@
-#include "iot_config_defaults.h"
+#include "iot_client_config_defaults.h"
 
 extern const pal_t *tai_pal_posix(void);
 

@@ -1,6 +1,6 @@
 #include "iot_dns.h"
 #include "http_client_interface.h"
-#include "iot_config_defaults.h"
+#include "iot_client_config_defaults.h"
 #include "cipher_wrapper.h"
 
 #include "cJSON.h"

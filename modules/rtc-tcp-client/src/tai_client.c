@@ -115,12 +115,12 @@ static void log_send_packet(tai_ctx_t *ctx,
                             const uint8_t *app_bytes, size_t app_len)
 {
     uint8_t     pkt_type;
-    tai_attr_t  attrs[TAI_MAX_ATTRS];
+    tai_attr_t  attrs[AGENTIC_KIT_TAI_MAX_ATTRS];
     int         attr_count = 0;
     const uint8_t *payload;
     size_t         payload_len;
     if (tai_packet_decode(ctx->proto_ver, app_bytes, app_len,
-                          &pkt_type, attrs, TAI_MAX_ATTRS, &attr_count,
+                          &pkt_type, attrs, AGENTIC_KIT_TAI_MAX_ATTRS, &attr_count,
                           &payload, &payload_len) == TAI_OK) {
         tai_log_packet(ctx->proto_ver, 1,
                        pkt_type, attrs, attr_count, payload, payload_len);
@@ -187,7 +187,7 @@ static int send_one_frame_sg(tai_ctx_t *ctx, uint8_t frag_flag, uint16_t seq,
      * the frame header overwrites its front; the HMAC above sampled the
      * original bytes, which the in-place shift preserves. Capped by the smaller
      * of the coalesce limit and tx_ctrl_buf so shrinking either knob stays safe. */
-    if (wire_len < TAI_FRAME_COALESCE_LIMIT &&
+    if (wire_len < AGENTIC_KIT_TAI_FRAME_COALESCE_LIMIT &&
         wire_len <= sizeof(ctx->tx_ctrl_buf)) {
         uint8_t *buf = ctx->tx_ctrl_buf;
         if (pay_len)                                  /* pay is NULL when 0 */
@@ -221,11 +221,11 @@ static int send_app_sg(tai_ctx_t *ctx, size_t hdr_len,
                        const uint8_t *payload, size_t payload_len)
 {
     if (TAI_FRAME_HDR_LEN + hdr_len > sizeof(ctx->tx_hdr_buf)) return TAI_ERR_MEM;
-    if (hdr_len >= TAI_MAX_FRAGMENT_PAYLOAD)                   return TAI_ERR_MEM;
+    if (hdr_len >= AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD)                   return TAI_ERR_MEM;
 
     size_t total = hdr_len + payload_len;
 
-    if (total <= TAI_MAX_FRAGMENT_PAYLOAD) {
+    if (total <= AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD) {
         uint16_t seq = tai_next_seq(ctx);
         int rc = send_one_frame_sg(ctx, TAI_FRAG_NONE, seq,
                                    hdr_len, payload, payload_len);
@@ -237,12 +237,12 @@ static int send_app_sg(tai_ctx_t *ctx, size_t hdr_len,
     }
 
     /* Fragment over the logical hdr||payload concat. The header lives only in
-     * the first fragment (hdr_len < TAI_MAX_FRAGMENT_PAYLOAD guarantees the
+     * the first fragment (hdr_len < AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD guarantees the
      * whole header plus some payload fits the first chunk). */
     size_t offset = 0;
     while (offset < total) {
         size_t chunk = total - offset;
-        if (chunk > TAI_MAX_FRAGMENT_PAYLOAD) chunk = TAI_MAX_FRAGMENT_PAYLOAD;
+        if (chunk > AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD) chunk = AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD;
         uint8_t flag = (offset == 0)                ? TAI_FRAG_FIRST
                      : (offset + chunk >= total)    ? TAI_FRAG_LAST
                                                     : TAI_FRAG_MIDDLE;
@@ -473,11 +473,11 @@ int tai_connect(tai_ctx_t *ctx)
 
     uint16_t seq = tai_next_seq(ctx);
     /* 5-byte frame hdr + the ClientHello app block (built into tx_ctrl_buf, so
-     * bounded by TAI_TX_CTRL_BUF_SIZE). Sized to that bound rather than a fixed
+     * bounded by AGENTIC_KIT_TAI_TX_CTRL_BUF_SIZE). Sized to that bound rather than a fixed
      * 256 so a long client_id/device_id frames fine — the only limit is the
      * same tx_ctrl_buf that the build step already enforces. Unsigned, so no
      * signature trailer. */
-    uint8_t ch_frame[TAI_FRAME_HDR_LEN + TAI_TX_CTRL_BUF_SIZE];
+    uint8_t ch_frame[TAI_FRAME_HDR_LEN + AGENTIC_KIT_TAI_TX_CTRL_BUF_SIZE];
     int frame_len = tai_frame_encode(TAI_FRAG_NONE, seq,
                                       ctx->tx_ctrl_buf, (size_t)app_len,
                                       ctx->sign_key, 0,  /* sig_len=0 */
@@ -593,7 +593,7 @@ void tai_disconnect(tai_ctx_t *ctx)
     TAI_LOGI(ctx->pal, TAG, "disconnecting");
 
     /* Stop and join the background worker FIRST. With running=0 the worker exits
-     * its next loop pass -- bounded by TAI_WORKER_POLL_CAP_MS (~200 ms) even when
+     * its next loop pass -- bounded by AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS (~200 ms) even when
      * idle, so this no longer blocks up to a whole ping interval. Joining BEFORE
      * we send SessionClose / close the socket is deliberate: it guarantees the
      * worker can neither (a) race our send on the shared TX buffers, nor (b)
@@ -649,7 +649,7 @@ static int process_app_packet(tai_ctx_t *ctx,
                                const uint8_t *app_bytes, size_t app_len)
 {
     uint8_t     pkt_type;
-    tai_attr_t  attrs[TAI_MAX_ATTRS];
+    tai_attr_t  attrs[AGENTIC_KIT_TAI_MAX_ATTRS];
     int         attr_count = 0;
     const uint8_t *payload;
     size_t         payload_len;
@@ -657,7 +657,7 @@ static int process_app_packet(tai_ctx_t *ctx,
     int rc = tai_packet_decode(ctx->proto_ver,
                                 app_bytes, app_len,
                                 &pkt_type,
-                                attrs, TAI_MAX_ATTRS, &attr_count,
+                                attrs, AGENTIC_KIT_TAI_MAX_ATTRS, &attr_count,
                                 &payload, &payload_len);
     if (rc != TAI_OK) {
         TAI_LOGW(ctx->pal, TAG, "packet decode failed: %d (app_len=%zu)", rc, app_len);
@@ -1286,8 +1286,8 @@ static void *worker_thread(void *arg)
                                ? 1
                                : (uint32_t)(ctx->ping_interval_ms - since_ping);
         /* Cap the idle block so tai_disconnect (running=0) is noticed within
-         * ~TAI_WORKER_POLL_CAP_MS instead of waiting out a whole ping interval. */
-        if (wait_ms > TAI_WORKER_POLL_CAP_MS) wait_ms = TAI_WORKER_POLL_CAP_MS;
+         * ~AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS instead of waiting out a whole ping interval. */
+        if (wait_ms > AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS) wait_ms = AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS;
 
         uint64_t drain_start = ctx->pal->time_ms();
         int n = tai_recv_data(ctx, wait_ms);
@@ -1306,7 +1306,7 @@ static void *worker_thread(void *arg)
             /* Bound the greedy drain so periodic ping / liveness / shutdown
              * checks run even under a sustained flood; leftover bytes wait for
              * the next pass. */
-            if (ctx->pal->time_ms() - drain_start > TAI_DRAIN_BUDGET_MS)
+            if (ctx->pal->time_ms() - drain_start > AGENTIC_KIT_TAI_DRAIN_BUDGET_MS)
                 break;
             n = tai_recv_data(ctx, 0);   /* drain remainder non-blocking */
         }

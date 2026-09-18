@@ -27,7 +27,7 @@
 #include "cipher_wrapper.h"
 #include "rng.h"
 
-#include "iot_config_defaults.h"
+#include "iot_client_config_defaults.h"
 #include "cJSON.h"
 #include "mbedtls/base64.h"
 #include "mbedtls/md5.h"

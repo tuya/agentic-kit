@@ -418,9 +418,9 @@ static void test_proto_client_hello(void)
     /* Remaining 32 bytes should be our fixed encrypt_random */
     uint8_t expected_random[32]; memset(expected_random, 0xBB, 32);
     CHECK(memcmp(ss->value + 1, expected_random, 32) == 0);
-    /* Attr: max-fragment-len = TAI_MAX_FRAGMENT_PAYLOAD */
+    /* Attr: max-fragment-len = AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD */
     const tai_attr_t *mf = tai_attr_find(attrs, nattrs, TAI_ATTR_MAX_FRAGMENT_LEN);
-    CHECK(mf && tai_attr_u32(mf) == TAI_MAX_FRAGMENT_PAYLOAD);
+    CHECK(mf && tai_attr_u32(mf) == AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD);
     PASS();
 
     TEST("build_session_new");
