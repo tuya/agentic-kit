@@ -1,0 +1,34 @@
+{
+  "version.label": {
+    "message": "Current",
+    "description": "The label for version current"
+  },
+  "sidebar.docs.category.教程": {
+    "message": "Tutorials",
+    "description": "The label for category '教程' in sidebar 'docs'"
+  },
+  "sidebar.docs.category.配网": {
+    "message": "Provisioning",
+    "description": "The label for category '配网' in sidebar 'docs'"
+  },
+  "sidebar.docs.category.AI功能": {
+    "message": "AI Features",
+    "description": "The label for category 'AI功能' in sidebar 'docs'"
+  },
+  "sidebar.docs.category.用户指南": {
+    "message": "User Guides",
+    "description": "The label for category '用户指南' in sidebar 'docs'"
+  },
+  "sidebar.docs.category.云端配置": {
+    "message": "Cloud Configuration",
+    "description": "The label for category '云端配置' in sidebar 'docs'"
+  },
+  "sidebar.docs.category.端侧处理": {
+    "message": "Device-Side Handling",
+    "description": "The label for category '端侧处理' in sidebar 'docs'"
+  },
+  "sidebar.docs.category.SDK 参考": {
+    "message": "SDK Reference",
+    "description": "The label for category 'SDK 参考' in sidebar 'docs'"
+  }
+}

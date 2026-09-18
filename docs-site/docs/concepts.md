@@ -9,7 +9,7 @@ slug: /concepts
 
 <div className="doc-lead">先理解身份、连接、会话和能力调用之间的关系，再进入具体 API。Agentic-kit 的设计重点是让终端保持轻量，同时把平台能力与客户自有能力放在清晰、可替换的边界中。</div>
 
-## 身份与激活
+## 身份与激活 {#身份与激活}
 
 <div className="doc-terms">
   <div><div><strong>授权码</strong><small>LICENSE</small></div><section><p>每台设备出厂时持有的身份凭证，由全球唯一的 <code>uuid</code> 和与之配对的 <code>authkey</code> 组成。它用于证明设备有权激活，不等同于激活后的设备 ID。</p><code>出厂身份：uuid + authkey -&gt; 激活成功 -&gt; 云端正式身份：devid + secret_key + local_key</code></section></div>
@@ -17,7 +17,7 @@ slug: /concepts
   <div><div><strong>设备激活</strong><small>ACTIVATION</small></div><section><p>把设备从出厂状态变为已联网、已绑定用户并已注册云端的过程。激活通常只执行一次，设备应安全持久化返回凭据，后续启动直接使用。</p></section></div>
 </div>
 
-## Agent 与会话
+## Agent 与会话 {#agent-与会话}
 
 <div className="doc-terms">
   <div><div><strong>AI Agent</strong><small>BEHAVIOR</small></div><section><p>定义产品如何理解、决策和表达。平台侧可配置系统提示词、语言、TTS、工作流和可调用工具；一个产品可使用默认 Agent，也可按项目配置切换。</p><code>PID 回答“这是什么产品”，Agent 回答“这个产品如何交流和行动”。</code></section></div>
@@ -25,7 +25,7 @@ slug: /concepts
   <div><div><strong>Agent Core</strong><small>PLATFORM RUNTIME</small></div><section><p>Tuya Physical AI 平台中的 Agent 编排与运行层，负责上下文组装、工具编排、模型路由、记忆框架和运行保障。它属于云端平台能力，不随端侧 SDK 编译进设备。</p></section></div>
 </div>
 
-## tRTC 实时通道
+## tRTC 实时通道 {#trtc-实时通道}
 
 tRTC 是设备与 Tuya AI 云端之间的加密实时通道。Agentic-kit 当前提供 TCP 开源实现和 UDP 预编译静态库两类客户端，二者在交付方式、平台支持和重连责任上有所不同，应结合目标芯片、弱网需求与源码控制要求选择。
 
@@ -38,7 +38,7 @@ tRTC 是设备与 Tuya AI 云端之间的加密实时通道。Agentic-kit 当前
 
 <div className="doc-callout doc-callout--neutral"><b>实时通道不等于 AI 模型</b><p>通道负责把音频、图像、视频、文本、事件和工具结果送到合适的能力，并把回复与指令送回终端。模型和算法可由涂鸦平台、客户云或端侧实现。</p></div>
 
-## 多模态流与事件
+## 多模态流与事件 {#多模态流与事件}
 
 <div className="doc-card-grid doc-card-grid--two">
   <article><span>UPLINK / 终端 -&gt; 平台</span><h3>输入与状态</h3><ul><li>流式音频、音频结束</li><li>图像与视频帧</li><li>文本、设备事件、工具执行结果</li><li>设备状态和数据点上报</li></ul></article>
@@ -47,7 +47,7 @@ tRTC 是设备与 Tuya AI 云端之间的加密实时通道。Agentic-kit 当前
 
 终端应用需要为采集、缓冲、播放、打断和失败恢复建立明确状态机。例如使用云端 VAD 时，设备持续发送音频，收到服务端端点事件后结束本轮上行；本地 VAD 是可选优化，可用于电池、带宽或高交互要求场景。
 
-## PAL：平台抽象层
+## PAL：平台抽象层 {#pal平台抽象层}
 
 PAL 是 Agentic-kit 的可移植边界。SDK 不直接绑定某个 RTOS 或芯片，而是通过函数指针使用 TCP、线程、互斥锁、时间和内存。官方提供 POSIX 与 FreeRTOS 实现，新平台可据此适配。
 
@@ -57,7 +57,7 @@ PAL 是 Agentic-kit 的可移植边界。SDK 不直接绑定某个 RTOS 或芯�
 | 并发 | `thread_create / join`、mutex | 线程栈、回调上下文、锁粒度 |
 | 系统 | `time_ms`、`malloc / free` | 时钟单调性、内存峰值与碎片 |
 
-## 物理设备控制：DP 与端侧 MCP
+## 物理设备控制：DP 与端侧 MCP {#物理设备控制dp-与端侧-mcp}
 
 Agentic-kit 提供两种面向物理设备的控制方式。客户可以根据设备能力是否标准化、调用参数是否动态，以及是否需要由 Agent 理解上下文，自主选择数据点或端侧 MCP，也可以在同一产品中分别承载不同类型的能力。
 
@@ -74,7 +74,7 @@ Agentic-kit 提供两种面向物理设备的控制方式。客户可以根据�
 
 <div className="doc-callout doc-callout--info"><b>重连后的状态同步由应用负责</b><p>SDK 不会自动把恢复的本地 DP 状态重新上报。应用应在每次连接或重连成功后刷新必要状态，避免云端和设备端显示不一致。</p></div>
 
-## MCP 的设备侧与云侧角色
+## MCP 的设备侧与云侧角色 {#mcp-的设备侧与云侧角色}
 
 MCP 用统一协议描述工具名称、用途、参数和返回值。在 Physical AI 中，工具既可能位于设备，也可能位于客户或第三方云端；端侧 MCP 是上节两种物理设备控制方式之一。
 
@@ -85,7 +85,7 @@ MCP 用统一协议描述工具名称、用途、参数和返回值。在 Physic
 
 <div className="doc-callout"><b>物理动作需要更严格的边界</b><p>工具声明只是调用入口。具身机器人或空间助手执行门锁、窗帘、移动、抓取等动作前，还需校验设备绑定、用户授权、参数范围、当前状态和失败回退。</p></div>
 
-## 感知、模型与记忆
+## 感知、模型与记忆 {#感知模型与记忆}
 
 Physical AI 的体验来自感知、推理、记忆和执行协同。这些能力不必部署在同一位置，也不必由同一家服务提供。
 
@@ -97,7 +97,7 @@ Physical AI 的体验来自感知、推理、记忆和执行协同。这些能�
 
 例如语音链路可组合流式 ASR、动态热词、云端 VAD 和客户自有 TTS；宠物相机可连接宠物个体识别、行为理解和事件记录；机器人可把平台任务规划与本体控制、安全策略和已授权家庭设备组合。部署位置取决于时延、功耗、带宽、隐私、算力和业务控制权。
 
-## 一张边界表
+## 一张边界表 {#一张边界表}
 
 | 层 | 主要职责 | 由谁控制 |
 | --- | --- | --- |
@@ -106,7 +106,7 @@ Physical AI 的体验来自感知、推理、记忆和执行协同。这些能�
 | Tuya Physical AI 平台 | Agent 编排、平台模型、记忆、知识、设备与行业服务 | 按需选用 |
 | 客户服务 | 私有模型、核心业务、私域知识与差异化算法 | 客户，可通过开放能力接入 |
 
-## 下一步
+## 下一步 {#下一步}
 
 - [系统架构](./architecture) - 了解各模块如何协作
 - [快速开始](./tutorials/quick-start) - 在电脑上运行第一个示例

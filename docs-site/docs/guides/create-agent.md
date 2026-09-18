@@ -19,14 +19,14 @@ sidebar_position: 3
 Agentic-kit 的前提条件。参见[介绍](../intro)中的接入流程。
 :::
 
-## 前置条件
+## 前置条件 {#前置条件}
 
 - 已注册 [Tuya IoT 平台](https://iot.tuya.com) 账号
 - 已了解你的产品形态（音箱、拍学机、机器人等）
 
-## 步骤
+## 步骤 {#步骤}
 
-### 1. 创建产品
+### 1. 创建产品 {#1-创建产品}
 
 1. 登录 Tuya IoT 平台
 2. 进入 **产品** > **产品开发** > **创建产品**
@@ -37,7 +37,7 @@ Agentic-kit 的前提条件。参见[介绍](../intro)中的接入流程。
 只有支持 AI 功能的产品方案，开发页面里才有 **产品 AI 功能** 入口（这类产品带 AI 标识）。方案选错了，第 3 步无处可配——这不是配置漏了，得换方案或品类。
 :::
 
-### 2. 配置 AI Agent
+### 2. 配置 AI Agent {#2-配置-ai-agent}
 
 1. 在产品页面找到 **AI 配置** 或 **智能体管理**
 2. 创建或绑定一个 AI Agent
@@ -48,7 +48,7 @@ Agentic-kit 的前提条件。参见[介绍](../intro)中的接入流程。
 
 详细步骤参考 Tuya 官方文档：[创建 Agent](https://developer.tuya.com/cn/docs/iot/ai-agent-management?id=Kdxr4v7uv4fud)
 
-### 3. 把智能体投放到产品（设备直连）
+### 3. 把智能体投放到产品（设备直连） {#3-把智能体投放到产品设备直连}
 
 设备直连对应官方的「投放到设备进行直连」：产品与智能体绑定后，基于该产品信息授权的设备激活后自动调用该智能体。三个投放入口：
 
@@ -72,16 +72,16 @@ Agentic-kit 的前提条件。参见[介绍](../intro)中的接入流程。
 采购模组或提货授权码**之前**就要把智能体绑定到产品，这样生成的授权码才会同时带上 **AI 智能体接入** 授权。未携带该标记的设备会被识别为普通设备，产生的 AI token 消耗不享受基础减免。详见[智能体投放及费用](https://developer.tuya.com/cn/docs/iot/agent-deploy?id=Kfnx3351272vh)。
 :::
 
-### 4. 配置工作流（可选）
+### 4. 配置工作流（可选） {#4-配置工作流可选}
 
 如需实现图片理解、结构化输出等高级功能，需要配置**工作流**。详见[创建工作流](./create-workflow)。
 
-### 5. 获取授权码
+### 5. 获取授权码 {#5-获取授权码}
 
 1. 在产品页面申请测试用授权码（uuid + authkey），详见[领取授权码](../get-authkey)
 2. 大规模出货需联系 Tuya 商务购买授权码
 
-### 6. 在代码中使用
+### 6. 在代码中使用 {#6-在代码中使用}
 
 **RTC TCP Client：**
 
@@ -95,7 +95,7 @@ tai_config_t cfg = {
 
 **RTC Client：** Agent 的选择由 `session_token` 获取时的产品配置决定，无需在 SDK 侧指定。
 
-## Agent Token
+## Agent Token {#agent-token}
 
 如果产品绑定了多个 Agent（例如不同场景），可通过 `agent_token` 字段切换：
 
@@ -108,7 +108,7 @@ tai_config_t cfg = {
 
 `agent_token` 从 Tuya IoT 平台的 Agent 管理页面获取。
 
-## 注意事项
+## 注意事项 {#注意事项}
 
 - 每个产品可以绑定一个默认 Agent，设备不指定 `agent_token` 时使用默认 Agent
 - 下行 TTS 音频格式由设备端通过 `session_attrs_json` 中的 `tts.order.supports` 声明，详见[配置音频格式](./audio-format)

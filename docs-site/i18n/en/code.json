@@ -1,0 +1,1345 @@
+{
+  "homepage.products.toy.title": {
+    "message": "Toys that talk, with a personality of their own.",
+    "description": "AI 玩具场景标题"
+  },
+  "homepage.products.toy.description": {
+    "message": "Hear what children say, respond in character, and bring each reply to life with voice and device actions.",
+    "description": "AI 玩具场景描述"
+  },
+  "homepage.products.toy.prompt": {
+    "message": "\"Tell me a story about going to the moon.\"",
+    "description": "AI 玩具场景示例提示词"
+  },
+  "homepage.products.toy.hardware": {
+    "message": "Hardware: microphone, speaker, and status light. Firmware handles capture, playback, and local feedback.",
+    "description": "AI 玩具硬件说明"
+  },
+  "homepage.capability.perception": {
+    "message": "Perception",
+    "description": "能力类型"
+  },
+  "homepage.products.toy.capability.perception": {
+    "message": "VAD / PVAD / ASR",
+    "description": "AI 玩具感知能力"
+  },
+  "homepage.capability.voice": {
+    "message": "Voice",
+    "description": "能力类型"
+  },
+  "homepage.products.toy.capability.voice": {
+    "message": "TTS / Character voices",
+    "description": "AI 玩具声音能力"
+  },
+  "homepage.capability.cloud": {
+    "message": "Cloud AI",
+    "description": "能力类型"
+  },
+  "homepage.products.toy.capability.cloud": {
+    "message": "LLM / Character profiles",
+    "description": "AI 玩具云端能力"
+  },
+  "homepage.capability.memory": {
+    "message": "Memory & knowledge",
+    "description": "能力类型"
+  },
+  "homepage.products.toy.capability.memory": {
+    "message": "Preferences / Stories",
+    "description": "AI 玩具记忆能力"
+  },
+  "homepage.capability.localTools": {
+    "message": "Local tools",
+    "description": "能力类型"
+  },
+  "homepage.products.toy.capability.localTools": {
+    "message": "Status light / Expressions",
+    "description": "AI 玩具本地工具"
+  },
+  "homepage.capability.customerBusiness": {
+    "message": "Your services",
+    "description": "能力类型"
+  },
+  "homepage.products.toy.capability.customerBusiness": {
+    "message": "Character IP / Content",
+    "description": "AI 玩具客户业务"
+  },
+  "homepage.products.toy.step.upload": {
+    "message": "The device captures speech and uploads it through the SDK.",
+    "description": "AI 玩具场景步骤"
+  },
+  "homepage.products.toy.step.generate": {
+    "message": "The cloud recognizes speech and creates a story and voice response in character.",
+    "description": "AI 玩具场景步骤"
+  },
+  "homepage.products.toy.step.play": {
+    "message": "The device plays the reply while firmware controls the status light.",
+    "description": "AI 玩具场景步骤"
+  },
+  "homepage.products.camera.title": {
+    "message": "Press the shutter. Start exploring.",
+    "description": "拍学设备场景标题"
+  },
+  "homepage.products.camera.description": {
+    "message": "Combine visual understanding with spoken explanations, bringing the camera, screen, and speaker together for photo-based learning.",
+    "description": "拍学设备场景描述"
+  },
+  "homepage.products.camera.prompt": {
+    "message": "\"Why is this leaf turning yellow?\"",
+    "description": "拍学设备场景示例提示词"
+  },
+  "homepage.products.camera.hardware": {
+    "message": "Hardware: camera, screen, and speaker. Firmware handles photos, uploads, display, and playback.",
+    "description": "拍学设备硬件说明"
+  },
+  "homepage.products.camera.capability.perception": {
+    "message": "Object recognition / Vision",
+    "description": "拍学设备感知能力"
+  },
+  "homepage.products.camera.capability.voice": {
+    "message": "TTS / Narration voices",
+    "description": "拍学设备声音能力"
+  },
+  "homepage.products.camera.capability.cloud": {
+    "message": "Multimodal AI / Explanations",
+    "description": "拍学设备云端能力"
+  },
+  "homepage.products.camera.capability.memory": {
+    "message": "Learning history / Knowledge",
+    "description": "拍学设备记忆能力"
+  },
+  "homepage.products.camera.capability.localTools": {
+    "message": "Camera / Screen / Playback",
+    "description": "拍学设备本地工具"
+  },
+  "homepage.products.camera.capability.customerBusiness": {
+    "message": "Textbooks / Courses / Accounts",
+    "description": "拍学设备客户业务"
+  },
+  "homepage.products.camera.step.upload": {
+    "message": "The device takes a photo and uploads it through the SDK.",
+    "description": "拍学设备场景步骤"
+  },
+  "homepage.products.camera.step.explain": {
+    "message": "The cloud interprets the image and generates a relevant explanation.",
+    "description": "拍学设备场景步骤"
+  },
+  "homepage.products.camera.step.present": {
+    "message": "The screen shows the result while the speaker plays the explanation.",
+    "description": "拍学设备场景步骤"
+  },
+  "homepage.products.assistant.title": {
+    "message": "Turn spoken words into device actions.",
+    "description": "空间助手场景标题"
+  },
+  "homepage.products.assistant.description": {
+    "message": "From understanding speech to executing tools, let a room assistant operate device features you have connected and authorized.",
+    "description": "空间助手场景描述"
+  },
+  "homepage.products.assistant.prompt": {
+    "message": "\"Turn on the reading light and set the brightness to 60%.\"",
+    "description": "空间助手场景示例提示词"
+  },
+  "homepage.products.assistant.hardware": {
+    "message": "Hardware: voice input and local tools. Cross-device control also requires device binding, permissions, and platform services.",
+    "description": "空间助手硬件说明"
+  },
+  "homepage.products.assistant.capability.perception": {
+    "message": "ASR / Device-name hotwords",
+    "description": "空间助手感知能力"
+  },
+  "homepage.products.assistant.capability.voice": {
+    "message": "TTS / Action confirmation",
+    "description": "空间助手声音能力"
+  },
+  "homepage.products.assistant.capability.cloud": {
+    "message": "Agent / Physical actions",
+    "description": "空间助手云端能力"
+  },
+  "homepage.products.assistant.capability.memory": {
+    "message": "Device context / Preferences",
+    "description": "空间助手记忆能力"
+  },
+  "homepage.products.assistant.capability.localTools": {
+    "message": "MCP / Authorized actions",
+    "description": "空间助手本地工具"
+  },
+  "homepage.products.assistant.capability.customerBusiness": {
+    "message": "Room scenes / Automation",
+    "description": "空间助手客户业务"
+  },
+  "homepage.products.assistant.step.understand": {
+    "message": "The device uploads speech, and AI identifies the device and action.",
+    "description": "空间助手场景步骤"
+  },
+  "homepage.products.assistant.step.match": {
+    "message": "AI selects an authorized tool and generates brightness control parameters.",
+    "description": "空间助手场景步骤"
+  },
+  "homepage.products.assistant.step.execute": {
+    "message": "The device executes locally, returns the result, and announces completion.",
+    "description": "空间助手场景步骤"
+  },
+  "homepage.products.efficiency.title": {
+    "message": "Turn meetings into next steps.",
+    "description": "AI 效率场景标题"
+  },
+  "homepage.products.efficiency.description": {
+    "message": "Bring AI into the workplace with desktop or portable devices that capture, understand, retrieve knowledge, and organize tasks.",
+    "description": "AI 效率场景描述"
+  },
+  "homepage.products.efficiency.prompt": {
+    "message": "\"Summarize the meeting and list the owners and deadlines.\"",
+    "description": "AI 效率场景示例提示词"
+  },
+  "homepage.products.efficiency.hardware": {
+    "message": "Hardware: microphone, screen, or camera. Connect enterprise knowledge bases, business tools, and your own services as needed.",
+    "description": "AI 效率硬件说明"
+  },
+  "homepage.products.efficiency.capability.perception": {
+    "message": "ASR / Speaker recognition",
+    "description": "AI 效率感知能力"
+  },
+  "homepage.products.efficiency.capability.voice": {
+    "message": "TTS / Voice reminders",
+    "description": "AI 效率声音能力"
+  },
+  "homepage.products.efficiency.capability.cloud": {
+    "message": "Agent / Summaries & planning",
+    "description": "AI 效率云端能力"
+  },
+  "homepage.products.efficiency.capability.memory": {
+    "message": "Meeting context / Enterprise knowledge",
+    "description": "AI 效率记忆能力"
+  },
+  "homepage.products.efficiency.capability.localTools": {
+    "message": "Recording / Screen / Files",
+    "description": "AI 效率本地工具"
+  },
+  "homepage.products.efficiency.capability.customerBusiness": {
+    "message": "Calendar / Tasks / Workflows",
+    "description": "AI 效率客户业务"
+  },
+  "homepage.products.efficiency.step.capture": {
+    "message": "The device captures the meeting and builds structured context.",
+    "description": "AI 效率场景步骤"
+  },
+  "homepage.products.efficiency.step.extract": {
+    "message": "The Agent uses knowledge and task rules to extract action items.",
+    "description": "AI 效率场景步骤"
+  },
+  "homepage.products.efficiency.step.write": {
+    "message": "Open interfaces send the items to your workflow for user confirmation.",
+    "description": "AI 效率场景步骤"
+  },
+  "homepage.products.toy.label": {
+    "message": "AI Toys",
+    "description": "产品场景页签"
+  },
+  "homepage.products.camera.label": {
+    "message": "Photo Learning",
+    "description": "产品场景页签"
+  },
+  "homepage.products.assistant.label": {
+    "message": "Room Assistants",
+    "description": "产品场景页签"
+  },
+  "homepage.products.efficiency.label": {
+    "message": "AI Productivity",
+    "description": "产品场景页签"
+  },
+  "homepage.capability.status.included": {
+    "message": "Included",
+    "description": "已组合的平台能力状态"
+  },
+  "homepage.capability.status.optional": {
+    "message": "Optional",
+    "description": "可按需选用的平台能力状态"
+  },
+  "homepage.capability.status.customer": {
+    "message": "Custom",
+    "description": "由客户自主实现的能力状态"
+  },
+  "homepage.network.hardware.toy.code": {
+    "message": "TOY",
+    "description": "网络图 AI 玩具代码"
+  },
+  "homepage.network.hardware.toy": {
+    "message": "AI Toys",
+    "description": "网络图硬件类型"
+  },
+  "homepage.network.hardware.work.code": {
+    "message": "WORK",
+    "description": "网络图 AI 效率终端代码"
+  },
+  "homepage.network.hardware.work": {
+    "message": "AI Work Devices",
+    "description": "网络图硬件类型"
+  },
+  "homepage.network.hardware.wearable.code": {
+    "message": "WEAR",
+    "description": "网络图 AI 穿戴代码"
+  },
+  "homepage.network.hardware.wearable": {
+    "message": "AI Wearables",
+    "description": "网络图硬件类型"
+  },
+  "homepage.network.hardware.robot.code": {
+    "message": "BOT",
+    "description": "网络图具身机器人代码"
+  },
+  "homepage.network.hardware.robot": {
+    "message": "Embodied Robots",
+    "description": "网络图硬件类型"
+  },
+  "homepage.network.cloud.perception": {
+    "message": "Perception",
+    "description": "网络图云端能力"
+  },
+  "homepage.network.cloud.agent": {
+    "message": "Agent Orchestration",
+    "description": "网络图云端能力"
+  },
+  "homepage.network.cloud.memory": {
+    "message": "Memory · Knowledge",
+    "description": "网络图云端能力"
+  },
+  "homepage.network.cloud.models": {
+    "message": "Models · Skills",
+    "description": "网络图云端能力"
+  },
+  "homepage.network.cloud.protocols": {
+    "message": "MCP / A2A",
+    "description": "网络图云端能力"
+  },
+  "homepage.network.ariaLabel": {
+    "message": "Diagram of AI hardware connecting to the Tuya Physical AI platform through Agentic-Kit",
+    "description": "首页网络示意图的无障碍标签"
+  },
+  "homepage.network.heading": {
+    "message": "Any hardware · One real-time link",
+    "description": "网络图标题"
+  },
+  "homepage.network.connected": {
+    "message": "Connected",
+    "description": "网络连接状态"
+  },
+  "homepage.network.kit.title.lineOne": {
+    "message": "Agentic",
+    "description": "网络图 Agentic-Kit 名称第一行"
+  },
+  "homepage.network.kit.title.lineTwo": {
+    "message": "Kit",
+    "description": "网络图 Agentic-Kit 名称第二行"
+  },
+  "homepage.network.kit.capabilities": {
+    "message": "C SDK · tRTC · MCP",
+    "description": "网络图 Agentic-Kit 能力标签"
+  },
+  "homepage.network.cloud.brand": {
+    "message": "TUYA PHYSICAL AI",
+    "description": "网络图云端平台品牌"
+  },
+  "homepage.network.cloud.title": {
+    "message": "Tuya AI Platform",
+    "description": "网络图云端平台名称"
+  },
+  "homepage.network.uplink": {
+    "message": "Uplink: audio · images · video · text · events",
+    "description": "网络图上行数据类型"
+  },
+  "homepage.network.downlink": {
+    "message": "Downlink: speech · commands · tool calls",
+    "description": "网络图下行数据类型"
+  },
+  "homepage.products.tabs.ariaLabel": {
+    "message": "Choose a hardware category",
+    "description": "产品场景页签组的无障碍标签"
+  },
+  "homepage.products.capabilitySelection": {
+    "message": "Capabilities",
+    "description": "能力选择面板标题"
+  },
+  "homepage.products.combinationNote": {
+    "message": "Example scenario setup",
+    "description": "能力选择面板说明"
+  },
+  "homepage.products.experience": {
+    "message": "Product experience",
+    "description": "产品体验面板标题"
+  },
+  "homepage.products.scenarioFlow": {
+    "message": "Scenario flow",
+    "description": "场景流程面板标题"
+  },
+  "homepage.code.cloneComment": {
+    "message": "# Get the source and submodules",
+    "description": "终端示例中获取源码命令前的注释"
+  },
+  "homepage.code.runComment": {
+    "message": "# Build and run the POSIX text chat example",
+    "description": "终端示例中构建命令前的注释"
+  },
+  "homepage.code.copySuccessButton": {
+    "message": "Copied",
+    "description": "命令复制成功后的按钮文字"
+  },
+  "homepage.code.copyFailureButton": {
+    "message": "Copy failed",
+    "description": "命令复制失败后的按钮文字"
+  },
+  "homepage.code.copyButton": {
+    "message": "Copy commands",
+    "description": "复制终端命令的按钮文字"
+  },
+  "homepage.code.copySuccessNote": {
+    "message": "Commands copied. After desktop testing, adapt the hardware integration to your target system.",
+    "description": "命令复制成功后的说明"
+  },
+  "homepage.code.copyFailureNote": {
+    "message": "Could not copy the commands. Select and copy the terminal content manually.",
+    "description": "命令复制失败后的说明"
+  },
+  "homepage.code.defaultNote": {
+    "message": "Use the desktop example to test the interaction path. For your product, adapt the platform, peripherals, and device identity to the target system.",
+    "description": "终端示例默认说明"
+  },
+  "homepage.code.terminalTitle": {
+    "message": "Terminal · macOS / Linux",
+    "description": "终端示例标题"
+  },
+  "homepage.code.requirements": {
+    "message": "CMake ≥ 3.20 / Python 3 / C and C++ toolchain",
+    "description": "终端示例构建环境要求"
+  },
+  "homepage.metrics.sdk.value": {
+    "message": "~120 KB",
+    "description": "SDK 体积指标值"
+  },
+  "homepage.metrics.sdk.label": {
+    "message": "SDK size",
+    "description": "SDK 体积指标名称"
+  },
+  "homepage.metrics.sdk.detail": {
+    "message": "Fits low-compute devices",
+    "description": "SDK 体积指标说明"
+  },
+  "homepage.metrics.memory.value": {
+    "message": "~60 KB",
+    "description": "运行内存指标值"
+  },
+  "homepage.metrics.memory.label": {
+    "message": "Runtime memory",
+    "description": "运行内存指标名称"
+  },
+  "homepage.metrics.memory.detail": {
+    "message": "Leaves room for your logic",
+    "description": "运行内存指标说明"
+  },
+  "homepage.metrics.loss.value": {
+    "message": "30-70%",
+    "description": "弱网丢包指标值"
+  },
+  "homepage.metrics.loss.label": {
+    "message": "Packet loss tolerance",
+    "description": "弱网丢包指标名称"
+  },
+  "homepage.metrics.loss.detail": {
+    "message": "T-RTC network resilience",
+    "description": "弱网丢包指标说明"
+  },
+  "homepage.metrics.latency.value": {
+    "message": "≤86 ms",
+    "description": "通信时延指标值"
+  },
+  "homepage.metrics.latency.label": {
+    "message": "Global average latency",
+    "description": "通信时延指标名称"
+  },
+  "homepage.metrics.latency.detail": {
+    "message": "Real-time device-to-cloud transport",
+    "description": "通信时延指标说明"
+  },
+  "homepage.metrics.voice.value": {
+    "message": "~1.5 s",
+    "description": "语音时延指标值"
+  },
+  "homepage.metrics.voice.label": {
+    "message": "End-to-end voice latency",
+    "description": "语音时延指标名称"
+  },
+  "homepage.metrics.voice.detail": {
+    "message": "With long-term memory and knowledge base",
+    "description": "语音时延指标说明"
+  },
+  "homepage.roles.endpoint.tag": {
+    "message": "YOUR AI DEVICE",
+    "description": "AI 终端角色标签"
+  },
+  "homepage.roles.endpoint.title": {
+    "message": "Your AI hardware",
+    "description": "AI 终端角色标题"
+  },
+  "homepage.roles.endpoint.chip": {
+    "message": "Chip, BSP, and peripheral drivers",
+    "description": "AI 终端职责"
+  },
+  "homepage.roles.endpoint.capture": {
+    "message": "Microphone / Camera capture",
+    "description": "AI 终端职责"
+  },
+  "homepage.roles.endpoint.output": {
+    "message": "Speaker / Screen / Actuators",
+    "description": "AI 终端职责"
+  },
+  "homepage.roles.endpoint.logic": {
+    "message": "Your firmware and product logic",
+    "description": "AI 终端职责"
+  },
+  "homepage.roles.kit.tag": {
+    "message": "AGENTIC-KIT",
+    "description": "Agentic-Kit 角色标签"
+  },
+  "homepage.roles.kit.title": {
+    "message": "Real-time device-to-cloud SDK",
+    "description": "Agentic-Kit 角色标题"
+  },
+  "homepage.roles.kit.provisioning": {
+    "message": "Provisioning, Activation, and authentication",
+    "description": "Agentic-Kit 职责"
+  },
+  "homepage.roles.kit.transport": {
+    "message": "Real-time multimodal transport",
+    "description": "Agentic-Kit 职责"
+  },
+  "homepage.roles.kit.session": {
+    "message": "Session events and callbacks",
+    "description": "Agentic-Kit 职责"
+  },
+  "homepage.roles.kit.mcp": {
+    "message": "Device-side MCP command exchange",
+    "description": "Agentic-Kit 职责"
+  },
+  "homepage.roles.platform.tag": {
+    "message": "TUYA PHYSICAL AI",
+    "description": "Tuya Physical AI 角色标签"
+  },
+  "homepage.roles.platform.title": {
+    "message": "Tuya Physical AI Platform",
+    "description": "Tuya Physical AI 角色标题"
+  },
+  "homepage.roles.platform.perception": {
+    "message": "Speech and vision algorithms",
+    "description": "Tuya Physical AI 职责"
+  },
+  "homepage.roles.platform.models": {
+    "message": "Foundation models, Agents, and memory",
+    "description": "Tuya Physical AI 职责"
+  },
+  "homepage.roles.platform.services": {
+    "message": "Device control and scene services",
+    "description": "Tuya Physical AI 职责"
+  },
+  "homepage.roles.platform.operations": {
+    "message": "Global connectivity and ongoing operations",
+    "description": "Tuya Physical AI 职责"
+  },
+  "homepage.embedded.cloud.title": {
+    "message": "Keep AI in the cloud and devices lean",
+    "description": "嵌入式设计原则标题"
+  },
+  "homepage.embedded.cloud.text": {
+    "message": "Keep capture, playback, protocols, and local control on the device. Offload complex inference to the cloud as needed for a complete AI experience within limited RAM and Flash.",
+    "description": "嵌入式设计原则说明"
+  },
+  "homepage.embedded.cloud.code": {
+    "message": "Lightweight devices / Cloud AI",
+    "description": "嵌入式设计原则关键词"
+  },
+  "homepage.embedded.pal.title": {
+    "message": "Isolate chip differences with the PAL",
+    "description": "嵌入式设计原则标题"
+  },
+  "homepage.embedded.pal.text": {
+    "message": "The PAL abstracts networking, threads, time, and storage. Change chips or operating systems without rewriting your business logic alongside the platform code.",
+    "description": "嵌入式设计原则说明"
+  },
+  "homepage.embedded.pal.code": {
+    "message": "PAL / Port once / Keep your logic",
+    "description": "嵌入式设计原则关键词"
+  },
+  "homepage.embedded.network.title": {
+    "message": "Keep interactions flowing on poor networks",
+    "description": "嵌入式设计原则标题"
+  },
+  "homepage.embedded.network.text": {
+    "message": "Build a real-time link for audio, images, video, text, and events, with handling for streaming, interruptions, reconnection, and network fluctuations.",
+    "description": "嵌入式设计原则说明"
+  },
+  "homepage.embedded.network.code": {
+    "message": "Streaming / Interruption / Reconnection",
+    "description": "嵌入式设计原则关键词"
+  },
+  "homepage.embedded.execution.title": {
+    "message": "Let the device decide what runs",
+    "description": "嵌入式设计原则标题"
+  },
+  "homepage.embedded.execution.text": {
+    "message": "AI sends tool requests as MCP commands. Local firmware decides whether to execute, performs the action, and returns the result.",
+    "description": "嵌入式设计原则说明"
+  },
+  "homepage.embedded.execution.code": {
+    "message": "MCP / Local decisions / Execution results",
+    "description": "嵌入式设计原则关键词"
+  },
+  "homepage.algorithms.device.tag": {
+    "message": "01 / ON-DEVICE PERCEPTION",
+    "description": "算法能力标签"
+  },
+  "homepage.algorithms.device.title": {
+    "message": "Perception built around your hardware.",
+    "description": "算法能力标题"
+  },
+  "homepage.algorithms.device.text": {
+    "message": "On-device solutions can provide keyword wake-up and visual preprocessing. Run VAD on the device or in the cloud to suit your product.",
+    "description": "算法能力说明"
+  },
+  "homepage.algorithms.device.chips": {
+    "message": "KWS · VAD · Visual preprocessing",
+    "description": "算法能力关键词"
+  },
+  "homepage.algorithms.cloud.tag": {
+    "message": "02 / TUYA CLOUD ALGORITHMS",
+    "description": "算法能力标签"
+  },
+  "homepage.algorithms.cloud.title": {
+    "message": "Cloud algorithms that keep improving the experience.",
+    "description": "算法能力标题"
+  },
+  "homepage.algorithms.cloud.text": {
+    "message": "Send audio, images, and video to cloud algorithms over a real-time link and receive text, speech, or structured results.",
+    "description": "算法能力说明"
+  },
+  "homepage.algorithms.cloud.chips": {
+    "message": "Nomo-ASR · Nomo-PVAD · Pet ID",
+    "description": "算法能力关键词"
+  },
+  "homepage.algorithms.vertical.tag": {
+    "message": "03 / SPECIALIZED MODELS",
+    "description": "算法能力标签"
+  },
+  "homepage.algorithms.vertical.title": {
+    "message": "Specialized algorithms for the real world.",
+    "description": "算法能力标题"
+  },
+  "homepage.algorithms.vertical.text": {
+    "message": "Continuously optimized for real device challenges: far-field audio, competing speakers, individual pet recognition, and complex scenes.",
+    "description": "算法能力说明"
+  },
+  "homepage.algorithms.vertical.chips": {
+    "message": "Speech models · Audio models · Vision models",
+    "description": "算法能力关键词"
+  },
+  "homepage.choices.tuyaos.tag": {
+    "message": "STANDARDIZED / PRODUCT FOUNDATION",
+    "description": "TuyaOS 定位标签"
+  },
+  "homepage.choices.tuyaos.title": {
+    "message": "TuyaOS (Wukong)",
+    "description": "TuyaOS 产品名称"
+  },
+  "homepage.choices.tuyaos.text": {
+    "message": "Tuya's standardized product framework integrates connectivity, security, device models, and mass production support.",
+    "description": "TuyaOS 说明"
+  },
+  "homepage.choices.tuyaos.link": {
+    "message": "Explore TuyaOS (Wukong)",
+    "description": "TuyaOS 链接文字"
+  },
+  "homepage.choices.tuyaopen.tag": {
+    "message": "STANDARDIZED / OPEN-SOURCE STACK",
+    "description": "TuyaOpen 定位标签"
+  },
+  "homepage.choices.tuyaopen.title": {
+    "message": "TuyaOpen",
+    "description": "TuyaOpen 产品名称"
+  },
+  "homepage.choices.tuyaopen.text": {
+    "message": "Tuya's standardized layered framework, with open source code and a broad set of AI and IoT components.",
+    "description": "TuyaOpen 说明"
+  },
+  "homepage.choices.tuyaopen.link": {
+    "message": "Explore TuyaOpen",
+    "description": "TuyaOpen 链接文字"
+  },
+  "homepage.choices.agenticKit.tag": {
+    "message": "MODULAR SDK / FITS YOUR STACK",
+    "description": "Agentic-Kit 定位标签"
+  },
+  "homepage.choices.agenticKit.title": {
+    "message": "Agentic-Kit",
+    "description": "Agentic-Kit 产品名称"
+  },
+  "homepage.choices.agenticKit.text": {
+    "message": "Keep your existing stack and design choices. Select only what you need for resource-constrained or deeply customized products.",
+    "description": "Agentic-Kit 说明"
+  },
+  "homepage.choices.agenticKit.link": {
+    "message": "Explore Agentic-Kit",
+    "description": "Agentic-Kit 链接文字"
+  },
+  "homepage.meta.title": {
+    "message": "Agentic-Kit",
+    "description": "首页元数据标题"
+  },
+  "homepage.meta.description": {
+    "message": "A lightweight SDK for real-time device-to-cloud interaction on AI hardware",
+    "description": "首页元数据描述"
+  },
+  "homepage.hero.eyebrow": {
+    "message": "Built for Physical AI",
+    "description": "首页首屏眉题"
+  },
+  "homepage.hero.infrastructure": {
+    "message": "Tuya / Embedded AI infrastructure",
+    "description": "首页首屏平台定位"
+  },
+  "homepage.hero.title.lineOne": {
+    "message": "Let AI",
+    "description": "首页主标题第一行"
+  },
+  "homepage.hero.title.lineTwo": {
+    "message": "connect to ",
+    "description": "首页主标题第二行"
+  },
+  "homepage.hero.title.highlight": {
+    "message": "the physical world.",
+    "description": "首页主标题强调文字"
+  },
+  "homepage.hero.summary": {
+    "message": "Agentic-Kit is a lightweight, modular device-side SDK for Physical AI.",
+    "description": "首页首屏产品摘要"
+  },
+  "homepage.hero.description": {
+    "message": "From low-compute MCUs and Linux SoCs to PCs, mobile apps, and browsers. Connect voice toys, embodied robots, and more through one real-time device-to-cloud integration, adding perception, Agents, memory, and models as needed.",
+    "description": "首页首屏产品描述"
+  },
+  "homepage.hero.startCta": {
+    "message": "Connect your hardware",
+    "description": "首页首屏快速开始按钮"
+  },
+  "homepage.hero.exploreCta": {
+    "message": "Explore capabilities",
+    "description": "首页首屏能力组合按钮"
+  },
+  "homepage.hero.features": {
+    "message": "Modular capabilities · Chip agnostic · Cloud and model agnostic · No changes to business logic · Use what you need",
+    "description": "首页首屏产品特性"
+  },
+  "homepage.metrics.note": {
+    "message": "Typical figures. Actual performance varies by chip, feature configuration, network, and product design.",
+    "description": "指标免责声明"
+  },
+  "homepage.foundation.eyebrow": {
+    "message": "01 / ONE KIT, A COMPLETE FOUNDATION",
+    "description": "平台能力章节眉题"
+  },
+  "homepage.foundation.title.lineOne": {
+    "message": "Open building blocks.",
+    "description": "平台能力章节标题第一行"
+  },
+  "homepage.foundation.title.lineTwo": {
+    "message": "Room for your ideas.",
+    "description": "平台能力章节标题第二行"
+  },
+  "homepage.foundation.description": {
+    "message": "Agentic-Kit is the open device-side entry point to the Tuya Physical AI platform, supporting AI innovators from development and mass production to global growth.",
+    "description": "平台能力章节描述"
+  },
+  "homepage.foundation.scope.title": {
+    "message": "Choose what you need. Know who owns what.",
+    "description": "平台能力边界说明标题"
+  },
+  "homepage.foundation.scope.text": {
+    "message": "Choose platform models, algorithms, memory, and industry services as needed. Connect your own core cloud services through open interfaces.",
+    "description": "平台能力边界说明"
+  },
+  "homepage.embedded.eyebrow": {
+    "message": "02 / DESIGNED FOR EMBEDDED CONSTRAINTS",
+    "description": "嵌入式设计章节眉题"
+  },
+  "homepage.embedded.title.lineOne": {
+    "message": "Built for AI.",
+    "description": "嵌入式设计章节标题第一行"
+  },
+  "homepage.embedded.title.lineTwo": {
+    "message": "Grounded in hardware.",
+    "description": "嵌入式设计章节标题第二行"
+  },
+  "homepage.embedded.description": {
+    "message": "Device-side integration is more than connecting. It must stay usable with limited resources, diverse chips, and unstable networks.",
+    "description": "嵌入式设计章节描述"
+  },
+  "homepage.embedded.platforms.label": {
+    "message": "Available platforms and porting paths",
+    "description": "已支持平台标签"
+  },
+  "homepage.embedded.platforms.list": {
+    "message": "ESP32 / ESP-IDF · FreeRTOS · ARM · MIPS · Linux",
+    "description": "已支持平台列表"
+  },
+  "homepage.composition.eyebrow": {
+    "message": "03 / COMBINE THE AI YOUR PRODUCT NEEDS",
+    "description": "能力组合章节眉题"
+  },
+  "homepage.composition.title.lineOne": {
+    "message": "One foundation.",
+    "description": "能力组合章节标题第一行"
+  },
+  "homepage.composition.title.lineTwo": {
+    "message": "Many kinds of AI hardware.",
+    "description": "能力组合章节标题第二行"
+  },
+  "homepage.composition.description": {
+    "message": "From companion, learning, and productivity devices to embodied robots. Combine conversation, perception, memory, execution, and device ecosystem capabilities around your product.",
+    "description": "能力组合章节描述"
+  },
+  "homepage.composition.note.title": {
+    "message": "Platform capabilities. Your product.",
+    "description": "能力组合边界说明标题"
+  },
+  "homepage.composition.note.text": {
+    "message": "Agentic-Kit provides connectivity and data exchange. Configure algorithms, memory, and industry services to suit your product.",
+    "description": "能力组合边界说明"
+  },
+  "homepage.algorithms.eyebrow": {
+    "message": "04 / PERCEPTION FOR REAL DEVICES",
+    "description": "感知算法章节眉题"
+  },
+  "homepage.algorithms.title.lineOne": {
+    "message": "Algorithms prove their worth",
+    "description": "感知算法章节标题第一行"
+  },
+  "homepage.algorithms.title.lineTwo": {
+    "message": "on real hardware.",
+    "description": "感知算法章节标题第二行"
+  },
+  "homepage.algorithms.description": {
+    "message": "Physical AI brings together on-device perception, cloud algorithms, and real hardware. Agentic-Kit lets you deploy and combine algorithms to suit your product.",
+    "description": "感知算法章节描述"
+  },
+  "homepage.start.eyebrow": {
+    "message": "05 / HELLO, PHYSICAL WORLD",
+    "description": "快速开始章节眉题"
+  },
+  "homepage.start.title.lineOne": {
+    "message": "Get it running.",
+    "description": "快速开始章节标题第一行"
+  },
+  "homepage.start.title.lineTwo": {
+    "message": "Then make it yours.",
+    "description": "快速开始章节标题第二行"
+  },
+  "homepage.start.description": {
+    "message": "No chip selection or development board required. Run the text chat example on macOS or Linux to test the device-to-cloud link, then bring the proven interaction to your hardware.",
+    "description": "快速开始章节描述"
+  },
+  "homepage.start.steps.desktop.title": {
+    "message": "Test on your computer",
+    "description": "快速开始第一步标题"
+  },
+  "homepage.start.steps.desktop.text": {
+    "message": "Get the source and run the POSIX example",
+    "description": "快速开始第一步说明"
+  },
+  "homepage.start.steps.hardware.title": {
+    "message": "Move to your hardware",
+    "description": "快速开始第二步标题"
+  },
+  "homepage.start.steps.hardware.text": {
+    "message": "Adapt the platform, audio/video, and local tools",
+    "description": "快速开始第二步说明"
+  },
+  "homepage.start.steps.product.title": {
+    "message": "Prepare for production",
+    "description": "快速开始第三步标题"
+  },
+  "homepage.start.steps.product.text": {
+    "message": "Configure the PID, device identity, and product capabilities",
+    "description": "快速开始第三步说明"
+  },
+  "homepage.start.guideCta": {
+    "message": "Read the integration guide",
+    "description": "完整接入指南按钮"
+  },
+  "homepage.start.rtcTcp.description": {
+    "message": "Source integration · PAL porting",
+    "description": "RTC TCP Client 链接说明"
+  },
+  "homepage.start.rtc.description": {
+    "message": "Prebuilt library · Target platform matching",
+    "description": "RTC Client 链接说明"
+  },
+  "homepage.choices.eyebrow": {
+    "message": "06 / YOUR AI, YOUR WAY",
+    "description": "技术选型章节眉题"
+  },
+  "homepage.choices.title.lineOne": {
+    "message": "From ready-made frameworks",
+    "description": "技术选型章节标题第一行"
+  },
+  "homepage.choices.title.lineTwo": {
+    "message": "to flexible building blocks.",
+    "description": "技术选型章节标题第二行"
+  },
+  "homepage.choices.description": {
+    "message": "TuyaOS, TuyaOpen, and Agentic-Kit offer different device-side frameworks and integration paths for different project stages and technology stacks.",
+    "description": "技术选型章节描述"
+  },
+  "homepage.choices.benefit.framework": {
+    "message": "A framework that fits your project",
+    "description": "技术选型共同优势"
+  },
+  "homepage.choices.benefit.boundary": {
+    "message": "Capabilities scoped to your product",
+    "description": "技术选型共同优势"
+  },
+  "homepage.choices.benefit.production": {
+    "message": "Support from development to mass production",
+    "description": "技术选型共同优势"
+  },
+  "homepage.closing.title": {
+    "message": "Your next AI device starts here.",
+    "description": "首页结尾行动标题"
+  },
+  "homepage.closing.description": {
+    "message": "From embedded integration to platform capabilities on demand.",
+    "description": "首页结尾行动说明"
+  },
+  "homepage.closing.cta": {
+    "message": "Explore Agentic-Kit",
+    "description": "首页结尾行动按钮"
+  },
+  "docs.article.breadcrumb.home": {
+    "message": "TUYA AGENTIC-KIT",
+    "description": "文档面包屑首页文字"
+  },
+  "docs.article.pagination.ariaLabel": {
+    "message": "Adjacent pages",
+    "description": "文档上一页和下一页导航的无障碍标签"
+  },
+  "docs.article.pagination.previous": {
+    "message": "Previous",
+    "description": "文档上一页标签"
+  },
+  "docs.article.pagination.return": {
+    "message": "Back",
+    "description": "无上一页时的返回标签"
+  },
+  "docs.article.pagination.homeTitle": {
+    "message": "Agentic-Kit Home",
+    "description": "无上一页时的首页标题"
+  },
+  "docs.article.pagination.next": {
+    "message": "Next",
+    "description": "文档下一页标签"
+  },
+  "docs.article.footer.copyright": {
+    "message": "© 2026 Tuya Inc.",
+    "description": "文档页脚版权文字"
+  },
+  "docs.article.footer.product": {
+    "message": "Tuya Physical AI · Agentic-kit",
+    "description": "文档页脚产品名称"
+  },
+  "docs.article.toc.ariaLabel": {
+    "message": "On this page",
+    "description": "文档页内目录的无障碍标签"
+  },
+  "docs.article.toc.title": {
+    "message": "On this page",
+    "description": "文档页内目录标题"
+  },
+  "docs.topbar.languageSelector.label": {
+    "message": "Language",
+    "description": "文档顶部语言选择器标签"
+  },
+  "docs.topbar.languageSelector.ariaLabel": {
+    "message": "Choose the site language",
+    "description": "文档顶部语言选择器的无障碍标签"
+  },
+  "docs.topbar.skipToContent": {
+    "message": "Skip to content",
+    "description": "跳过导航并进入正文的链接"
+  },
+  "docs.topbar.tuyaHome.ariaLabel": {
+    "message": "Visit the Tuya website",
+    "description": "涂鸦徽标链接的无障碍标签"
+  },
+  "docs.topbar.tuyaLogo.alt": {
+    "message": "Tuya",
+    "description": "涂鸦徽标的替代文本"
+  },
+  "docs.topbar.docsHome.ariaLabel": {
+    "message": "Return to the Tuya Agentic-Kit home page",
+    "description": "文档品牌链接的无障碍标签"
+  },
+  "docs.topbar.docsBadge": {
+    "message": "Docs",
+    "description": "文档品牌徽章"
+  },
+  "docs.topbar.menu.ariaLabel": {
+    "message": "Toggle the top navigation menu",
+    "description": "移动端菜单按钮的无障碍标签"
+  },
+  "docs.topbar.menu.label": {
+    "message": "Menu",
+    "description": "移动端菜单按钮文字"
+  },
+  "docs.topbar.navigation.ariaLabel": {
+    "message": "Top navigation",
+    "description": "文档顶部导航的无障碍标签"
+  },
+  "docs.topbar.tuyaDeveloper": {
+    "message": "Tuya Developer ↗",
+    "description": "涂鸦开发者网站链接"
+  },
+  "docs.topbar.github": {
+    "message": "GitHub ↗",
+    "description": "GitHub 仓库链接"
+  },
+  "docs.topbar.quickStart": {
+    "message": "Quick Start",
+    "description": "文档顶部快速开始按钮"
+  },
+  "docs.sidebar.navigation.ariaLabel": {
+    "message": "Documentation navigation",
+    "description": "文档侧边栏的无障碍标签"
+  },
+  "theme.ErrorPageContent.title": {
+    "message": "This page crashed.",
+    "description": "The title of the fallback page when the page crashed"
+  },
+  "theme.BackToTopButton.buttonAriaLabel": {
+    "message": "Scroll back to top",
+    "description": "The ARIA label for the back to top button"
+  },
+  "theme.blog.paginator.navAriaLabel": {
+    "message": "Blog list page navigation",
+    "description": "The ARIA label for the blog pagination"
+  },
+  "theme.blog.paginator.newerEntries": {
+    "message": "Newer entries",
+    "description": "The label used to navigate to the newer blog posts page (previous page)"
+  },
+  "theme.blog.paginator.olderEntries": {
+    "message": "Older entries",
+    "description": "The label used to navigate to the older blog posts page (next page)"
+  },
+  "theme.blog.archive.title": {
+    "message": "Archive",
+    "description": "The page & hero title of the blog archive page"
+  },
+  "theme.blog.archive.description": {
+    "message": "Archive",
+    "description": "The page & hero description of the blog archive page"
+  },
+  "theme.blog.post.paginator.navAriaLabel": {
+    "message": "Blog post page navigation",
+    "description": "The ARIA label for the blog posts pagination"
+  },
+  "theme.blog.post.paginator.newerPost": {
+    "message": "Newer post",
+    "description": "The blog post button label to navigate to the newer/previous post"
+  },
+  "theme.blog.post.paginator.olderPost": {
+    "message": "Older post",
+    "description": "The blog post button label to navigate to the older/next post"
+  },
+  "theme.tags.tagsPageLink": {
+    "message": "View all tags",
+    "description": "The label of the link targeting the tag list page"
+  },
+  "theme.colorToggle.ariaLabel.mode.system": {
+    "message": "system mode",
+    "description": "The name for the system color mode"
+  },
+  "theme.colorToggle.ariaLabel.mode.light": {
+    "message": "light mode",
+    "description": "The name for the light color mode"
+  },
+  "theme.colorToggle.ariaLabel.mode.dark": {
+    "message": "dark mode",
+    "description": "The name for the dark color mode"
+  },
+  "theme.colorToggle.ariaLabel": {
+    "message": "Switch between dark and light mode (currently {mode})",
+    "description": "The ARIA label for the color mode toggle"
+  },
+  "theme.docs.breadcrumbs.navAriaLabel": {
+    "message": "Breadcrumbs",
+    "description": "The ARIA label for the breadcrumbs"
+  },
+  "theme.docs.paginator.navAriaLabel": {
+    "message": "Docs pages",
+    "description": "The ARIA label for the docs pagination"
+  },
+  "theme.docs.paginator.previous": {
+    "message": "Previous",
+    "description": "The label used to navigate to the previous doc"
+  },
+  "theme.docs.paginator.next": {
+    "message": "Next",
+    "description": "The label used to navigate to the next doc"
+  },
+  "theme.docs.tagDocListPageTitle.nDocsTagged": {
+    "message": "One doc tagged|{count} docs tagged",
+    "description": "Pluralized label for \"{count} docs tagged\". Use as much plural forms (separated by \"|\") as your language support (see https://www.unicode.org/cldr/cldr-aux/charts/34/supplemental/language_plural_rules.html)"
+  },
+  "theme.docs.tagDocListPageTitle": {
+    "message": "{nDocsTagged} with \"{tagName}\"",
+    "description": "The title of the page for a docs tag"
+  },
+  "theme.docs.versionBadge.label": {
+    "message": "Version: {versionLabel}"
+  },
+  "theme.docs.versions.unreleasedVersionLabel": {
+    "message": "This is unreleased documentation for {siteTitle} {versionLabel} version.",
+    "description": "The label used to tell the user that he's browsing an unreleased doc version"
+  },
+  "theme.docs.versions.unmaintainedVersionLabel": {
+    "message": "This is documentation for {siteTitle} {versionLabel}, which is no longer actively maintained.",
+    "description": "The label used to tell the user that he's browsing an unmaintained doc version"
+  },
+  "theme.docs.versions.latestVersionSuggestionLabel": {
+    "message": "For up-to-date documentation, see the {latestVersionLink} ({versionLabel}).",
+    "description": "The label used to tell the user to check the latest version"
+  },
+  "theme.docs.versions.latestVersionLinkLabel": {
+    "message": "latest version",
+    "description": "The label used for the latest version suggestion link label"
+  },
+  "theme.common.headingLinkTitle": {
+    "message": "Direct link to {heading}",
+    "description": "Title for link to heading"
+  },
+  "theme.common.editThisPage": {
+    "message": "Edit this page",
+    "description": "The link label to edit the current page"
+  },
+  "theme.lastUpdated.atDate": {
+    "message": " on {date}",
+    "description": "The words used to describe on which date a page has been last updated"
+  },
+  "theme.lastUpdated.byUser": {
+    "message": " by {user}",
+    "description": "The words used to describe by who the page has been last updated"
+  },
+  "theme.lastUpdated.lastUpdatedAtBy": {
+    "message": "Last updated{atDate}{byUser}",
+    "description": "The sentence used to display when a page has been last updated, and by who"
+  },
+  "theme.NotFound.title": {
+    "message": "Page Not Found",
+    "description": "The title of the 404 page"
+  },
+  "theme.navbar.mobileVersionsDropdown.label": {
+    "message": "Versions",
+    "description": "The label for the navbar versions dropdown on mobile view"
+  },
+  "theme.tags.tagsListLabel": {
+    "message": "Tags:",
+    "description": "The label alongside a tag list"
+  },
+  "theme.AnnouncementBar.closeButtonAriaLabel": {
+    "message": "Close",
+    "description": "The ARIA label for close button of announcement bar"
+  },
+  "theme.admonition.caution": {
+    "message": "caution",
+    "description": "The default label used for the Caution admonition (:::caution)"
+  },
+  "theme.admonition.danger": {
+    "message": "danger",
+    "description": "The default label used for the Danger admonition (:::danger)"
+  },
+  "theme.admonition.info": {
+    "message": "info",
+    "description": "The default label used for the Info admonition (:::info)"
+  },
+  "theme.admonition.note": {
+    "message": "note",
+    "description": "The default label used for the Note admonition (:::note)"
+  },
+  "theme.admonition.tip": {
+    "message": "tip",
+    "description": "The default label used for the Tip admonition (:::tip)"
+  },
+  "theme.admonition.warning": {
+    "message": "warning",
+    "description": "The default label used for the Warning admonition (:::warning)"
+  },
+  "theme.blog.sidebar.navAriaLabel": {
+    "message": "Blog recent posts navigation",
+    "description": "The ARIA label for recent posts in the blog sidebar"
+  },
+  "theme.DocSidebarItem.expandCategoryAriaLabel": {
+    "message": "Expand sidebar category '{label}'",
+    "description": "The ARIA label to expand the sidebar category"
+  },
+  "theme.DocSidebarItem.collapseCategoryAriaLabel": {
+    "message": "Collapse sidebar category '{label}'",
+    "description": "The ARIA label to collapse the sidebar category"
+  },
+  "theme.IconExternalLink.ariaLabel": {
+    "message": "(opens in new tab)",
+    "description": "The ARIA label for the external link icon"
+  },
+  "theme.NotFound.p1": {
+    "message": "We could not find what you were looking for.",
+    "description": "The first paragraph of the 404 page"
+  },
+  "theme.NotFound.p2": {
+    "message": "Please contact the owner of the site that linked you to the original URL and let them know their link is broken.",
+    "description": "The 2nd paragraph of the 404 page"
+  },
+  "theme.NavBar.navAriaLabel": {
+    "message": "Main",
+    "description": "The ARIA label for the main navigation"
+  },
+  "theme.navbar.mobileLanguageDropdown.label": {
+    "message": "Languages",
+    "description": "The label for the mobile language switcher dropdown"
+  },
+  "theme.blog.post.readingTime.plurals": {
+    "message": "One min read|{readingTime} min read",
+    "description": "Pluralized label for \"{readingTime} min read\". Use as much plural forms (separated by \"|\") as your language support (see https://www.unicode.org/cldr/cldr-aux/charts/34/supplemental/language_plural_rules.html)"
+  },
+  "theme.TOCCollapsible.toggleButtonLabel": {
+    "message": "On this page",
+    "description": "The label used by the button on the collapsible TOC component"
+  },
+  "theme.blog.post.readMore": {
+    "message": "Read more",
+    "description": "The label used in blog post item excerpts to link to full blog posts"
+  },
+  "theme.blog.post.readMoreLabel": {
+    "message": "Read more about {title}",
+    "description": "The ARIA label for the link to full blog posts from excerpts"
+  },
+  "theme.CodeBlock.copy": {
+    "message": "Copy",
+    "description": "The copy button label on code blocks"
+  },
+  "theme.CodeBlock.copied": {
+    "message": "Copied",
+    "description": "The copied button label on code blocks"
+  },
+  "theme.CodeBlock.copyButtonAriaLabel": {
+    "message": "Copy code to clipboard",
+    "description": "The ARIA label for copy code blocks button"
+  },
+  "theme.CodeBlock.wordWrapToggle": {
+    "message": "Toggle word wrap",
+    "description": "The title attribute for toggle word wrapping button of code block lines"
+  },
+  "theme.docs.breadcrumbs.home": {
+    "message": "Home page",
+    "description": "The ARIA label for the home page in the breadcrumbs"
+  },
+  "theme.docs.sidebar.navAriaLabel": {
+    "message": "Docs sidebar",
+    "description": "The ARIA label for the sidebar navigation"
+  },
+  "theme.docs.sidebar.collapseButtonTitle": {
+    "message": "Collapse sidebar",
+    "description": "The title attribute for collapse button of doc sidebar"
+  },
+  "theme.docs.sidebar.collapseButtonAriaLabel": {
+    "message": "Collapse sidebar",
+    "description": "The title attribute for collapse button of doc sidebar"
+  },
+  "theme.docs.sidebar.closeSidebarButtonAriaLabel": {
+    "message": "Close navigation bar",
+    "description": "The ARIA label for close button of mobile sidebar"
+  },
+  "theme.docs.sidebar.toggleSidebarButtonAriaLabel": {
+    "message": "Toggle navigation bar",
+    "description": "The ARIA label for hamburger menu button of mobile navigation"
+  },
+  "theme.navbar.mobileSidebarSecondaryMenu.backButtonLabel": {
+    "message": "← Back to main menu",
+    "description": "The label of the back button to return to main menu, inside the mobile navbar sidebar secondary menu (notably used to display the docs sidebar)"
+  },
+  "theme.navbar.mobileDropdown.collapseButton.expandAriaLabel": {
+    "message": "Expand the dropdown",
+    "description": "The ARIA label of the button to expand the mobile dropdown navbar item"
+  },
+  "theme.navbar.mobileDropdown.collapseButton.collapseAriaLabel": {
+    "message": "Collapse the dropdown",
+    "description": "The ARIA label of the button to collapse the mobile dropdown navbar item"
+  },
+  "theme.docs.sidebar.expandButtonTitle": {
+    "message": "Expand sidebar",
+    "description": "The ARIA label and title attribute for expand button of doc sidebar"
+  },
+  "theme.docs.sidebar.expandButtonAriaLabel": {
+    "message": "Expand sidebar",
+    "description": "The ARIA label and title attribute for expand button of doc sidebar"
+  },
+  "theme.blog.post.plurals": {
+    "message": "One post|{count} posts",
+    "description": "Pluralized label for \"{count} posts\". Use as much plural forms (separated by \"|\") as your language support (see https://www.unicode.org/cldr/cldr-aux/charts/34/supplemental/language_plural_rules.html)"
+  },
+  "theme.blog.tagTitle": {
+    "message": "{nPosts} tagged with \"{tagName}\"",
+    "description": "The title of the page for a blog tag"
+  },
+  "theme.blog.author.pageTitle": {
+    "message": "{authorName} - {nPosts}",
+    "description": "The title of the page for a blog author"
+  },
+  "theme.blog.authorsList.pageTitle": {
+    "message": "Authors",
+    "description": "The title of the authors page"
+  },
+  "theme.blog.authorsList.viewAll": {
+    "message": "View all authors",
+    "description": "The label of the link targeting the blog authors page"
+  },
+  "theme.blog.author.noPosts": {
+    "message": "This author has not written any posts yet.",
+    "description": "The text for authors with 0 blog post"
+  },
+  "theme.contentVisibility.unlistedBanner.title": {
+    "message": "Unlisted page",
+    "description": "The unlisted content banner title"
+  },
+  "theme.contentVisibility.unlistedBanner.message": {
+    "message": "This page is unlisted. Search engines will not index it, and only users having a direct link can access it.",
+    "description": "The unlisted content banner message"
+  },
+  "theme.contentVisibility.draftBanner.title": {
+    "message": "Draft page",
+    "description": "The draft content banner title"
+  },
+  "theme.contentVisibility.draftBanner.message": {
+    "message": "This page is a draft. It will only be visible in dev and be excluded from the production build.",
+    "description": "The draft content banner message"
+  },
+  "theme.docs.DocCard.categoryDescription.plurals": {
+    "message": "1 item|{count} items",
+    "description": "The default description for a category card in the generated index about how many items this category includes"
+  },
+  "theme.ErrorPageContent.tryAgain": {
+    "message": "Try again",
+    "description": "The label of the button to try again rendering when the React error boundary captures an error"
+  },
+  "theme.common.skipToMainContent": {
+    "message": "Skip to main content",
+    "description": "The skip to content label used for accessibility, allowing to rapidly navigate to main content with keyboard tab/enter navigation"
+  },
+  "theme.tags.tagsPageTitle": {
+    "message": "Tags",
+    "description": "The title of the tag list page"
+  }
+}

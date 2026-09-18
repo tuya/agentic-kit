@@ -24,9 +24,9 @@ Agentic-kit 是 AI 智能设备的端侧 SDK，负责设备与涂鸦云平台之
   <img src={archImg} alt="Agentic-kit 系统架构图" />
 </div>
 
-## 模块说明
+## 模块说明 {#模块说明}
 
-### IoT 通信模块
+### IoT 通信模块 {#iot-通信模块}
 
 负责设备与涂鸦 IoT Core 的连接与管理：
 
@@ -38,7 +38,7 @@ Agentic-kit 是 AI 智能设备的端侧 SDK，负责设备与涂鸦云平台之
   </tbody>
 </table>
 
-### RTC 通信模块
+### RTC 通信模块 {#rtc-通信模块}
 
 负责设备与 AI Foundation 的实时音视频通信：
 
@@ -50,7 +50,7 @@ Agentic-kit 是 AI 智能设备的端侧 SDK，负责设备与涂鸦云平台之
   </tbody>
 </table>
 
-### 公共组件 / common
+### 公共组件 / common {#公共组件--common}
 
 被 IoT 与 RTC 两条协议栈共享的底层基础库。此前各模块各自维护的 TLS 实现已统一收敛到此处（如 rtc-tcp-client 的 `src/tai_tls.c` 已删除）：
 
@@ -62,7 +62,7 @@ Agentic-kit 是 AI 智能设备的端侧 SDK，负责设备与涂鸦云平台之
   </tbody>
 </table>
 
-## 项目结构
+## 项目结构 {#项目结构}
 
 ```
 ├── modules/                # SDK 模块源码/库

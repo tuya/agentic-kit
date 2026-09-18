@@ -27,7 +27,7 @@ sidebar_position: 4
 激活成功后，云端会为设备分配 `devid`、`secret_key`、`local_key`，后续使用
 `iot_client_init()` 以及 AI SDK 接口时均需使用这三个字段。
 
-## App 侧操作流程
+## App 侧操作流程 {#app-侧操作流程}
 
 **第一步：** 在涂鸦 App 首页点击右上角 **"+"**，选择 **"添加设备"**。
 
@@ -57,7 +57,7 @@ Wi-Fi）。
 | `p`  | Wi-Fi 密码 |
 | `t`  | 涂鸦云激活 Token（前两字符编码 Region） |
 
-## 设备侧实现流程
+## 设备侧实现流程 {#设备侧实现流程}
 
 ```
 stbi_load(jpg_path)                          // 1. 解码 JPEG -> 灰度像素缓冲
@@ -79,9 +79,9 @@ iot_client_get_session_token()               // 5. 验证云端连通性，获�
 iot_client_deinit()                          // 6. 清理资源
 ```
 
-## 关键 API
+## 关键 API {#关键-api}
 
-### `iot_client_init_on_boarding_with_token()`
+### `iot_client_init_on_boarding_with_token()` {#iot_client_init_on_boarding_with_token}
 
 ```c
 iot_client_t *iot_client_init_on_boarding_with_token(
@@ -124,7 +124,7 @@ iot_on_boarding_config_t cfg = {
 `secret_key`、`local_key`，后续可直接用于初始化 `iot_client_init()`；失败返
 回 `NULL`。
 
-## 运行示例
+## 运行示例 {#运行示例}
 
 ```sh
 # 使用默认参数（代码内置的测试授权码 + res/qr.jpg）
@@ -161,7 +161,7 @@ Product key  : p891xbkosae0dgda
 激活成功后，请将输出的 `devid`、`secret_key`、`local_key` 保存到设备持久化
 存储中，后续通过 `iot_client_init()` 直接使用，无需重复配网。
 
-## 注意事项
+## 注意事项 {#注意事项}
 
 - 本示例使用 `stb_image` 从文件加载图片，实际产品中替换为摄像头实时帧
   即可，只需将像素数据写入 `quirc_begin()` 返回的缓冲区。

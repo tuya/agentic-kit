@@ -5,7 +5,10 @@
   "scripts": {
     "docusaurus": "docusaurus",
     "start": "docusaurus start",
+    "prebuild": "npm run typecheck && npm run check:i18n",
     "build": "docusaurus build",
+    "check:i18n": "node scripts/check-i18n-parity.mjs",
+    "test:i18n": "node --test scripts/check-i18n-parity.test.mjs",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",
     "clear": "docusaurus clear",

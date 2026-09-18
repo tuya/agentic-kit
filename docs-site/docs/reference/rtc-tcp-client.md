@@ -6,13 +6,13 @@ sidebar_position: 1
 
 # RTC TCP Client SDK 参考文档
 
-## 1. 概述
+## 1. 概述 {#1-概述}
 
 **RTC TCP Client**（API 前缀 `tai_*`）是 tRTC(tuya自研RTC协议) 的 TCP 实现。以源码形式提供，通过 PAL（Platform Abstraction Layer）实现跨平台移植，适用于 POSIX、FreeRTOS（ESP-IDF）等环境。
 
 头文件：`tuya_ai.h`（单一 include）
 
-### 特点
+### 特点 {#特点}
 
 - **简洁 API**：类型化发送函数（`tai_send_text`、`tai_send_audio_*`、`tai_send_image`），无需手动组装数据结构体
 - **后台接收线程**：`tai_connect` 后自动启动后台线程处理接收和 keepalive
@@ -22,9 +22,9 @@ sidebar_position: 1
 
 ---
 
-## 2. 常量定义
+## 2. 常量定义 {#2-常量定义}
 
-### 2.1 数据包类型
+### 2.1 数据包类型 {#21-数据包类型}
 
 | 宏 | 值 | 说明 |
 |----|---|------|
@@ -44,7 +44,7 @@ sidebar_position: 1
 | `TAI_PKT_TEXT` | 34 | 文本数据 |
 | `TAI_PKT_EVENT` | 35 | 事件数据 |
 
-### 2.2 流标志（Stream Flags）
+### 2.2 流标志（Stream Flags） {#22-流标志stream-flags}
 
 | 宏 | 值 | 说明 |
 |----|---|------|
@@ -53,7 +53,7 @@ sidebar_position: 1
 | `TAI_STREAM_MIDDLE` | 0x02 | 流中间 |
 | `TAI_STREAM_END` | 0x03 | 流结束 |
 
-### 2.3 事件类型
+### 2.3 事件类型 {#23-事件类型}
 
 | 宏 | 值 | 说明 |
 |----|---|------|
@@ -67,28 +67,28 @@ sidebar_position: 1
 | `TAI_EVT_SERVER_TIMEOVER` | 1001 | 服务端超时 |
 | `TAI_EVT_UPDATE_CONTEXT` | 1002 | 上下文更新 |
 
-### 2.4 客户端类型
+### 2.4 客户端类型 {#24-客户端类型}
 
 | 宏 | 值 | 说明 |
 |----|---|------|
 | `TAI_CLIENT_DEVICE` | 1 | 设备端 |
 | `TAI_CLIENT_APP` | 2 | 应用端 |
 
-### 2.5 音频编码
+### 2.5 音频编码 {#25-音频编码}
 
 | 宏 | 值 | 说明 |
 |----|---|------|
 | `TAI_AUDIO_PCM` | 101 | 原始 PCM |
 | `TAI_AUDIO_OPUS` | 111 | Opus 编码 |
 
-### 2.6 图像格式
+### 2.6 图像格式 {#26-图像格式}
 
 | 宏 | 值 | 说明 |
 |----|---|------|
 | `TAI_IMG_JPEG` | 1 | JPEG |
 | `TAI_IMG_PNG` | 2 | PNG |
 
-### 2.7 图像负载类型
+### 2.7 图像负载类型 {#27-图像负载类型}
 
 | 宏 | 值 | 说明 |
 |----|---|------|
@@ -96,7 +96,7 @@ sidebar_position: 1
 | `TAI_IMG_PAYLOAD_BASE64` | 1 | Base64 编码 |
 | `TAI_IMG_PAYLOAD_URL` | 2 | URL 字符串 |
 
-### 2.8 签名级别
+### 2.8 签名级别 {#28-签名级别}
 
 | 宏 | 值 | 说明 |
 |----|---|------|
@@ -104,7 +104,7 @@ sidebar_position: 1
 | `TAI_SIGN_HMAC_SHA1` | 1 | HMAC-SHA1 |
 | `TAI_SIGN_HMAC_SHA256` | 2 | HMAC-SHA256（推荐） |
 
-### 2.9 数据 ID
+### 2.9 数据 ID {#29-数据-id}
 
 | 宏 | 值 | 说明 |
 |----|---|------|
@@ -115,7 +115,7 @@ sidebar_position: 1
 | `TAI_DATA_ID_IMAGE_UP` | 5 | 上行图像 |
 | `TAI_DATA_ID_AUDIO_AUX` | 7 | 辅助音频 |
 
-### 2.10 返回码
+### 2.10 返回码 {#210-返回码}
 
 | 宏 | 值 | 说明 |
 |----|---|------|
@@ -131,11 +131,11 @@ sidebar_position: 1
 
 ---
 
-## 3. 配置（`tai_config_t`）
+## 3. 配置（`tai_config_t`） {#3-配置tai_config_t}
 
 调用 `tai_ctx_init` 前填充此结构体。所有指针字段在 context 生命周期内必须保持有效。
 
-### 3.1 服务器配置
+### 3.1 服务器配置 {#31-服务器配置}
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -143,7 +143,7 @@ sidebar_position: 1
 | `port` | `uint16_t` | 服务器端口 |
 | `tls_sni` | `const char *` | TLS SNI 主机名（通常与 host 相同；若 token 中提供域名，优先使用域名） |
 
-### 3.2 身份配置
+### 3.2 身份配置 {#32-身份配置}
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -152,7 +152,7 @@ sidebar_position: 1
 | `client_type` | `uint8_t` | 客户端类型：`TAI_CLIENT_DEVICE` 或 `TAI_CLIENT_APP`（0 = 默认 `TAI_CLIENT_DEVICE`） |
 | `protocol_version` | `uint8_t` | 协议版本：使用 `TAI_VER_21`（0 = 默认 `TAI_VER_21`） |
 
-### 3.3 会话选项
+### 3.3 会话选项 {#33-会话选项}
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -160,20 +160,20 @@ sidebar_position: 1
 | `event_user_data_json` | `const char *` | 事件用户数据 JSON（NULL 使用默认值） |
 | `agent_token` | `const char *` | Agent Token（指定特定 Agent，NULL 使用产品默认 Agent） |
 
-### 3.4 业务标识
+### 3.4 业务标识 {#34-业务标识}
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `biz_code` | `uint32_t` | 业务码（0 = 默认 `65537`） |
 | `biz_tag` | `uint64_t` | 业务标签（0 = 默认 `119`） |
 
-### 3.5 安全配置
+### 3.5 安全配置 {#35-安全配置}
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `sign_level` | `uint8_t` | 签名级别：`TAI_SIGN_HMAC_SHA256`（推荐）或 `TAI_SIGN_HMAC_SHA1`。注意 `TAI_SIGN_NONE`（0）会被视为"未设置"而强制回退到 `TAI_SIGN_HMAC_SHA256`，无法通过该字段关闭签名 |
 
-### 3.6 保活配置
+### 3.6 保活配置 {#36-保活配置}
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -181,20 +181,20 @@ sidebar_position: 1
 | `ping_timeout_ms` | `uint32_t` | Ping 超时（0 = 默认 90000ms） |
 | `connect_timeout_ms` | `uint32_t` | 连接超时（0 = 默认 5000ms）。分别约束 `tai_connect` 的两个串行等待阶段：先是连接建立（TCP 建连 + TLS 握手，共用一份预算），再是服务端 SessionNew 应答。任一阶段超时即判定连接失败，因此 `tai_connect` 最坏耗时约为该值的 2 倍。 |
 
-### 3.7 测试配置
+### 3.7 测试配置 {#37-测试配置}
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `disable_tls` | `uint8_t` | 非零时跳过 TLS，仅用于集成测试 |
 
-### 3.8 平台适配
+### 3.8 平台适配 {#38-平台适配}
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `pal` | `const pal_t *` | 平台适配层实现指针 |
 | `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | 平台证书包回调（ESP-IDF 上设为 `esp_crt_bundle_attach`，否则 TLS 不做证书校验）；NULL 表示不使用。详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
 
-### 3.9 回调函数
+### 3.9 回调函数 {#39-回调函数}
 
 所有回调均在后台接收线程中调用。
 
@@ -219,7 +219,7 @@ void (*on_event)     (tai_ctx_t *ctx, const tai_event_msg_t      *msg, void *use
 void (*on_disconnect)(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *user_data);
 ```
 
-### 接收消息结构体
+### 接收消息结构体 {#接收消息结构体}
 
 `tai_audio_msg_t`（音频回调）：
 
@@ -287,7 +287,7 @@ void (*on_disconnect)(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *use
 `msg` 以及其内部所有指针（`data` / `text` / `event_id` 等）**仅在回调执行期间有效**——SDK 从不堆分配它们。如需在回调返回后保留，请自行拷贝。
 :::
 
-#### 断连原因（`reason`）
+#### 断连原因（`reason`） {#断连原因reason}
 
 | 宏 | 值 | 说明 |
 |----|---|------|
@@ -296,7 +296,7 @@ void (*on_disconnect)(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *use
 | `TAI_DISCONNECT_TRANSPORT` | 2 | worker 检测到传输层故障 |
 | `TAI_DISCONNECT_PROTOCOL` | 3 | fail-fast：解析/行为错误 |
 
-#### `detail`（当 `reason==TRANSPORT`）
+#### `detail`（当 `reason==TRANSPORT`） {#detail当-reasontransport}
 
 | 宏 | 值 | 说明 |
 |----|---|------|
@@ -304,7 +304,7 @@ void (*on_disconnect)(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *use
 | `TAI_TRANSPORT_EOF` | 2 | 对端关闭（EOF） |
 | `TAI_TRANSPORT_NET_ERROR` | 3 | 网络错误 |
 
-#### `detail`（当 `reason==PROTOCOL`）
+#### `detail`（当 `reason==PROTOCOL`） {#detail当-reasonprotocol}
 
 | 宏 | 值 | 说明 |
 |----|---|------|
@@ -321,9 +321,9 @@ void (*on_disconnect)(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *use
 
 ---
 
-## 4. 生命周期 API
+## 4. 生命周期 API {#4-生命周期-api}
 
-### `tai_ctx_size`
+### `tai_ctx_size` {#tai_ctx_size}
 
 ```c
 size_t tai_ctx_size(void);
@@ -333,7 +333,7 @@ size_t tai_ctx_size(void);
 
 ---
 
-### `tai_ctx_init`
+### `tai_ctx_init` {#tai_ctx_init}
 
 ```c
 tai_ctx_t *tai_ctx_init(void *mem, const tai_config_t *cfg);
@@ -349,7 +349,7 @@ tai_ctx_t *tai_ctx_init(void *mem, const tai_config_t *cfg);
 
 ---
 
-### `tai_ctx_deinit`
+### `tai_ctx_deinit` {#tai_ctx_deinit}
 
 ```c
 void tai_ctx_deinit(tai_ctx_t *ctx);
@@ -359,7 +359,7 @@ void tai_ctx_deinit(tai_ctx_t *ctx);
 
 ---
 
-### `tai_connect`
+### `tai_connect` {#tai_connect}
 
 ```c
 int tai_connect(tai_ctx_t *ctx);
@@ -376,7 +376,7 @@ int tai_connect(tai_ctx_t *ctx);
 
 ---
 
-### `tai_disconnect`
+### `tai_disconnect` {#tai_disconnect}
 
 ```c
 void tai_disconnect(tai_ctx_t *ctx);
@@ -392,7 +392,7 @@ void tai_disconnect(tai_ctx_t *ctx);
 
 ---
 
-### `tai_request_disconnect`
+### `tai_request_disconnect` {#tai_request_disconnect}
 
 ```c
 void tai_request_disconnect(tai_ctx_t *ctx);
@@ -404,9 +404,9 @@ void tai_request_disconnect(tai_ctx_t *ctx);
 
 ---
 
-## 5. 发送 API
+## 5. 发送 API {#5-发送-api}
 
-### `tai_send_text`
+### `tai_send_text` {#tai_send_text}
 
 ```c
 int tai_send_text(tai_ctx_t *ctx, const char *text, size_t len);
@@ -422,7 +422,7 @@ int tai_send_text(tai_ctx_t *ctx, const char *text, size_t len);
 
 ---
 
-### `tai_send_audio_start`
+### `tai_send_audio_start` {#tai_send_audio_start}
 
 ```c
 int tai_send_audio_start(tai_ctx_t *ctx,
@@ -444,7 +444,7 @@ int tai_send_audio_start(tai_ctx_t *ctx,
 
 ---
 
-### `tai_send_audio_chunk`
+### `tai_send_audio_chunk` {#tai_send_audio_chunk}
 
 ```c
 int tai_send_audio_chunk(tai_ctx_t *ctx, const uint8_t *pcm, size_t len);
@@ -458,7 +458,7 @@ int tai_send_audio_chunk(tai_ctx_t *ctx, const uint8_t *pcm, size_t len);
 
 ---
 
-### `tai_send_audio_end`
+### `tai_send_audio_end` {#tai_send_audio_end}
 
 ```c
 int tai_send_audio_end(tai_ctx_t *ctx);
@@ -472,7 +472,7 @@ int tai_send_audio_end(tai_ctx_t *ctx);
 
 ---
 
-### `tai_send_image`
+### `tai_send_image` {#tai_send_image}
 
 ```c
 int tai_send_image(tai_ctx_t *ctx,
@@ -490,7 +490,7 @@ int tai_send_image(tai_ctx_t *ctx,
 
 ---
 
-### `tai_send_image_with_text`
+### `tai_send_image_with_text` {#tai_send_image_with_text}
 
 ```c
 int tai_send_image_with_text(tai_ctx_t *ctx,
@@ -504,7 +504,7 @@ int tai_send_image_with_text(tai_ctx_t *ctx,
 
 ---
 
-### `tai_chat_break`
+### `tai_chat_break` {#tai_chat_break}
 
 ```c
 int tai_chat_break(tai_ctx_t *ctx);
@@ -514,7 +514,7 @@ int tai_chat_break(tai_ctx_t *ctx);
 
 ---
 
-### `tai_send_mcp_response`
+### `tai_send_mcp_response` {#tai_send_mcp_response}
 
 ```c
 int tai_send_mcp_response(tai_ctx_t *ctx, const char *json_rpc_response);
@@ -527,7 +527,7 @@ int tai_send_mcp_response(tai_ctx_t *ctx, const char *json_rpc_response);
 
 ---
 
-## 6. 日志
+## 6. 日志 {#6-日志}
 
 ```c
 static inline void tai_set_log_level(int level);
@@ -548,7 +548,7 @@ static inline int  tai_get_log_level(void);
 
 ---
 
-## 7. 典型使用流程
+## 7. 典型使用流程 {#7-典型使用流程}
 
 ```c
 #include "tuya_ai.h"
@@ -599,7 +599,7 @@ free(mem);
 
 ---
 
-## 8. 线程安全
+## 8. 线程安全 {#8-线程安全}
 
 - `tai_send_*` 函数是线程安全的，可以从任意线程调用
 - 所有回调在同一个后台接收线程中按序调用

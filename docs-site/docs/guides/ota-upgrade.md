@@ -12,7 +12,7 @@ SDK 只提供**云端协议原语**——版本上报、升级查询、状态回
 
 如果产品要求“用户在 APP 上确认后才允许升级”，请将云端 OTA 任务配置为 APP 确认模式，并在设备上注册 `ota_confirm_callback`。agentic-kit 不调用 `tuya.device.upgrade.silent.get`，因此不会主动拉取或执行静默升级任务。
 
-## 工作原理
+## 工作原理 {#工作原理}
 
 ```
 设备启动 ──> iot_client_init (自动上报当前版本)
@@ -37,7 +37,7 @@ SDK 只提供**云端协议原语**——版本上报、升级查询、状态回
           重启生效      重试 / 放弃
 ```
 
-## 三个 API
+## 三个 API {#三个-api}
 
 | API | 云端接口 | 用途 |
 |-----|---------|------|
@@ -46,7 +46,7 @@ SDK 只提供**云端协议原语**——版本上报、升级查询、状态回
 | `iot_ota_report_status` | `tuya.device.upgrade.status.update` (v4.1) | 回报升级生命周期状态 |
 | `iot_ota_verify_init/update/finish` | — | 流式校验下载固件的 md5/hmac 摘要（见下文） |
 
-## APP 确认后触发升级
+## APP 确认后触发升级 {#app-确认后触发升级}
 
 APP 确认升级后，云端通过 MQTT 协议号 `15` 通知设备。SDK 解密后读取 `data.firmwareType` 作为固件 channel，并调用 `ota_confirm_callback`：
 
@@ -112,7 +112,7 @@ iot_ota_upgrade_info_free(client, &info);
 
 `ota_confirm_callback` 与 `message_callback` 一样运行在调用 `iot_client_process()` 的线程内，coreMQTT 回调返回后还要继续处理 ack 和网络缓冲。回调中只允许置位标志、释放信号量或投递工作项；不要调用 `iot_ota_check_upgrade()`、下载固件、写 flash，也不要断开或销毁 IoT client。未注册该回调时，protocol 15 会继续透传给 `message_callback`，兼容旧应用自行解析的用法。
 
-### `iot_ota_check_upgrade` 返回的升级信息
+### `iot_ota_check_upgrade` 返回的升级信息 {#iot_ota_check_upgrade-返回的升级信息}
 
 ```c
 typedef struct {
@@ -128,7 +128,7 @@ typedef struct {
 
 > 字段为堆分配，用完必须调 `iot_ota_upgrade_info_free()` 释放。
 
-### 升级状态枚举
+### 升级状态枚举 {#升级状态枚举}
 
 ```c
 typedef enum {
@@ -140,7 +140,7 @@ typedef enum {
 } iot_ota_status_t;
 ```
 
-## 固件摘要校验（md5 / hmac）
+## 固件摘要校验（md5 / hmac） {#固件摘要校验md5--hmac}
 
 云端在升级信息里返回固件摘要（`info.hmac` 优先，否则 `info.md5`；字段缺失或为空串都算没有下发该摘要）。SDK 提供**流式校验 API**：应用在下载循环中把每个固件块喂给校验器，下载完成后 `iot_ota_verify_finish()` 比对云端摘要，不匹配返回 `OPRT_OTA_VERIFY_FAILED`。
 
@@ -185,11 +185,11 @@ if (ctx != NULL) {
 - `finish` 无论成败都会释放上下文，之后不要再使用；`finish(NULL)` 不是"跳过校验"，会返回参数错误，所以跳过校验的路径必须用 `if (ctx != NULL)` 把 `update`/`finish` 一起圈起来。
 - `init` 只要返回**非 `OPRT_OK` 且非 `OPRT_NOT_SUPPORTED`** 就必须中止升级，`ctx` 此时不会被写入（保持 NULL）；按这两个值分支，不要枚举具体错误码。
 
-## 完整示例（ESP-IDF）
+## 完整示例（ESP-IDF） {#完整示例esp-idf}
 
 以下步骤摘自 `examples/esp-idf/ota-demo/main/main.c`，使用 `esp_http_client` 下载、`esp_ota_*` 烧写。
 
-### 1. 分区表
+### 1. 分区表 {#1-分区表}
 
 OTA 需要两个 app 分区（`ota_0` / `ota_1`）和一个 `otadata` 分区。demo 使用的 `partitions.csv`（16MB flash，每个 app 分区 4MB，可容纳约 4MB 的固件）：
 
@@ -202,7 +202,7 @@ ota_0,    app,  ota_0,   0x20000, 4M,
 ota_1,    app,  ota_1,   ,        4M,
 ```
 
-### 2. sdkconfig 关键项
+### 2. sdkconfig 关键项 {#2-sdkconfig-关键项}
 
 ```ini
 # 给 TLS + HTTP + esp_ota 留够栈
@@ -217,7 +217,7 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 ```
 
-### 3. 初始化与升级查询
+### 3. 初始化与升级查询 {#3-初始化与升级查询}
 
 ```c
 #include "iot_client.h"
@@ -255,7 +255,7 @@ if (rc == OPRT_OK && info.has_upgrade) {
 }
 ```
 
-### 4. 上报状态、下载、烧写
+### 4. 上报状态、下载、烧写 {#4-上报状态下载烧写}
 
 ```c
 /* 下载前上报"升级中" */
@@ -325,7 +325,7 @@ static esp_err_t download_and_flash(iot_client_t *iot,
 }
 ```
 
-### 5. 首次启动验证（防回滚）
+### 5. 首次启动验证（防回滚） {#5-首次启动验证防回滚}
 
 重启后，新的固件应当把自己标记为有效，否则 ESP-IDF 会在若干次重启后回滚到旧分区：
 
@@ -343,7 +343,7 @@ static void mark_current_valid(void)
 
 在 `app_main` 开头调用一次即可。
 
-## 构建与烧写
+## 构建与烧写 {#构建与烧写}
 
 ```bash
 cd examples/esp-idf/ota-demo
@@ -354,7 +354,7 @@ idf flash monitor
 
 首次烧写会写到 `ota_0`；后续 OTA 写入 `ota_1` 并切换启动。
 
-## 注意事项
+## 注意事项 {#注意事项}
 
 - **SDK 不下载/不烧写**——`iot_ota` 只负责云端协议；下载校验、分区管理、防回滚全部由应用实现。
 - **APP 确认模式**——云端任务需配置为 APP 确认模式；设备侧通过 `ota_confirm_callback` 接收 protocol 15，再由应用 worker 查询并执行升级。SDK 不调用静默升级接口。

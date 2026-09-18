@@ -6,9 +6,9 @@ sidebar_position: 2
 
 # RTC Client SDK 参考文档
 
-## 1. 概述
+## 1. 概述 {#1-概述}
 
-### 1.1 SDK 简介
+### 1.1 SDK 简介 {#11-sdk-简介}
 
 **RTC Client SDK**（API 前缀 `stm_open_*`）面向外部开发者，在标准 STM SDK 的基础上做了流程简化，便于快速接入 AI 能力，无需理解 Connect、Stream、Event 等底层概念。
 
@@ -16,9 +16,9 @@ sidebar_position: 2
 
 ---
 
-### 1.2 核心概念
+### 1.2 核心概念 {#12-核心概念}
 
-#### 1.2.1 Session（会话）
+#### 1.2.1 Session（会话） {#121-session会话}
 
 **定义：**  
 Session 表示**AI业务会话**，对应一个独立的对话或任务上下文。创建 Session 时需传入由服务端下发的 **session_token**；SDK 内部会据此完成连接与鉴权。
@@ -33,7 +33,7 @@ Session 表示**AI业务会话**，对应一个独立的对话或任务上下文
 
 ---
 
-#### 1.2.2 请求与数据包（event_id、fin）
+#### 1.2.2 请求与数据包（event_id、fin） {#122-请求与数据包event_idfin}
 
 **定义：**  
 一次完整的「请求-响应」在数据上可能由**多包**组成（例如一段语音拆成多帧上传）。RTC Client SDK 用 **事件** 来刻画这样一组包：同一轮请求/返回包共享同一个 **event_id**，**首包**可携带数据类型和参数（如音频采样率、图像宽高），**末包**通过参数 **fin=1** 标记，便于基座和端侧对齐「这一段输入已结束」。
@@ -52,25 +52,25 @@ Session 表示**AI业务会话**，对应一个独立的对话或任务上下文
 
 ---
 
-## 2. 前期准备
+## 2. 前期准备 {#2-前期准备}
 
-### 2.1 智能体配置
+### 2.1 智能体配置 {#21-智能体配置}
 
 在 Tuya IoT 平台上创建产品并绑定或创建 AI Agent，详见 [创建 Agent](https://developer.tuya.com/cn/docs/iot/ai-agent-management?id=Kdxr4v7uv4fud)。如需自定义工作流，可参考[创建工作流](../guides/create-workflow)。
 
-### 2.2 设备激活
+### 2.2 设备激活 {#22-设备激活}
 
 通过配网操作激活并获取设备凭证（`devid`、`secret_key`、`local_key`）。详见[教程](../tutorials/scan-by-device)。
 
-### 2.3 获取 session token
+### 2.3 获取 session token {#23-获取-session-token}
 
 通过 `iot_client_init()` 初始化 IoT 客户端，再调用 `iot_client_get_session_token()` 获取 `session_token`。详见 [IoT Client API](./iot-client)。
 
 ---
 
-## 3. SDK 初始化与配置
+## 3. SDK 初始化与配置 {#3-sdk-初始化与配置}
 
-### 3.1 SDK 初始化（`stm_open_init`）
+### 3.1 SDK 初始化（`stm_open_init`） {#31-sdk-初始化stm_open_init}
 
 ```c
 stm_ret stm_open_init(stm_open_config_t *config);
@@ -88,7 +88,7 @@ stm_ret stm_open_init(stm_open_config_t *config);
 
 ---
 
-### 3.2 SDK 重置（`stm_open_reset`）
+### 3.2 SDK 重置（`stm_open_reset`） {#32-sdk-重置stm_open_reset}
 
 ```c
 stm_ret stm_open_reset(stm_open_config_t *config);
@@ -98,7 +98,7 @@ stm_ret stm_open_reset(stm_open_config_t *config);
 
 ---
 
-### 3.3 SDK 反初始化（`stm_open_deinit`）
+### 3.3 SDK 反初始化（`stm_open_deinit`） {#33-sdk-反初始化stm_open_deinit}
 
 ```c
 void stm_open_deinit(void);
@@ -108,7 +108,7 @@ void stm_open_deinit(void);
 
 ---
 
-### 3.4 获取版本信息（`stm_open_get_version`）
+### 3.4 获取版本信息（`stm_open_get_version`） {#34-获取版本信息stm_open_get_version}
 
 ```c
 uint32_t stm_open_get_version(void);
@@ -118,7 +118,7 @@ uint32_t stm_open_get_version(void);
 
 ---
 
-### 3.5 日志配置（`stm_open_set_log_level`）
+### 3.5 日志配置（`stm_open_set_log_level`） {#35-日志配置stm_open_set_log_level}
 
 ```c
 stm_ret stm_open_set_log_level(stm_log_level_e level);
@@ -136,9 +136,9 @@ stm_ret stm_open_set_log_level(stm_log_level_e level);
 
 ---
 
-## 4. 会话管理
+## 4. 会话管理 {#4-会话管理}
 
-### 4.1 创建会话（`stm_open_session_create`）
+### 4.1 创建会话（`stm_open_session_create`） {#41-创建会话stm_open_session_create}
 
 ```c
 stm_open_session_t* stm_open_session_create(stm_open_session_config_t *config);
@@ -161,7 +161,7 @@ stm_open_session_t* stm_open_session_create(stm_open_session_config_t *config);
 
 ---
 
-### 4.2 发送数据（`stm_open_session_send`）
+### 4.2 发送数据（`stm_open_session_send`） {#42-发送数据stm_open_session_send}
 
 ```c
 stm_ret stm_open_session_send(stm_open_session_t *session, stm_open_data_t *data, int8_t fin);
@@ -181,7 +181,7 @@ stm_ret stm_open_session_send(stm_open_session_t *session, stm_open_data_t *data
 
 ---
 
-### 4.3 关闭会话（`stm_open_session_close`）
+### 4.3 关闭会话（`stm_open_session_close`） {#43-关闭会话stm_open_session_close}
 
 ```c
 void stm_open_session_close(stm_open_session_t *session);
@@ -189,7 +189,7 @@ void stm_open_session_close(stm_open_session_t *session);
 
 ---
 
-## 5. 数据类型
+## 5. 数据类型 {#5-数据类型}
 
 | 值 | 宏 | 说明 |
 |----|-----|------|
@@ -200,7 +200,7 @@ void stm_open_session_close(stm_open_session_t *session);
 | 5 | `STM_DATA_TYPE_FILE` | 文件 |
 | 6 | `STM_DATA_TYPE_TEXT` | 文本 |
 
-### 音频参数（`stm_audio_params_t`）
+### 音频参数（`stm_audio_params_t`） {#音频参数stm_audio_params_t}
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -213,7 +213,7 @@ void stm_open_session_close(stm_open_session_t *session);
 | `frame_duration` | `uint16_t` | 帧时长 ms |
 | `frame_size` | `uint16_t` | 帧大小 bytes |
 
-### 图像参数（`stm_image_params_t`）
+### 图像参数（`stm_image_params_t`） {#图像参数stm_image_params_t}
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -224,7 +224,7 @@ void stm_open_session_close(stm_open_session_t *session);
 
 ---
 
-## 6. 错误码
+## 6. 错误码 {#6-错误码}
 
 | 值 | 宏 | 说明 | 处理建议 |
 |----|-----|------|----------|
@@ -242,9 +242,9 @@ void stm_open_session_close(stm_open_session_t *session);
 
 ---
 
-## 7. 快速示例
+## 7. 快速示例 {#7-快速示例}
 
-### 文本聊天
+### 文本聊天 {#文本聊天}
 
 ```c
 stm_open_config_t config = { .on_log = my_log_cb };
@@ -271,7 +271,7 @@ stm_open_session_close(sess);
 stm_open_deinit();
 ```
 
-### 音频聊天
+### 音频聊天 {#音频聊天}
 
 ```c
 // 首包：带音频参数
@@ -305,7 +305,7 @@ stm_open_session_send(sess, &last, 1);  // fin=1
 
 ---
 
-## 8. 与 RTC TCP Client 的对比
+## 8. 与 RTC TCP Client 的对比 {#8-与-rtc-tcp-client-的对比}
 
 | | RTC Client (`stm_open_*`) | RTC TCP Client (`tai_*`) |
 |---|---|---|

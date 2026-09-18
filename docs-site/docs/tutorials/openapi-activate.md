@@ -25,7 +25,7 @@ OpenAPI配网需要新建云项目并关联App，请先参考 [创建 App 和云
 通过任意方式（串口、蓝牙、HTTP 等）将 Token 传递给设备，设备调用
 `iot_client_init_on_boarding_with_token()` 即可完成激活。
 
-## 整体流程
+## 整体流程 {#整体流程}
 
 ```
 [服务端 / 脚本]                              [设备端]
@@ -46,9 +46,9 @@ OpenAPI配网需要新建云项目并关联App，请先参考 [创建 App 和云
       |     (轮询确认配网结果)                    |
 ```
 
-## 涉及的 OpenAPI
+## 涉及的 OpenAPI {#涉及的-openapi}
 
-### 1. 用户同步 — `POST /v1.0/apps/{schema}/user`
+### 1. 用户同步 — `POST /v1.0/apps/{schema}/user` {#1-用户同步--post-v10appsschemauser}
 
 在涂鸦云中创建或同步一个用户，返回用户 `uid`。
 
@@ -59,7 +59,7 @@ OpenAPI配网需要新建云项目并关联App，请先参考 [创建 App 和云
 | `password` | string | 是 | 密码（MD5 哈希值） |
 | `username_type` | int | 是 | 1=手机号, 2=邮箱, 3=其他 |
 
-### 2. 生成配网 Token — `POST /v1.0/device/paring/token`
+### 2. 生成配网 Token — `POST /v1.0/device/paring/token` {#2-生成配网-token--post-v10deviceparingtoken}
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -67,11 +67,11 @@ OpenAPI配网需要新建云项目并关联App，请先参考 [创建 App 和云
 | `paring_type` | string | 是 | 配网类型：`BLE`、`AP`、`EZ` |
 | `time_zone_id` | string | 是 | 时区 |
 
-### 3. 查询配网结果 — `GET /v1.0/device/paring/tokens/{token}`
+### 3. 查询配网结果 — `GET /v1.0/device/paring/tokens/{token}` {#3-查询配网结果--get-v10deviceparingtokenstoken}
 
 查询设备是否已通过该 Token 完成激活。
 
-### 4. 设备重置（恢复出厂设置） — `POST /v2.0/cloud/thing/{device_id}/reset`
+### 4. 设备重置（恢复出厂设置） — `POST /v2.0/cloud/thing/{device_id}/reset` {#4-设备重置恢复出厂设置--post-v20cloudthingdevice_idreset}
 
 根据设备 ID 将设备解绑并恢复出厂设置。重置后设备与原用户的绑定关系被清除，
 设备需要重新走配网激活流程才能再次使用。
@@ -96,7 +96,7 @@ authkey 等），重新进入待配网状态。
 
 > 参考文档：[恢复出厂设置](https://developer.tuya.com/cn/docs/cloud/187da401c3?id=Kcp5pqcrmyo21)
 
-## Token 格式
+## Token 格式 {#token-格式}
 
 设备端接收的 Token 需要由三部分拼接而成：
 
@@ -108,7 +108,7 @@ authkey 等），重新进入待配网状态。
 
 设备端的 `iot_client_init_on_boarding_with_token()` 会自动从前两个字符解析 Region 信息。
 
-## 环境配置
+## 环境配置 {#环境配置}
 
 | 环境变量 | 说明 | 示例 |
 |----------|------|------|
@@ -126,7 +126,7 @@ authkey 等），重新进入待配网状态。
 | 欧洲 | `https://openapi.tuyaeu.com` |
 | 印度 | `https://openapi.tuyain.com` |
 
-## 运行示例
+## 运行示例 {#运行示例}
 
 ```sh
 export TUYA_CLIENT_ID="your_client_id"
@@ -147,7 +147,7 @@ python3 ./build/tuya_openapi.py pairing-token --uid "ay..." --paring-type BLE \
 ./build/activate_demo "$PAIRING_TOKEN" <uuid> <authkey> <product_key>
 ```
 
-## 注意事项
+## 注意事项 {#注意事项}
 
 - 配网 Token 有有效期，需在有效期内完成设备激活；可用 `tuya_openapi.py pairing-result --poll` 轮询确认结果（`--timeout` 默认 100 秒）。
 - `tuya_openapi.py` 使用 Python 标准库实现，无需安装额外依赖。

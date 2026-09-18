@@ -17,13 +17,13 @@ import Link from '@docusaurus/Link';
   <div><b>HOW IT INTEGRATES</b><span>芯片无关、平台抽象、原子选用，保留原有产品工程与核心业务</span></div>
 </div>
 
-## 它解决什么问题
+## 它解决什么问题 {#它解决什么问题}
 
 Physical AI 产品需要让真实硬件持续感知环境、理解用户并执行动作。端侧要面对资源、功耗、网络和外设差异，云端则承担实时通信、Agent 编排、模型、记忆、知识和行业服务。Agentic-kit 位于两者之间，把接入所需的身份、连接、会话和数据交互收敛为一套轻量接口。
 
 <div className="doc-callout"><b>能力边界</b><p>Agentic-kit 负责端侧接入与数据、事件、结果的可靠流转。模型、算法、记忆和行业服务按产品需要在端侧、涂鸦平台或客户自有服务中部署与组合。</p></div>
 
-## 核心能力
+## 核心能力 {#核心能力}
 
 <div className="doc-card-grid doc-card-grid--three">
   <article><span>01 / IDENTITY</span><h3>设备激活与身份</h3><p>以产品 PID 和设备授权码完成激活，获得设备连接平台所需的正式凭据。</p></article>
@@ -34,7 +34,7 @@ Physical AI 产品需要让真实硬件持续感知环境、理解用户并执�
   <article><span>06 / PORTABLE</span><h3>PAL 跨平台适配</h3><p>通过网络、线程、互斥锁、时间和内存接口适配不同芯片与操作系统。</p></article>
 </div>
 
-## 一套入口，多种终端
+## 一套入口，多种终端 {#一套入口多种终端}
 
 Agentic-kit 不限定产品形态。相同的接入模型可以进入语音玩具、拍学设备、宠物陪伴、办公效率终端、空间助手与具身机器人，也可以先在 macOS 或 Linux 上验证，再移植到目标硬件。
 
@@ -45,7 +45,7 @@ Agentic-kit 不限定产品形态。相同的接入模型可以进入语音玩�
 | 效率终端与应用 | 会议音频、文件、屏幕事件 | 摘要、行动项、工具调用 | Agent、知识库、客户业务工具 |
 | 具身机器人 | 语音、视觉、环境与本体状态 | 移动、抓取、设备联动、回执 | 任务规划、PAM、MCP、已授权设备生态 |
 
-## 接入流程
+## 接入流程 {#接入流程}
 
 <div className="doc-flow">
   <div><strong>创建产品</strong><span>在 Tuya IoT 平台获得产品 PID，并配置默认或可切换的 AI Agent。</span></div>
@@ -56,7 +56,7 @@ Agentic-kit 不限定产品形态。相同的接入模型可以进入语音玩�
 
 <div className="doc-callout doc-callout--info"><b>没有硬件也可以开始</b><p>官方示例支持在 macOS 或 Linux 直接验证语音、图片和 MCP 链路。先跑通 POSIX 示例，再实现目标平台 PAL，能更快分离云端配置与硬件移植问题。</p></div>
 
-## 开始前需要什么
+## 开始前需要什么 {#开始前需要什么}
 
 | 信息 | 作用 | 来源 |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ Agentic-kit 不限定产品形态。相同的接入模型可以进入语音玩�
 | 网络与系统适配 | 提供 TCP、线程、内存等 PAL 能力，或采用已支持的平台实现 | POSIX、FreeRTOS 或自定义 PAL |
 | 产品交互设计 | 确定采集、播放、打断、工具执行和异常恢复策略 | 客户产品与固件工程 |
 
-## 从 SDK 连接到平台能力
+## 从 SDK 连接到平台能力 {#从-sdk-连接到平台能力}
 
 Tuya Physical AI 平台把端云通信、Agent 编排、模型、记忆、知识、设备控制和垂类感知组织成可组合能力。比如语音链路可组合流式 ASR、端侧或云端 VAD、热词与 TTS；视觉产品可连接物体识别、宠物个体识别或场景理解；客户也可接入自有模型、私域知识与核心云服务。
 
@@ -76,7 +76,7 @@ Tuya Physical AI 平台把端云通信、Agent 编排、模型、记忆、知识
 
 通用大模型保持开放：客户可以在涂鸦平台选用全球主流模型，也可以接入私有模型。面向 Physical AI 的真实设备场景，涂鸦还训练并持续优化语音、视觉与物理执行等垂直模型，用于改善远场拾音、多人干扰、复杂画面和设备动作等具体体验。模型名称、开放状态和支持平台以正式发布信息为准，垂直模型可通过 [涂鸦算法平台](https://www.tuya.com/model) 查看。
 
-## 为什么连接 Tuya Physical AI 平台
+## 为什么连接 Tuya Physical AI 平台 {#为什么连接-tuya-physical-ai-平台}
 
 Agentic-kit 保持端侧接入轻量，Tuya Physical AI 平台则提供从实时交互到全球运行所需的通用底座。客户可以只选择需要的部分，并保留模型、数据和核心业务的技术选择权。
 
@@ -87,7 +87,7 @@ Agentic-kit 保持端侧接入轻量，Tuya Physical AI 平台则提供从实时
   <article><span>VERTICAL ALGORITHMS</span><h3>围绕真实硬件训练垂直模型</h3><p>针对远场声音、目标说话人、热词、宠物个体、复杂视觉和物理执行等问题持续优化，让算法指标真正转化为 Physical AI 的用户体验。</p></article>
 </div>
 
-## 如何选择端侧路径
+## 如何选择端侧路径 {#如何选择端侧路径}
 
 **TuyaOS（Wukong）、TuyaOpen 与 Agentic-kit 不是彼此覆盖的三套方案，而是针对不同产品基础和开放深度互相补位。** TuyaOS（Wukong）和 TuyaOpen 由涂鸦定义端侧架构、接口与组件边界，并内置大量连接、设备模型、AI 和通用工程代码；Agentic-kit 则从客户现有架构出发，提供更轻量的原子能力。
 
@@ -107,7 +107,7 @@ Agentic-kit 保持端侧接入轻量，Tuya Physical AI 平台则提供从实时
 
 <div className="doc-callout doc-callout--neutral"><b>从零项目求快，且无现有技术栈要求，优先看 TuyaOpen；已有技术体系、强调灵活适配，优先看 Agentic-kit</b><p>在目标平台已具备网络栈、编译工具链和必要系统能力，且只完成基础 PAL 与通信接入的条件下，Agentic-kit 最快可在 <strong>半天</strong> 内完成基础适配。音视频外设、配网、产品状态机和量产验证所需时间仍取决于具体方案。</p></div>
 
-## 下一步
+## 下一步 {#下一步}
 
 - [核心概念](./concepts) - 了解设备激活、Agent、tRTC、数据点与 MCP
 - [系统架构](./architecture) - 了解 SDK 模块组成与项目结构

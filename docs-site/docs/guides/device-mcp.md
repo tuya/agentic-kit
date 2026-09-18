@@ -10,7 +10,7 @@ sidebar_position: 5
 
 完整示例代码见 `examples/posix/ai/rtc-tcp-client/mcp_demo.c`。
 
-## 工作原理
+## 工作原理 {#工作原理}
 
 设备作为 MCP **Server**，云端 AI 作为 MCP **Client**。交互流程：
 
@@ -37,14 +37,14 @@ tai_send_mcp_response() ──> 云端 AI 继续生成回复
 | `tools/list` | 获取设备暴露的工具列表 |
 | `tools/call` | 调用某个具体工具并获取结果 |
 
-## 前置条件
+## 前置条件 {#前置条件}
 
 - 设备已完成 IoT SDK 初始化和 TAI 连接（参考[快速开始](../tutorials/quick-start)）
 - 连接时声明设备支持 MCP
 
-## 步骤
+## 步骤 {#步骤}
 
-### 1. 声明设备支持 MCP
+### 1. 声明设备支持 MCP {#1-声明设备支持-mcp}
 
 在 `tai_config_t` 的 `session_attrs_json` 中设置 `supportCustomMCP` 为 `true`：
 
@@ -58,7 +58,7 @@ tai_config_t cfg = {
 };
 ```
 
-### 2. 定义工具注册表
+### 2. 定义工具注册表 {#2-定义工具注册表}
 
 每个工具需要四个要素：名称、描述、JSON Schema 格式的输入参数定义、C 处理函数。
 
@@ -119,7 +119,7 @@ static const mcp_tool_t k_tools[] = {
 
 `input_schema_json` 遵循 [JSON Schema](https://json-schema.org/) 格式，云端 AI 会据此生成合法的调用参数。
 
-### 3. 处理 MCP 事件
+### 3. 处理 MCP 事件 {#3-处理-mcp-事件}
 
 在 `on_event` 回调中监听 `TAI_EVT_MCP_CMD`，将请求分发给处理函数：
 
@@ -132,7 +132,7 @@ static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *ud)
 }
 ```
 
-### 4. 实现 MCP 请求分发器
+### 4. 实现 MCP 请求分发器 {#4-实现-mcp-请求分发器}
 
 收到的 `data` 是 JSON-RPC 2.0 格式的请求。需要解析 `method` 和 `id` 字段，根据 `method` 构造对应的响应：
 
@@ -183,7 +183,7 @@ static void handle_mcp_request(tai_ctx_t *ctx,
 }
 ```
 
-### 5. 构造 JSON-RPC 响应
+### 5. 构造 JSON-RPC 响应 {#5-构造-json-rpc-响应}
 
 每种方法需要返回特定格式的 JSON-RPC 2.0 响应。`id` 字段必须与请求中的 `id` 一致。
 
@@ -244,7 +244,7 @@ static void handle_mcp_request(tai_ctx_t *ctx,
 }
 ```
 
-### 6. 发送响应
+### 6. 发送响应 {#6-发送响应}
 
 使用 `tai_send_mcp_response()` 将构造好的 JSON 字符串发回云端：
 
@@ -255,7 +255,7 @@ if (rc != TAI_OK) {
 }
 ```
 
-## 编译与运行
+## 编译与运行 {#编译与运行}
 
 ```bash
 cmake -S examples/posix -B build -DAGENTIC_KIT_BUILD_EXAMPLES=ON
@@ -263,7 +263,7 @@ cmake --build build --target mcp_demo
 ./build/mcp_demo [devid] [secret_key] [local_key]
 ```
 
-## 添加自定义工具
+## 添加自定义工具 {#添加自定义工具}
 
 要添加新工具，只需三步：
 
@@ -293,7 +293,7 @@ static int tool_read_sensor(const char *args_json,
 
 3. **重新编译** — 无需修改分发逻辑，`tools/list` 和 `tools/call` 会自动包含新工具。
 
-## 注意事项
+## 注意事项 {#注意事项}
 
 - 所有回调（包括 `TAI_EVT_MCP_CMD`）在后台接收线程中执行，工具函数应避免长时间阻塞
 - 响应的 `id` 必须与请求的 `id` 完全一致，否则云端无法匹配。这里有两个容易踩的坑：一是 `id` 只能取**顶层**的那一个，`params.arguments` 里业务自带的 `id`（灯的 id、歌曲 id）会被"取第一个匹配"的写法先命中；二是 `id` 只能原样回填，截断一个带引号的 id 会丢掉右引号，把对象或数组形式的值截一半更会产生括号不配对的 JSON。`demo_mcp.h` 的 `demo_mcp_copy_id()` 两者都已处理

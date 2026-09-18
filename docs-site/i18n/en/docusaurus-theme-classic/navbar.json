@@ -1,0 +1,18 @@
+{
+  "title": {
+    "message": "Tuya Agentic-kit",
+    "description": "The title in the navbar"
+  },
+  "item.label.文档": {
+    "message": "Docs",
+    "description": "Navbar item with label 文档"
+  },
+  "item.label.涂鸦开发者": {
+    "message": "Tuya Developer",
+    "description": "Navbar item with label 涂鸦开发者"
+  },
+  "item.label.GitHub": {
+    "message": "GitHub",
+    "description": "Navbar item with label GitHub"
+  }
+}

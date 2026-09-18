@@ -7,7 +7,7 @@ slug: /faq
 
 # 常见问题（FAQ）
 
-## Agentic-kit 和 TuyaOpen 的区别是什么，如何选择？
+## Agentic-kit 和 TuyaOpen 的区别是什么，如何选择？ {#agentic-kit-和-tuyaopen-的区别是什么如何选择}
 
 **Agentic-kit** 是专注于 AI 能力接入的轻量级 C SDK，核心功能是语音聊天、图片理解、MCP 设备命令。体积小、依赖少，适合在 RTOS 或裸机环境运行。
 
@@ -22,7 +22,7 @@ slug: /faq
 | 需要完整 IoT 管理 + AI | TuyaOpen 为主，Agentic-kit 模块为辅 |
 | 资源受限的 MCU（RAM < 512KB） | Agentic-kit（更轻量） |
 
-## 如何请求 RTC Client 库支持新的平台/架构？
+## 如何请求 RTC Client 库支持新的平台/架构？ {#如何请求-rtc-client-库支持新的平台架构}
 
 RTC Client（`stm_open_*`）以预编译静态库形式提供，当前支持：
 
@@ -39,7 +39,7 @@ RTC Client（`stm_open_*`）以预编译静态库形式提供，当前支持：
 
 **替代方案：** 使用 [RTC TCP Client](./reference/rtc-tcp-client)（源码形式），只需实现 `pal.h` 接口即可在任意平台运行。详见[适配新平台](./guides/porting-to-new-platform)。
 
-## 设备端是否需要 VAD？
+## 设备端是否需要 VAD？ {#设备端是否需要-vad}
 
 **不是必须的。** 云端提供 Server VAD 能力，设备端持续发送音频即可，云端检测到用户停止说话后会通知设备——当前云端以 `TAI_EVT_CHAT_BREAK` 作为回合结束信号（`TAI_EVT_SERVER_VAD` 已不再下发，常量仅为协议兼容保留）。注意：云端 VAD 模式下收到回合结束信号后**不要**调用 `tai_send_audio_end()`，整个会话保持上行音频流打开。
 
@@ -54,7 +54,7 @@ RTC Client（`stm_open_*`）以预编译静态库形式提供，当前支持：
 
 详见[VAD 与打断](./guides/vad-and-interrupt)。
 
-## RTC TCP Client 和 RTC Client 的区别？用哪个？
+## RTC TCP Client 和 RTC Client 的区别？用哪个？ {#rtc-tcp-client-和-rtc-client-的区别用哪个}
 
 | | RTC TCP Client (`tai_*`) | RTC Client (`stm_open_*`) |
 |---|---|---|
@@ -68,7 +68,7 @@ UDP实现版本有非常好的弱网性能支持, 即使在网络条件很差的
 
 其他场景下看各人喜好。
 
-## 支持哪些音频格式？
+## 支持哪些音频格式？ {#支持哪些音频格式}
 
 **上行（设备 → 云端）：**
 - PCM：16kHz / 16-bit / mono（推荐，实现简单）
@@ -81,7 +81,7 @@ UDP实现版本有非常好的弱网性能支持, 即使在网络条件很差的
 
 详见[音频格式配置指南](./guides/audio-format)。
 
-## session_token 过期了怎么办？
+## session_token 过期了怎么办？ {#session_token-过期了怎么办}
 
 **RTC Client：**
 - Token 有效期通常为 12-24 小时
@@ -98,7 +98,7 @@ UDP实现版本有非常好的弱网性能支持, 即使在网络条件很差的
 正确做法：回调里只设置一个标志位（或调用 `tai_request_disconnect()`），然后由持有 `tai_ctx_t` 的线程在回调返回后依次执行 `tai_disconnect()` + `tai_connect()` 完成重连。
 :::
 
-## 设备需要什么样的网络条件？
+## 设备需要什么样的网络条件？ {#设备需要什么样的网络条件}
 
 | 指标 | 最低要求 | 推荐 |
 |------|---------|------|

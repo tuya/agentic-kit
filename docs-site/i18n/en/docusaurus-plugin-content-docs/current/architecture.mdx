@@ -1,0 +1,101 @@
+---
+title: System Architecture
+sidebar_label: Architecture
+sidebar_position: 2
+slug: /architecture
+---
+
+import archImg from './images/agentic-architecture.png';
+
+<head>
+  <style>{`
+    .arch-diagram { margin: 1.5rem 0; overflow-x: auto; }
+    .arch-diagram img { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+    .arch-table th { background: #f6f8fa; }
+    .arch-table tr:nth-child(even) { background: #f9fafb; }
+  `}</style>
+</head>
+
+# System Architecture
+
+Agentic-kit is a device-side SDK for AI-powered smart devices. It handles IoT management and real-time AI communication between devices and the Tuya cloud platform.
+
+<div className="arch-diagram">
+  <img src={archImg} alt="AI device using Agentic-kit: BLE and QR-code App Provisioning, iot-client over HTTP/MQTT to IoT Core, and RTC modules over tRTC to AI Foundation" />
+</div>
+
+*Schematic guide, not a screenshot: English recreation of the original architecture diagram, preserving its module groups and connection paths.*
+
+## Module descriptions {#模块说明}
+
+### IoT communication modules {#iot-通信模块}
+
+These modules handle device connection to and management by Tuya IoT Core:
+
+<table className="arch-table">
+  <thead><tr><th>Module</th><th>Header</th><th>Protocol</th><th>Responsibilities</th></tr></thead>
+  <tbody>
+    <tr><td><strong>iot-client</strong></td><td><code>iot_client.h</code></td><td>HTTP / MQTT</td><td>Device Activation, persistent MQTT connection, Session token retrieval, and Data Point Reports</td></tr>
+    <tr><td><strong>tuya-ble</strong></td><td><code>tuya_ble_prov.h</code></td><td>BLE</td><td>Provisioning over Bluetooth</td></tr>
+  </tbody>
+</table>
+
+### RTC communication modules {#rtc-通信模块}
+
+These modules handle real-time audio and video communication between devices and AI Foundation:
+
+<table className="arch-table">
+  <thead><tr><th>Module</th><th>Header</th><th>Protocol</th><th>Responsibilities</th></tr></thead>
+  <tbody>
+    <tr><td><strong>rtc-tcp-client</strong></td><td><code>tuya_ai.h</code></td><td>tRTC (TCP)</td><td>Real-time AI interaction, source-level integration, and PAL portability</td></tr>
+    <tr><td><strong>rtc-client</strong></td><td><code>stm_open.h</code></td><td>tRTC (UDP)</td><td>Real-time AI interaction, distributed as a precompiled library with multiplatform support</td></tr>
+  </tbody>
+</table>
+
+### Shared components / common {#公共组件--common}
+
+These low-level foundational libraries are shared by the IoT and RTC protocol stacks. TLS implementations previously maintained separately by each module have been consolidated here (for example, rtc-tcp-client's `src/tai_tls.c` has been removed):
+
+<table className="arch-table">
+  <thead><tr><th>Component</th><th>Source file</th><th>Responsibilities</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Shared TLS</strong></td><td><code>common/tls.c</code></td><td>The mbedTLS-based TLS-over-TCP transport layer shared by the IoT (MQTT / HTTP) and RTC (rtc-tcp-client) stacks</td></tr>
+    <tr><td><strong>Shared RNG</strong></td><td><code>common/rng.c</code></td><td>The single process-wide CTR-DRBG random number generator, seeded once at startup and reused throughout the SDK</td></tr>
+  </tbody>
+</table>
+
+## Project structure {#项目结构}
+
+```
+├── modules/                # SDK module source code/libraries
+│   ├── rtc-tcp-client/     # TCP implementation of tRTC (Tuya's proprietary RTC protocol), provided as source code
+│   │   ├── include/tuya_ai.h
+│   │   └── src/
+│   ├── rtc-client/         # UDP implementation of tRTC (Tuya's proprietary RTC protocol), provided as a precompiled library
+│   │   ├── include/stm_open.h
+│   │   └── libs/
+│   ├── iot-client/         # IoT client (Activation, MQTT, token)
+│   │   ├── include/iot_client.h
+│   │   └── src/
+│   └── tuya-ble/           # BLE Provisioning module
+├── examples/
+│   ├── posix/              # macOS/Linux examples
+│   │   ├── ai/
+│   │   │   ├── rtc-tcp-client/    # Voice chat using rtc-tcp-client
+│   │   │   └── rtc-client/        # Voice chat using rtc-client
+│   │   ├── pair/
+│   │   │   ├── scan-by-device/    # Provisioning by having the device scan a QR code
+│   │   │   ├── scan-by-app/       # Provisioning by having the app scan a QR code
+│   │   │   └── api-activate/      # OpenAPI Activation
+│   │   └── res/                   # Test resource files
+│   └── esp-idf/            # ESP-IDF examples
+│       ├── ai/
+│       │   └── rtc-tcp-client/    # ESP32 voice chat
+│       └── pair/
+│           ├── pair-by-ble/       # Provisioning over BLE
+│           └── scan-by-app/       # Provisioning by having the app scan a QR code
+├── pal/                    # Platform Abstraction Layer
+├── common/                 # Shared utility code
+├── third_party/            # Third-party libraries (including mbedTLS)
+└── docs-site/              # This documentation site
+```

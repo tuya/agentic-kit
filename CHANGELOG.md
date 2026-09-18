@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- docs-site — English edition of the full documentation site, published at `/en/` with Simplified Chinese retained at `/` (PR pending).
+  - All 29 docs are mirrored under `docs-site/i18n/en/`, with a locale selector in both the landing-page navbar and the custom docs topbar, localized navbar/footer/sidebar catalogs, and English SVG schematics under `current/images/`.
+  - Heading anchors use explicit IDs shared across locales, and `npm run check:i18n` gates path, image, and anchor parity as part of `npm run build`.
+
 - iot-client — `iot_client_config_t.skip_version_report` skips SDK-meta and firmware-version reports during `iot_client_init()` (#37).
   - Default `false` reports both; set `true` when the cloud already has the current version.
 - tuya-ble — asynchronous nearby-WiFi lists over big-data, fixed CFG-status query replies, and an ESP-IDF scan provider (#35).

@@ -19,7 +19,7 @@ sidebar_position: 2
 但字段可能每个拍学机的厂商是不同的。为实现此功能，我们需要创建一个工作流，
 然后输出一个 `json`，json 里有我们需要的字段。
 
-## 配置工作流
+## 配置工作流 {#配置工作流}
 
 当我们创建工作流的时候，画布上已经有了开始和结束节点，其中开始节点有
 `USER_TEXT` 和 `USER_IMAGE`，其中 `USER_TEXT` 代表用户的文本输入，可以是在 SDK
@@ -45,7 +45,7 @@ sidebar_position: 2
 另一个分支再走一次大模型来生成一段文字描述（TTS 输出），然后这段文字描述会
 输出给设备端做 TTS 播报。
 
-## 工作流典型结构
+## 工作流典型结构 {#工作流典型结构}
 
 ```text
 开始（USER_TEXT + USER_IMAGE）
@@ -56,7 +56,7 @@ sidebar_position: 2
     └─ 结束
 ```
 
-## 代码开发
+## 代码开发 {#代码开发}
 
 ```c
 //和工作流配置值对应的固定串
@@ -88,7 +88,7 @@ ret = send_image(session, NULL, img_data, nread, img_format, 1);
   "finish":true,...}}
 ```
 
-## 相关链接
+## 相关链接 {#相关链接}
 
 - [如何创建 Agent](./create-agent) — Agent 基础配置步骤
 - [图片理解教程](../tutorials/edu-camera) — 设备端发送图片的完整示例
