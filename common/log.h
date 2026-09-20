@@ -20,6 +20,60 @@
 #include <stdarg.h>
 #include <stddef.h>
 
+/* -------------------------------------------------------------------------
+ * Build-time config: the integrator-override pickup. Every SDK subsystem
+ * keeps its knob defaults in its own *_config_defaults.h
+ * (modules/<m>/include/, pal/pal_config_defaults.h); the one thing they
+ * all share is this header, because every SDK translation unit includes
+ * it.  That makes log.h the right home for the override pickup: it must
+ * run BEFORE any #ifndef knob default, whichever file that default lives
+ * in -- and each defaults file includes this header first for exactly
+ * that reason.
+ *
+ * Integrators override by defining a knob FIRST -- pick whichever fits the
+ * build system (all of them must apply to every target that compiles SDK
+ * sources, so no translation unit sees a different value):
+ *   1. Create your own agentic_kit_config.h holding only the knobs you
+ *      want to change (plain #define, no #ifndef), and put its directory
+ *      on the include path (-I / target_include_directories). It is
+ *      picked up automatically, before every default.
+ *   2. Add -D<NAME>=<value> to the compile options.
+ *   3. -DAGENTIC_KIT_USER_CONFIG='"my_kit_opts.h"' names an override
+ *      header with an arbitrary file name (its directory still needs
+ *      to be on the include path) -- for toolchains without __has_include.
+ *      When set, it wins and the agentic_kit_config.h search is skipped.
+ *
+ * Why the SDK never owns a file named agentic_kit_config.h: a quoted
+ * include (and __has_include with quotes) searches the includer's own
+ * directory (common/) BEFORE the -I path, so an SDK-owned
+ * common/agentic_kit_config.h could never be shadowed by an integrator's
+ * same-named file.  Reserving that name for the integrator is the whole
+ * trick (lwIP lwipopts.h / mbedTLS mbedtls_config.h / FreeRTOS
+ * FreeRTOSConfig.h pattern).
+ *
+ * All SDK knobs are prefixed AGENTIC_KIT_ to keep them out of the
+ * integrator's namespace (coreMQTT's own core_mqtt_config_defaults.h
+ * defines a same-named MQTT_SEND_TIMEOUT_MS that collided for real).
+ * Tables, per-knob rationale and migration live in
+ * docs-site/docs/guides/compile-time-knobs.md.
+ *
+ * The pickup runs BEFORE the extern "C" opener: it pulls in the
+ * integrator's override header, and a C++ translation unit's config must
+ * not silently acquire C linkage.
+ * ------------------------------------------------------------------------- */
+
+/* Integrator overrides come first, so every #ifndef knob default -- here
+ * and in every *_config_defaults.h -- loses to them. */
+#ifdef AGENTIC_KIT_USER_CONFIG
+#include AGENTIC_KIT_USER_CONFIG
+#else
+#if defined(__has_include)
+#if __has_include("agentic_kit_config.h")
+#include "agentic_kit_config.h"
+#endif
+#endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -9,7 +9,7 @@
 
 #include "mqtt.h"
 #include "iot_client.h"
-#include "iot_config_defaults.h"
+#include "iot_internal.h"
 #include "log.h"
 
 #define TEST_CLIENT_ID   "mqtt_test_client"

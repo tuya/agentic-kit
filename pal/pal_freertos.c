@@ -34,15 +34,10 @@
  *   LWIP_PROVIDE_ERRNO   1  (per-task errno; otherwise a libc errno is fine)
  *
  * --------------------------------------------------------------------------
- * Build-time tunables
- * --------------------------------------------------------------------------
- *   PAL_FR_TASK_STACK_WORDS  worker task stack, in StackType_t WORDS (not
- *                            bytes) -- passed straight to xTaskCreate as
- *                            usStackDepth.  The 6144 default is ~24 KB on a
- *                            32-bit port; do not "correct" it to 1536 to get
- *                            6 KB, the TLS handshake runs on this task.
- *   PAL_FR_TASK_PRIORITY     worker task priority
- *   PAL_FR_TASK_NAME         task name string (debug only)
+ * Build-time tunables (AGENTIC_KIT_PAL_FR_TASK_STACK_WORDS /
+ * _PRIORITY / _NAME)
+ *   Defaults & docs: pal_config_defaults.h (overrides are picked up via
+ *   log.h; see that header's banner).
  *
  * Usage:
  *   cfg.pal = tai_pal_freertos();
@@ -63,16 +58,10 @@
 #include "pal.h"
 #include "log.h"
 
-/* Worker task tunables — override via -D at build time if needed. */
-#ifndef PAL_FR_TASK_STACK_WORDS
-#define PAL_FR_TASK_STACK_WORDS  6144
-#endif
-#ifndef PAL_FR_TASK_PRIORITY
-#define PAL_FR_TASK_PRIORITY     (tskIDLE_PRIORITY + 5)
-#endif
-#ifndef PAL_FR_TASK_NAME
-#define PAL_FR_TASK_NAME         "tai_worker"
-#endif
+/* Worker task knob defaults (AGENTIC_KIT_PAL_FR_TASK_*) live in
+ * pal_config_defaults.h, included below; it includes log.h first, so
+ * integrator overrides still win. */
+#include "pal_config_defaults.h"
 
 /* lwIP doesn't have signals; MSG_NOSIGNAL is a no-op. */
 #ifndef MSG_NOSIGNAL
@@ -360,10 +349,10 @@ static int pal_thread_create(void **handle, void *(*func)(void *), void *arg)
     if (!t->done) { pal_free(t); return -1; }
 
     BaseType_t rc = xTaskCreate(thread_shim,
-                                 PAL_FR_TASK_NAME,
-                                 PAL_FR_TASK_STACK_WORDS,
+                                 AGENTIC_KIT_PAL_FR_TASK_NAME,
+                                 AGENTIC_KIT_PAL_FR_TASK_STACK_WORDS,
                                  t,
-                                 PAL_FR_TASK_PRIORITY,
+                                 AGENTIC_KIT_PAL_FR_TASK_PRIORITY,
                                  &t->task);
     if (rc != pdPASS) {
         vSemaphoreDelete(t->done);

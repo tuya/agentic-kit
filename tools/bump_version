@@ -16,7 +16,7 @@
 #   bump_version.sh release                           strip -dev (digits unchanged)
 #
 #   An optional second argument overrides the header file path (used by the
-#   self-test; defaults to this repo's iot_config_defaults.h).
+#   self-test; defaults to this repo's iot_client_config_defaults.h).
 #
 # The script only edits the header. Committing, tagging, pushing and the
 # GitHub release remain manual - the script prints a checklist instead.
@@ -24,7 +24,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEFAULT_HEADER="$REPO_ROOT/modules/iot-client/src/iot_config_defaults.h"
+DEFAULT_HEADER="$REPO_ROOT/modules/iot-client/include/iot_client_config_defaults.h"
 
 usage() {
     sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'

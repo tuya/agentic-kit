@@ -13,7 +13,7 @@
 
 #include "iot_on_boarding.h"
 #include "iot_client.h"
-#include "iot_config_defaults.h"
+#include "iot_internal.h"
 
 
 #define MOCK_DNS_HOST  "127.0.0.1"

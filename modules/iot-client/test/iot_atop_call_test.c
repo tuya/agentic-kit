@@ -27,7 +27,7 @@
 
 #include "iot_atop.h"
 #include "iot_client.h"
-#include "iot_config_defaults.h"
+#include "iot_internal.h"
 #include "log.h"
 
 #include <stdarg.h>
@@ -462,7 +462,7 @@ static int test_unknown_api_reaches_the_cloud(void)
     return 0;
 }
 
-/* A response larger than RESPONSE_BUFFER_SIZE must fail loudly.
+/* A response larger than AGENTIC_KIT_RESPONSE_BUFFER_SIZE must fail loudly.
  *
  * This is the failure from CHANGELOG: a product whose schema came back at
  * contentLength 6558 against a 4096 buffer, where coreHTTP returned

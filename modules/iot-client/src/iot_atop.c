@@ -17,7 +17,7 @@
 
 #include "atop_base.h"
 #include "cJSON.h"
-#include "iot_config_defaults.h"   /* IOT_DEFAULT_PORT */
+#include "iot_internal.h"   /* IOT_DEFAULT_PORT */
 #include "iot_dp_internal.h"       /* iot_client_resolve_atop_host */
 
 #include <stdio.h>

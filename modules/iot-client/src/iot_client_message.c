@@ -1,7 +1,7 @@
 #include "iot_client_message.h"
 #include "mqtt.h"
 #include "cipher_wrapper.h"
-#include "iot_config_defaults.h"
+#include "iot_internal.h"
 #include "iot_dp_internal.h"
 #include "cJSON.h"
 

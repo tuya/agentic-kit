@@ -732,7 +732,7 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
                 response_json = handle_upgrade_status_update(decrypted_data, self.config)
             elif api == 'tuya.test.huge.result':
                 # Test-only: a response deliberately larger than the default
-                # 4096-byte RESPONSE_BUFFER_SIZE, reproducing the real failure
+                # 4096-byte AGENTIC_KIT_RESPONSE_BUFFER_SIZE, reproducing the real failure
                 # recorded in CHANGELOG (a product whose schema came back at
                 # contentLength 6558). coreHTTP answers HTTPInsufficientMemory;
                 # the point of the test is that it now SAYS so.

@@ -116,11 +116,11 @@ TCP 部分取决于具体的网络协议栈（lwIP、AT 指令等）。
 
 | 组件 | 内存需求 | 建议分配位置 |
 |------|---------|-------------|
-| `tai_ctx_size()` | 依赖编译期缓冲配置，默认约 38 KB（调大 `TAI_FRAG_BUF_SIZE` 等缓冲后会相应增长） | 若平台支持，可优先考虑大块外部内存（如 ESP32-S3 PSRAM） |
+| `tai_ctx_size()` | 依赖编译期缓冲配置，默认约 38 KB（调大 `AGENTIC_KIT_TAI_FRAG_BUF_SIZE` 等缓冲后会相应增长，旋钮默认值见 `modules/rtc-tcp-client/include/tai_config_defaults.h`） | 若平台支持，可优先考虑大块外部内存（如 ESP32-S3 PSRAM） |
 | TLS 工作区 | ~30 KB | PSRAM |
 | 音频发送缓冲 | ~4-8 KB | 内部 SRAM |
 | 音频接收缓冲 | ~8-16 KB | 内部 SRAM 或 PSRAM |
-| FreeRTOS 任务栈 | ~4-8 KB per task | 内部 SRAM |
+| FreeRTOS 任务栈 | SDK worker 任务默认 6144 words ≈ 24 KB（`AGENTIC_KIT_PAL_FR_TASK_STACK_WORDS`，单位是字不是字节；TLS 握手在该任务上，勿按 4-8 KB 砍）；其他任务 ~4-8 KB | 内部 SRAM |
 
 ```c
 void *mem = heap_caps_malloc(tai_ctx_size(), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -146,7 +146,8 @@ CONFIG_FREERTOS_HZ=1000
 
 ## 通用注意事项 {#通用注意事项}
 
-- PAL `thread_create` 需要设置足够的栈大小；`pal_freertos.c` 默认使用 `PAL_FR_TASK_STACK_WORDS`（6144 words，32 位平台上约 24KB，可按平台内存情况调小或调大）
+- SDK 全部编译期旋钮（TAI 缓冲与调度、MQTT 超时与包大小、ATOP HTTP 缓冲、FreeRTOS 任务栈、日志级别）的默认值与说明按所属子系统存放：日志上限与集成方覆盖的统一挂载点在 `common/log.h`（SDK 每个编译单元都包含它），FreeRTOS 任务旋钮在 `pal/pal_config_defaults.h`，模块旋钮在各自 include/ 下——`modules/iot-client/include/iot_client_config_defaults.h`、`modules/rtc-tcp-client/include/tai_config_defaults.h`（tuya-ble 目前没有编译期旋钮）。按产品覆盖任选其一（见 `common/log.h` 头注释；完整说明见[编译期旋钮](./compile-time-knobs)）：自己创建 `agentic_kit_config.h`（只写要改的 `#define`，无论旋钮属于哪个子系统都写在这一个文件里），把所在目录加进编译 SDK 源码的 target 的 include 路径（CMake：`target_include_directories(<target> PRIVATE <目录>)`）即可被自动捡起；沿用 `-D<宏>=<值>`；或用 `-DAGENTIC_KIT_USER_CONFIG='"my_opts.h"'` 指定任意文件名（无 `__has_include` 的工具链用这种）。注意：旋钮值必须对每个编译 SDK 源码的 target 保持一致
+- PAL `thread_create` 需要设置足够的栈大小；`pal_freertos.c` 默认使用 `AGENTIC_KIT_PAL_FR_TASK_STACK_WORDS`（6144 words，32 位平台上约 24KB，可按平台内存情况调小或调大）
 - SDK 内部通过 mbedTLS 处理 TLS，需要正确的系统时间用于证书验证；若未提供 CA 证书，TLS 连接可能退化为不校验证书的模式
 - `tcp_recv` 应支持阻塞/超时语义（后台线程会循环调用）
 - `tcp_poll` 用于检查套接字的可读/可写状态，需正确实现 events 位掩码

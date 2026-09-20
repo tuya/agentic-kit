@@ -4,7 +4,8 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-#include "iot_config_defaults.h"
+#include "iot_internal.h"
+#include "iot_client.h"
 #include "tls.h"
 
 #define IOT_DNS_DEFAULT_HOST "h1.iot-dns.com"

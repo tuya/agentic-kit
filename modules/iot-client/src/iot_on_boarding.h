@@ -1,7 +1,9 @@
 #ifndef __IOT_ON_BOARDING_H__
 #define __IOT_ON_BOARDING_H__
 
-#include "iot_config_defaults.h"
+#include "iot_internal.h"
+#include "iot_client.h"
+#include "tls.h"
 
 /** @brief Internal on-boarding configuration (populated by iot_client.c from public config). */
 typedef struct {

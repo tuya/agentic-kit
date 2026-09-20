@@ -8,11 +8,11 @@
  *
  * Log level / volume policy for streaming media (audio/video/image):
  *   - START / END / ONE_SHOT frames  : always logged at INFO
- *   - MIDDLE frames, TAI_LOG_MEDIA_SAMPLE_N > 0 (default):
+ *   - MIDDLE frames, AGENTIC_KIT_TAI_LOG_MEDIA_SAMPLE_N > 0 (default):
  *       only every N-th MIDDLE frame is logged, at INFO, with a
  *       "sample-every" / "sample-idx" marker; all others are dropped
  *       (no DEBUG trace) to avoid flooding the log pipeline.
- *   - MIDDLE frames, TAI_LOG_MEDIA_SAMPLE_N == 0:
+ *   - MIDDLE frames, AGENTIC_KIT_TAI_LOG_MEDIA_SAMPLE_N == 0:
  *       every MIDDLE frame is logged at DEBUG (developer "flood" mode).
  *
  * Every media packet also carries an "order" field -- a per-direction
@@ -29,14 +29,7 @@
 
 #define TAG "pkt"
 
-/* Sample 1-in-N media MIDDLE frames to INFO.  All non-sampled MIDDLE
- * frames are dropped (no log line).  Set to 0 to disable sampling, in
- * which case every MIDDLE frame logs at DEBUG instead.  Override with
- *     cmake -DTAI_LOG_MEDIA_SAMPLE_N=<n>
- */
-#ifndef TAI_LOG_MEDIA_SAMPLE_N
-#define TAI_LOG_MEDIA_SAMPLE_N 50
-#endif
+/* AGENTIC_KIT_TAI_LOG_MEDIA_SAMPLE_N default & docs: include/tai_config_defaults.h. */
 
 /* snprintf into buf at *pos; advances pos.  Bails (returning 0) if there is
  * no room left for at least one char + NUL.  Always keeps *pos strictly
@@ -526,11 +519,11 @@ void tai_log_packet(uint8_t proto_ver,
         }
 
         if (stream_flag == TAI_STREAM_MIDDLE) {
-            if (TAI_LOG_MEDIA_SAMPLE_N > 0) {
+            if (AGENTIC_KIT_TAI_LOG_MEDIA_SAMPLE_N > 0) {
                 /* Sample every N-th; drop the rest entirely. */
                 static uint32_t sample_counter = 0;
                 uint32_t n = ++sample_counter;
-                if ((n % TAI_LOG_MEDIA_SAMPLE_N) != 0)
+                if ((n % AGENTIC_KIT_TAI_LOG_MEDIA_SAMPLE_N) != 0)
                     return;              /* dropped -- no log line */
                 sample_idx = n;          /* keep at INFO, mark sampled */
             } else {
@@ -568,7 +561,7 @@ void tai_log_packet(uint8_t proto_ver,
 
     if (sample_idx)
         bput(buf, cap, &pos, ",\"sample-every\":%u,\"sample-idx\":%u",
-             (unsigned)TAI_LOG_MEDIA_SAMPLE_N, (unsigned)sample_idx);
+             (unsigned)AGENTIC_KIT_TAI_LOG_MEDIA_SAMPLE_N, (unsigned)sample_idx);
 
     if (!is_send)
         bput(buf, cap, &pos, ",\"payload-len\":%zu", payload_len);
