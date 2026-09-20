@@ -18,7 +18,7 @@
 
 #include "iot_client.h"
 #include "iot_ota.h"
-#include "iot_config_defaults.h"
+#include "iot_internal.h"
 
 #define TEST_KEY  "test_secret_key_0123456789abcd"  /* 30 chars + NUL fits secret_key[32] */
 #define DATA_LEN  1000

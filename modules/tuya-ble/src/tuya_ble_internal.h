@@ -5,6 +5,12 @@
 
 #include <stdio.h>
 
+/* tuya-ble has no build-time knobs today -- why the constants in
+ * tuya_ble_prov.h are not knobs is documented there. When the first one
+ * appears it lands in include/tuya_ble_config_defaults.h as
+ * AGENTIC_KIT_TUYA_BLE_*; that file must include common/log.h first, since
+ * log.h is where integrator overrides are picked up. */
+
 /* Shared SDK-internal binding of the HAL log macros onto the PAL log facade:
  * every module diagnostic carries the "[ble] " prefix. */
 #undef TUYA_BLE_HAL_LOGI

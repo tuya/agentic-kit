@@ -238,7 +238,7 @@ static void on_disconnect(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void 
 typedef struct {
     uint8_t  pkt_type;
     uint8_t  frag;
-    tai_attr_t attrs[TAI_MAX_ATTRS];
+    tai_attr_t attrs[AGENTIC_KIT_TAI_MAX_ATTRS];
     int      attr_count;
     const uint8_t *payload;
     size_t         payload_len;
@@ -281,7 +281,7 @@ static int decode_captured(uint8_t *tx, size_t tx_len,
             out[n].app_len   = payload_len;
             rc = tai_packet_decode(TAI_VER_21, payload, payload_len,
                                     &out[n].pkt_type,
-                                    out[n].attrs, TAI_MAX_ATTRS,
+                                    out[n].attrs, AGENTIC_KIT_TAI_MAX_ATTRS,
                                     &out[n].attr_count,
                                     &out[n].payload, &out[n].payload_len);
             if (rc != TAI_OK) {
@@ -1308,7 +1308,7 @@ static void test_media_audio_remainder(void)
  * Test: a whole (FRAG_NONE) audio packet is split into frame_size chunks plus a
  * trailing remainder. fs=1000 over a 3500-byte body -> 3 full frames + a 500
  * remainder. The packet stays within one transport frame (a downstream packet
- * cannot exceed TAI_MAX_FRAGMENT_PAYLOAD, which bounds rx_buf).
+ * cannot exceed AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD, which bounds rx_buf).
  * ========================================================================= */
 static void test_media_audio_large_frame(void)
 {
@@ -1322,13 +1322,13 @@ static void test_media_audio_large_frame(void)
     static uint8_t body[3500];
     for (size_t i = 0; i < sizeof(body); i++) body[i] = (uint8_t)((i * 7) & 0xFF);
 
-    uint8_t app[TAI_MAX_FRAGMENT_PAYLOAD];
+    uint8_t app[AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD];
     int app_len = build_audio_app(ctx, TAI_STREAM_START,
                                   "111 1 16 16000 0 16000 20 1000",  /* fs=1000 */
                                   body, sizeof(body), app, sizeof(app));
     CHECK(app_len > 0);
 
-    uint8_t frame[TAI_MAX_FRAGMENT_PAYLOAD + 64];
+    uint8_t frame[AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD + 64];
     int flen = tai_frame_encode(TAI_FRAG_NONE, fseq++, app, (size_t)app_len,
                                 ctx->sign_key, 32, ctx->pal, frame, sizeof(frame));
     CHECK(flen > 0);
@@ -1482,12 +1482,12 @@ static void test_media_reconnect_midstream(void)
 
 /* =========================================================================
  * Test: scatter-gather fragmented uplink (§6). An audio chunk larger than
- * TAI_MAX_FRAGMENT_PAYLOAD is streamed via send_app_sg, which fragments the
+ * AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD is streamed via send_app_sg, which fragments the
  * logical hdr||payload concat. Each frame is signed INDEPENDENTLY by the
  * segmented HMAC, so we verify every frame's HMAC, the FIRST/MIDDLE/LAST flags,
  * and that the reassembled application packet carries the exact pcm bytes
  * (proving zero-copy payload integrity across the fragment boundaries).
- * Sized to exactly 3 fragments regardless of the TAI_MAX_FRAGMENT_PAYLOAD knob.
+ * Sized to exactly 3 fragments regardless of the AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD knob.
  * ========================================================================= */
 static void test_sg_audio_fragmented_uplink(void)
 {
@@ -1497,7 +1497,7 @@ static void test_sg_audio_fragmented_uplink(void)
     CHECK(ctx != NULL);
     CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
 
-    static uint8_t tx[3 * TAI_MAX_FRAGMENT_PAYLOAD + 512];
+    static uint8_t tx[3 * AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD + 512];
     (void)tai_loopback_pop_sent(tx, sizeof(tx));            /* discard handshake */
 
     CHECK_EQ_INT(tai_send_audio_start(ctx, TAI_AUDIO_OPUS, 1, 16, 16000), TAI_OK);
@@ -1505,7 +1505,7 @@ static void test_sg_audio_fragmented_uplink(void)
     (void)tai_loopback_pop_sent(tx, sizeof(tx));            /* discard EventStart */
 
     /* 2 full fragments + a partial -> exactly FIRST/MIDDLE/LAST. */
-    static uint8_t pcm[2 * TAI_MAX_FRAGMENT_PAYLOAD + 1000];
+    static uint8_t pcm[2 * AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD + 1000];
     for (size_t i = 0; i < sizeof(pcm); i++) pcm[i] = (uint8_t)((i * 5 + 3) & 0xFF);
     CHECK_EQ_INT(tai_send_audio_chunk(ctx, pcm, sizeof(pcm)), TAI_OK);
     sleep_ms(10);
@@ -1513,7 +1513,7 @@ static void test_sg_audio_fragmented_uplink(void)
     CHECK(txn > 0);
 
     /* Walk frames: verify HMAC + flags, reassemble the application packet. */
-    static uint8_t app[3 * TAI_MAX_FRAGMENT_PAYLOAD + 512];
+    static uint8_t app[3 * AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD + 512];
     size_t app_len = 0, off = 0;
     int nframes = 0;
     uint8_t flags[8] = {0};
@@ -1533,10 +1533,10 @@ static void test_sg_audio_fragmented_uplink(void)
     CHECK_EQ_INT(flags[1], TAI_FRAG_MIDDLE);
     CHECK_EQ_INT(flags[2], TAI_FRAG_LAST);
 
-    uint8_t pkt_type; tai_attr_t attrs[TAI_MAX_ATTRS]; int na = 0;
+    uint8_t pkt_type; tai_attr_t attrs[AGENTIC_KIT_TAI_MAX_ATTRS]; int na = 0;
     const uint8_t *payload; size_t payload_len;
     CHECK(tai_packet_decode(TAI_VER_21, app, app_len, &pkt_type, attrs,
-                            TAI_MAX_ATTRS, &na, &payload, &payload_len) == TAI_OK);
+                            AGENTIC_KIT_TAI_MAX_ATTRS, &na, &payload, &payload_len) == TAI_OK);
     CHECK_EQ_INT(pkt_type, TAI_PKT_AUDIO);
     CHECK_EQ_INT(payload_len, 8 + sizeof(pcm));     /* 8-byte media hdr + pcm */
     CHECK(memcmp(payload + 8, pcm, sizeof(pcm)) == 0);
@@ -1611,11 +1611,11 @@ static void test_sg_send_failure(void)
 
         /* Header write (call 0) ok, payload write (call 1) fails: mid-frame, bytes
          * already committed -> TAI_ERR_NET, but the SDK must NOT tear down.
-         * pcm must push the whole frame over TAI_FRAME_COALESCE_LIMIT so it
+         * pcm must push the whole frame over AGENTIC_KIT_TAI_FRAME_COALESCE_LIMIT so it
          * takes the 2-3-write scatter path — a coalesced small frame is a
          * single write and has no mid-frame boundary to fail on. */
         tai_loopback_fail_send_after(1);
-        uint8_t pcm[TAI_FRAME_COALESCE_LIMIT]; memset(pcm, 0x42, sizeof(pcm));
+        uint8_t pcm[AGENTIC_KIT_TAI_FRAME_COALESCE_LIMIT]; memset(pcm, 0x42, sizeof(pcm));
         CHECK_EQ_INT(tai_send_audio_chunk(ctx, pcm, sizeof(pcm)), TAI_ERR_NET);
 
         tai_loopback_fail_send_after(-1);
@@ -1710,24 +1710,24 @@ static void test_sg_image_fragmented_uplink(void)
     CHECK(ctx != NULL);
     CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
 
-    static uint8_t tx[3 * TAI_MAX_FRAGMENT_PAYLOAD + 512];
+    static uint8_t tx[3 * AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD + 512];
     (void)tai_loopback_pop_sent(tx, sizeof(tx));
 
-    static uint8_t img[2 * TAI_MAX_FRAGMENT_PAYLOAD + 1000];   /* -> 3 fragments */
+    static uint8_t img[2 * AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD + 1000];   /* -> 3 fragments */
     for (size_t i = 0; i < sizeof(img); i++) img[i] = (uint8_t)((i * 11 + 7) & 0xFF);
     CHECK_EQ_INT(tai_send_image(ctx, img, sizeof(img), TAI_IMG_JPEG, 640, 480), TAI_OK);
     sleep_ms(10);
     size_t txn = tai_loopback_pop_sent(tx, sizeof(tx));
     CHECK(txn > 0);
 
-    static uint8_t app[3 * TAI_MAX_FRAGMENT_PAYLOAD + 512];
+    static uint8_t app[3 * AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD + 512];
     size_t app_len = 0;
     int nf = sg_reassemble_fragged(ctx, tx, txn, app, sizeof(app), &app_len);
     CHECK_EQ_INT(nf, 3);                          /* (img + hdr) over MAX = 3 */
 
-    uint8_t pt; tai_attr_t attrs[TAI_MAX_ATTRS]; int na = 0;
+    uint8_t pt; tai_attr_t attrs[AGENTIC_KIT_TAI_MAX_ATTRS]; int na = 0;
     const uint8_t *payload; size_t payload_len;
-    CHECK(tai_packet_decode(TAI_VER_21, app, app_len, &pt, attrs, TAI_MAX_ATTRS,
+    CHECK(tai_packet_decode(TAI_VER_21, app, app_len, &pt, attrs, AGENTIC_KIT_TAI_MAX_ATTRS,
                             &na, &payload, &payload_len) == TAI_OK);
     CHECK_EQ_INT(pt, TAI_PKT_IMAGE);
     CHECK(tai_attr_find(attrs, na, TAI_ATTR_IMAGE_PARAMS) != NULL);
@@ -1743,7 +1743,7 @@ static void test_sg_image_fragmented_uplink(void)
  * findings #2/#5). The text header is 5 bytes (pkt byte + [id:2][flags:1]
  * [varint seq=0:1]). A body sized so hdr+body == MAX+1 must split into EXACTLY
  * two frames (FIRST + a 1-byte LAST); a body sized so hdr+body == MAX must NOT
- * fragment at all. Pins the chunk/flag boundary math at TAI_MAX_FRAGMENT_PAYLOAD.
+ * fragment at all. Pins the chunk/flag boundary math at AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD.
  * ========================================================================= */
 static void test_sg_text_fragmented_uplink(void)
 {
@@ -1753,24 +1753,24 @@ static void test_sg_text_fragmented_uplink(void)
     CHECK(ctx != NULL);
     CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
 
-    static uint8_t tx[TAI_MAX_FRAGMENT_PAYLOAD + 512];
+    static uint8_t tx[AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD + 512];
     (void)tai_loopback_pop_sent(tx, sizeof(tx));
 
     /* body = MAX-4 -> total (5 + MAX-4) = MAX+1 = one past the limit -> 2 frames. */
-    static char txt[TAI_MAX_FRAGMENT_PAYLOAD - 4];
+    static char txt[AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD - 4];
     for (size_t i = 0; i < sizeof(txt); i++) txt[i] = (char)('a' + (i % 26));
     CHECK_EQ_INT(tai_send_text(ctx, txt, sizeof(txt)), TAI_OK);
     sleep_ms(10);
     size_t txn = tai_loopback_pop_sent(tx, sizeof(tx));
 
-    static uint8_t app[TAI_MAX_FRAGMENT_PAYLOAD + 512];
+    static uint8_t app[AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD + 512];
     size_t app_len = 0;
     int nf = sg_reassemble_fragged(ctx, tx, txn, app, sizeof(app), &app_len);
     CHECK_EQ_INT(nf, 2);                           /* FIRST + 1-byte LAST */
 
-    uint8_t pt; tai_attr_t attrs[TAI_MAX_ATTRS]; int na = 0;
+    uint8_t pt; tai_attr_t attrs[AGENTIC_KIT_TAI_MAX_ATTRS]; int na = 0;
     const uint8_t *payload; size_t payload_len;
-    CHECK(tai_packet_decode(TAI_VER_21, app, app_len, &pt, attrs, TAI_MAX_ATTRS,
+    CHECK(tai_packet_decode(TAI_VER_21, app, app_len, &pt, attrs, AGENTIC_KIT_TAI_MAX_ATTRS,
                             &na, &payload, &payload_len) == TAI_OK);
     CHECK_EQ_INT(pt, TAI_PKT_TEXT);
     CHECK(payload_len >= sizeof(txt));
@@ -1779,7 +1779,7 @@ static void test_sg_text_fragmented_uplink(void)
     /* Boundary: body = MAX-5 -> total == MAX -> single frame, no fragmentation
      * (sg_reassemble_fragged finds no FRAG_FIRST). */
     (void)tai_loopback_pop_sent(tx, sizeof(tx));
-    static char txt2[TAI_MAX_FRAGMENT_PAYLOAD - 5];
+    static char txt2[AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD - 5];
     for (size_t i = 0; i < sizeof(txt2); i++) txt2[i] = (char)('A' + (i % 26));
     CHECK_EQ_INT(tai_send_text(ctx, txt2, sizeof(txt2)), TAI_OK);
     sleep_ms(10);
@@ -1791,7 +1791,7 @@ static void test_sg_text_fragmented_uplink(void)
 }
 
 /* =========================================================================
- * Test: small-frame coalesce boundary (TAI_FRAME_COALESCE_LIMIT). One text
+ * Test: small-frame coalesce boundary (AGENTIC_KIT_TAI_FRAME_COALESCE_LIMIT). One text
  * send emits 4 packets: EventStart / PayloadsEnd / EventEnd are CONTROL frames
  * assembled in tx_ctrl_buf — so on the coalesced path the payload and the
  * scratch buffer are the SAME memory (the aliasing hazard) — while the Text
@@ -1812,8 +1812,8 @@ static void test_sg_coalesce_boundary(void)
     (void)tai_loopback_pop_sent(tx, sizeof(tx));             /* discard handshake */
 
     /* text hdr = pkt byte + [id:2][flags:1][varint seq:1] = 5 bytes. */
-    static char under[TAI_FRAME_COALESCE_LIMIT - 5 - 5 - 32 - 1];
-    static char over [TAI_FRAME_COALESCE_LIMIT - 5 - 5 - 32];
+    static char under[AGENTIC_KIT_TAI_FRAME_COALESCE_LIMIT - 5 - 5 - 32 - 1];
+    static char over [AGENTIC_KIT_TAI_FRAME_COALESCE_LIMIT - 5 - 5 - 32];
     for (size_t i = 0; i < sizeof(under); i++) under[i] = (char)('a' + (i % 26));
     for (size_t i = 0; i < sizeof(over);  i++) over[i]  = (char)('A' + (i % 26));
 
@@ -1836,9 +1836,9 @@ static void test_sg_coalesce_boundary(void)
             uint8_t frag, pt; uint16_t seq; const uint8_t *pl; size_t pll;
             CHECK(tai_frame_decode(tx + off, flen, 32, &frag, &seq, &pl, &pll) == TAI_OK);
             CHECK_EQ_INT(frag, TAI_FRAG_NONE);              /* never fragments here */
-            tai_attr_t attrs[TAI_MAX_ATTRS]; int na = 0;
+            tai_attr_t attrs[AGENTIC_KIT_TAI_MAX_ATTRS]; int na = 0;
             const uint8_t *payload; size_t payload_len;
-            CHECK(tai_packet_decode(TAI_VER_21, pl, pll, &pt, attrs, TAI_MAX_ATTRS,
+            CHECK(tai_packet_decode(TAI_VER_21, pl, pll, &pt, attrs, AGENTIC_KIT_TAI_MAX_ATTRS,
                                     &na, &payload, &payload_len) == TAI_OK);
             if (pt == TAI_PKT_TEXT) {
                 ntext++;
@@ -1980,7 +1980,7 @@ static void test_confirmed_connect(void)
  * out a whole ping interval for the worker's blocking recv to expire. We raise
  * the loopback recv cap so it honours the full requested timeout like a real
  * PAL, set a long ping interval, then assert disconnect finishes well within it
- * (bounded by the SDK worker poll cap, TAI_WORKER_POLL_CAP_MS). A clean
+ * (bounded by the SDK worker poll cap, AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS). A clean
  * shutdown must also fire NO on_disconnect callback.
  * ========================================================================= */
 static void test_disconnect_latency(void)
@@ -1992,9 +1992,9 @@ static void test_disconnect_latency(void)
     CHECK(ctx != NULL);
     /* Ping interval set well above the worker poll cap: an UN-capped worker would
      * block ~ping_interval in recv, while a capped one wakes within the cap.
-     * Derive both from TAI_WORKER_POLL_CAP_MS so this stays correct if the cap is
+     * Derive both from AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS so this stays correct if the cap is
      * retuned. */
-    const uint32_t cap = TAI_WORKER_POLL_CAP_MS;
+    const uint32_t cap = AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS;
     ctx->ping_interval_ms = cap * 5;
     /* Make the loopback honour the full recv timeout, like a production PAL, so
      * the SDK worker poll cap (not the loopback's 50 ms default) bounds it. */

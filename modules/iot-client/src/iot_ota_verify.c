@@ -1,5 +1,5 @@
 #include "iot_ota.h"
-#include "iot_config_defaults.h"
+#include "iot_internal.h"
 
 #include <mbedtls/md5.h>
 #include <mbedtls/sha256.h>

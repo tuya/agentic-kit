@@ -1,5 +1,7 @@
 #include "mqtt.h"
-#include "iot_config_defaults.h"
+/* Transport knob defaults (AGENTIC_KIT_MQTT_MAX_PACKET_SIZE etc.) live in
+ * include/iot_client_config_defaults.h. */
+#include "iot_internal.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -7,22 +9,6 @@
 #include <unistd.h>
 
 #include "core_mqtt.h"
-
-#ifndef MQTT_MAX_PACKET_SIZE
-#define MQTT_MAX_PACKET_SIZE 4096
-#endif
-
-#ifndef MQTT_SEND_TIMEOUT_MS
-#define MQTT_SEND_TIMEOUT_MS 2000U
-#endif
-
-#ifndef MQTT_RECV_TIMEOUT_MS
-#define MQTT_RECV_TIMEOUT_MS 1000U
-#endif
-
-#ifndef MQTT_CONNECT_TIMEOUT_MS
-#define MQTT_CONNECT_TIMEOUT_MS 10000U
-#endif
 
 // Shared TLS transport (mbedTLS lives entirely inside common/tls).
 #include "tls.h"
@@ -107,7 +93,7 @@ static int32_t transport_send(NetworkContext_t *pNetworkContext,
         }
         int bytes_sent = pNetworkContext->client->pal->tcp_send(
             pNetworkContext->tcp_handle, (const uint8_t *)pBuffer, bytesToSend,
-            MQTT_SEND_TIMEOUT_MS);
+            AGENTIC_KIT_MQTT_SEND_TIMEOUT_MS);
         if (bytes_sent == PAL_ERR_AGAIN) {
             return 0;
         }
@@ -129,7 +115,7 @@ static int32_t transport_recv(NetworkContext_t *pNetworkContext,
 
     if (pNetworkContext->use_tls) {
         int n = tls_read(pNetworkContext->tls, (uint8_t *)pBuffer, bytesToRecv,
-                         MQTT_RECV_TIMEOUT_MS);
+                         AGENTIC_KIT_MQTT_RECV_TIMEOUT_MS);
         if (n == TLS_ERR_AGAIN) {
             return OPRT_OK;   // no data within timeout: coreMQTT polls again
         }
@@ -148,7 +134,7 @@ static int32_t transport_recv(NetworkContext_t *pNetworkContext,
         }
         int bytes_received = pNetworkContext->client->pal->tcp_recv(
             pNetworkContext->tcp_handle, (uint8_t *)pBuffer, bytesToRecv,
-            MQTT_RECV_TIMEOUT_MS);
+            AGENTIC_KIT_MQTT_RECV_TIMEOUT_MS);
         if (bytes_received == PAL_ERR_AGAIN) {
             return OPRT_OK;
         }
@@ -197,7 +183,7 @@ static int parse_broker_url(const char *url, char *host, int *port) {
 // Establish TCP connection to broker (non-TLS)
 static void *connect_to_broker(mqtt_client *client) {
     void *handle = client->pal->tcp_connect(client->broker_host, (uint16_t)client->broker_port,
-                                            MQTT_CONNECT_TIMEOUT_MS);
+                                            AGENTIC_KIT_MQTT_CONNECT_TIMEOUT_MS);
     if (!handle) {
         log_error("Failed to connect to broker %s:%d", client->broker_host, client->broker_port);
         return NULL;
@@ -223,7 +209,7 @@ static int connect_to_broker_tls(NetworkContext_t *network_ctx, const char *host
         .verify       = TLS_VERIFY_NONE,   // no CA -> no verification (legacy behaviour)
         .force_tls12  = true,
         .ciphersuites = tls_ciphersuites_tuya_default(),
-        .connect_timeout_ms = MQTT_CONNECT_TIMEOUT_MS,
+        .connect_timeout_ms = AGENTIC_KIT_MQTT_CONNECT_TIMEOUT_MS,
         .pal          = network_ctx->client->pal,
     };
 
@@ -439,13 +425,13 @@ int mqtt_client_connect(mqtt_client *client) {
 
     // Allocate the MQTT fixed buffer on demand (freed on disconnect/destroy)
     if (!client->buffer) {
-        client->buffer = client->pal->malloc(MQTT_MAX_PACKET_SIZE);
+        client->buffer = client->pal->malloc(AGENTIC_KIT_MQTT_MAX_PACKET_SIZE);
         if (!client->buffer) {
-            log_error("Failed to allocate MQTT buffer (%u bytes)", MQTT_MAX_PACKET_SIZE);
+            log_error("Failed to allocate MQTT buffer (%u bytes)", AGENTIC_KIT_MQTT_MAX_PACKET_SIZE);
             return OPRT_MALLOC_FAILED;
         }
         client->fixed_buffer.pBuffer = client->buffer;
-        client->fixed_buffer.size = MQTT_MAX_PACKET_SIZE;
+        client->fixed_buffer.size = AGENTIC_KIT_MQTT_MAX_PACKET_SIZE;
     }
 
     // Set client pointer in network context for callback access
@@ -508,7 +494,7 @@ int mqtt_client_connect(mqtt_client *client) {
 
     bool sessionPresent = false;
     status = MQTT_Connect(&client->mqtt_context, &connect_info, NULL,
-                         MQTT_SEND_TIMEOUT_MS, &sessionPresent);
+                         AGENTIC_KIT_MQTT_SEND_TIMEOUT_MS, &sessionPresent);
 
     if (status != MQTTSuccess) {
         log_error("MQTT_Connect failed: %s (%d)", MQTT_Status_strerror(status), status);

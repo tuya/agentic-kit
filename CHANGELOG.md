@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- SDK-wide — every build-time knob is renamed with an `AGENTIC_KIT_` prefix and its default moves to its owning subsystem's config file; override per product with one `agentic_kit_config.h` on the include path, `-D<NAME>=<value>`, or `AGENTIC_KIT_USER_CONFIG` (#38).
+  - **BREAKING** `TAI_FRAG_BUF_SIZE` → `AGENTIC_KIT_TAI_FRAG_BUF_SIZE`, `RESPONSE_BUFFER_SIZE` → `AGENTIC_KIT_RESPONSE_BUFFER_SIZE`, and likewise the rest — old→new table in `docs-site/docs/guides/compile-time-knobs.md`.
+  - Knob defaults live at: the override pickup in `common/log.h`; PAL task sizing in `pal/pal_config_defaults.h`; per-module knobs in each module's include/ (`iot_client_config_defaults.h`, `tai_config_defaults.h`; tuya-ble has no knobs, so no defaults file until one appears). Non-knob module data (version strings, endpoints, log binding) lives in each module's src-side internal header (`src/iot_internal.h` restores and renames the former `iot_config_defaults.h`).
+  - Removed the dead `IOT_DO_NOT_USE_CUSTOM_CONFIG` flag from the ESP-IDF component.
 - tuya-ble — the SDK-internal log-facade binding, scan-token rotation and pending-credential
   delivery are each defined once in `tuya_ble_internal.h` instead of being repeated per module (PR pending).
 - tuya-ble — bounded per-state Trsmitr reassembly, queued TX with backpressure, and configurable radio capability (#35).

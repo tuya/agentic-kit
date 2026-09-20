@@ -103,7 +103,7 @@ static int gen_id(tai_ctx_t *ctx, const char *prefix,
  *   client-id        (12) : string — derived_client_id
  *   security-suit    (10) : bytes  — [sign_level(1)][encrypt_random(32)]
  *   max-fragment-len (15) : uint32 — largest transport fragment payload the
- *                                    client uses/accepts (TAI_MAX_FRAGMENT_PAYLOAD)
+ *                                    client uses/accepts (AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD)
  *   ping-interval    (20) : uint32 — keepalive interval (ms)
  *
  * Sent unencrypted (sig_len=0 handled by caller).
@@ -125,7 +125,7 @@ int tai_proto_build_client_hello(tai_ctx_t *ctx,
         attrs[na++] = tai_attr_strv(TAI_ATTR_CLIENT_ID, ctx->client_id);
     attrs[na++] = tai_attr_bytesv(TAI_ATTR_SECURITY_SUIT, security_suit, 33);
     attrs[na++] = tai_attr_u32v(TAI_ATTR_MAX_FRAGMENT_LEN, s_maxfrag,
-                                TAI_MAX_FRAGMENT_PAYLOAD);
+                                AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD);
     attrs[na++] = tai_attr_u32v(TAI_ATTR_PING_INTERVAL, s_ping,
                                 ctx->ping_interval_ms);
 

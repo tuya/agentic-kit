@@ -29,7 +29,7 @@
 #include <time.h>
 
 #include "iot_client.h"
-#include "iot_config_defaults.h"
+#include "iot_internal.h"
 #include "log.h"
 
 #define MOCK_HOST "127.0.0.1"

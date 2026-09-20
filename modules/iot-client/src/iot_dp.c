@@ -12,7 +12,7 @@
 
 #include "iot_dp.h"
 #include "iot_dp_internal.h"
-#include "iot_config_defaults.h"   /* pal_strdup, log_*, IOT_DEFAULT_PORT */
+#include "iot_internal.h"  /* pal_strdup, log_*, IOT_DEFAULT_PORT, DP publish gate */
 #include "atop.h"                  /* atop_schema_newest_get */
 #include "iot_dns.h"               /* iot_region_to_host (via resolve helper) */
 #include "cJSON.h"
@@ -27,8 +27,11 @@
 #define DP_PROTO_REPORT  4   /* uplink   DP report (device -> cloud) */
 #define DP_PROTO_DOWN    5   /* downlink DP set    (cloud -> device) */
 
-/* Mirror of mqtt.c MQTT_MAX_PACKET_SIZE and iot_client_message.c PV23_OVERHEAD. */
-#define DP_MQTT_MAX_PAYLOAD     4096
+/* Derived from AGENTIC_KIT_MQTT_MAX_PACKET_SIZE (include/iot_client_config_defaults.h)
+ * so the DP publish gate follows the knob automatically. DP_PV23_OVERHEAD mirrors the
+ * private PV23_OVERHEAD in iot_client_message.c (AAD 12 + IV 12 + TAG 16) -- crypto
+ * geometry, not a knob. */
+#define DP_MQTT_MAX_PAYLOAD     AGENTIC_KIT_MQTT_MAX_PACKET_SIZE
 #define DP_PV23_OVERHEAD        40
 
 typedef struct {

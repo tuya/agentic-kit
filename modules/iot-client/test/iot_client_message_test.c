@@ -11,8 +11,8 @@
 
 #include "iot_client.h"
 #include "iot_client_message.h"
-#include "iot_client_internal.h"
-#include "iot_config_defaults.h"
+#include "iot_internal.h"
+#include "iot_internal.h"
 
 
 #define TEST_DEVID      "test_device_msg_001"

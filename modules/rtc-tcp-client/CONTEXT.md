@@ -151,7 +151,7 @@ no large contiguous frame buffer:
 
 `send_one_frame_sg` signs the logical `[frame header || app header || payload]` via
 `tai_frame_hmac_sg` (byte-identical to the contiguous HMAC — the receiver is unchanged), then
-emits the frame in one of two shapes, split by `TAI_FRAME_COALESCE_LIMIT` (default 512 B,
+emits the frame in one of two shapes, split by `AGENTIC_KIT_TAI_FRAME_COALESCE_LIMIT` (default 512 B,
 counting the whole frame: header, app header, payload, signature):
 
 - **Below the limit**: the frame is coalesced into `tx_ctrl_buf` and sent as ONE TLS record.
@@ -192,7 +192,7 @@ is signed.
 
 The worker loops: check the liveness deadline, send a Ping when due, then block in
 `tai_recv_data` until bytes arrive or the next Ping falls due, then drain. The drain is
-time-bounded (`TAI_DRAIN_BUDGET_MS`, default 150 ms) so a sustained downstream flood cannot
+time-bounded (`AGENTIC_KIT_TAI_DRAIN_BUDGET_MS`, default 150 ms) so a sustained downstream flood cannot
 starve the Ping / liveness / shutdown checks — leftover bytes wait for the next pass; and any
 successful receive refreshes the liveness clock. Bytes accumulate in a sliding receive buffer;
 EOF or a transport error makes the worker fire `on_disconnect`.

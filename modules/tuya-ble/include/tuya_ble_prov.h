@@ -9,6 +9,16 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
+/* Protocol geometry and port-API sizing, not build knobs -- tuya-ble has no
+ * compile-time knobs today. The lengths and encryption-mode bytes below are
+ * fixed by the Tuya BLE pairing / big-data protocol. TUYA_BLE_RX_BUF_SIZE /
+ * TUYA_BLE_TX_BUF_SIZE / TUYA_BLE_TX_QUEUE_DEPTH additionally size the public
+ * tuya_ble_prov_state_t that ports embed and size their own buffers against,
+ * making them part of the port API surface: changing one changes a struct
+ * layout ports must recompile and re-size against, not something a build-time
+ * override can do. When the first real tuya-ble knob appears it gets its own
+ * include/tuya_ble_config_defaults.h named AGENTIC_KIT_TUYA_BLE_*, anchored to
+ * the common/log.h override pickup like every other defaults file. */
 #define TUYA_BLE_SSID_MAX_LEN       64
 #define TUYA_BLE_PASSWORD_MAX_LEN   64
 #define TUYA_BLE_TOKEN_MAX_LEN      16

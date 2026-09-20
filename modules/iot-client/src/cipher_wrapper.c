@@ -1,5 +1,5 @@
 #include "cipher_wrapper.h"
-#include "iot_config_defaults.h"
+#include "iot_internal.h"
 
 #include <mbedtls/gcm.h>
 #include <mbedtls/md5.h>
