@@ -32,7 +32,7 @@
 /* Packet diagnostics have only INFO and DEBUG outcomes. Keep the entire
  * formatter out of lower-ceiling builds so its calls, work and strings vanish
  * together; tai_internal.h removes the corresponding call sites. */
-#if AGENTIC_KIT_LOG_LEVEL >= 3
+#if AGENTIC_KIT_TAI_LOG_LEVEL >= 3
 
 /* AGENTIC_KIT_TAI_LOG_MEDIA_SAMPLE_N default & docs: include/tai_config_defaults.h. */
 
@@ -586,7 +586,7 @@ void tai_log_packet(uint8_t proto_ver,
             if ((n % AGENTIC_KIT_TAI_LOG_MEDIA_SAMPLE_N) != 0)
                 return;
             sample_idx = n;
-#elif AGENTIC_KIT_LOG_LEVEL >= 4
+#elif AGENTIC_KIT_TAI_LOG_LEVEL >= 4
             /* Flood mode exists only in a DEBUG build. The DEBUG sink and
              * formatter call disappear entirely at lower ceilings. */
             char debug_buf[TAI_LOG_BUF_SIZE];
@@ -613,4 +613,4 @@ void tai_log_packet(uint8_t proto_ver,
     log_tag_info(TAG, "%s:  %s", info_dir, info_buf);
 }
 
-#endif /* AGENTIC_KIT_LOG_LEVEL >= 3 */
+#endif /* AGENTIC_KIT_TAI_LOG_LEVEL >= 3 */

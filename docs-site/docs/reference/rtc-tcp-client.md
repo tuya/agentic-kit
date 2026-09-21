@@ -529,7 +529,7 @@ int tai_send_mcp_response(tai_ctx_t *ctx, const char *json_rpc_response);
 
 ## 6. 日志 {#6-日志}
 
-SDK 日志的唯一开关是编译期的 `AGENTIC_KIT_LOG_LEVEL`（在 `common/log.h` 统一设限，作用于整个 SDK，不限于本模块；原 `TAI_LOG_LEVEL` 已并入）。有效值：
+SDK 日志的全局开关是编译期的 `AGENTIC_KIT_LOG_LEVEL`（在 `common/log.h` 统一设限，作用于整个 SDK，不限于本模块）；本模块可再用 `AGENTIC_KIT_TAI_LOG_LEVEL` 单独压低（原 `TAI_LOG_LEVEL` 的改名，只降不升，默认等于全局值）。有效值：
 
 | 值 | 含义 |
 |----|------|
@@ -539,7 +539,9 @@ SDK 日志的唯一开关是编译期的 `AGENTIC_KIT_LOG_LEVEL`（在 `common/l
 | 3 | `TAI_LOG_INFO` |
 | 4 | `TAI_LOG_DEBUG`（默认） |
 
-高于上限的日志在编译期消除；上限以下无条件输出——没有运行时级别（`tai_set_log_level()` 已随运行时层一起移除）。量产用 `-DAGENTIC_KIT_LOG_LEVEL=2` 压到 error + warn；改变日志去向（或按级别丢弃）同样是构建决策：定义 `AGENTIC_KIT_LOG` 把分发接管进你自己的宏。
+高于上限的日志在编译期消除；上限以下无条件输出——没有运行时级别（`tai_set_log_level()` 已随运行时层一起移除）。量产用 `-DAGENTIC_KIT_LOG_LEVEL=2` 压到 error + warn，或用 `-DAGENTIC_KIT_TAI_LOG_LEVEL=N` 只压本模块（低于 3 时 `tai_log_packet` 的 JSON 格式化器连同调用一并消失）；改变日志去向（或按级别丢弃）同样是构建决策：定义 `AGENTIC_KIT_LOG` 把分发接管进你自己的宏。
+
+媒体中间帧默认按 1/N 采样打 INFO（`AGENTIC_KIT_TAI_LOG_MEDIA_SAMPLE_N`，默认 50；设 0 = 关采样进 flood 模式）。flood 模式下中间帧改打 DEBUG，仅当有效上限为 4 时才输出——上限为 3 时把采样设为 0，中间帧会**完全没有日志**（比默认采样更少，别误判成丢包）。
 
 ---
 

@@ -529,7 +529,7 @@ Sends the response to an MCP command. When `on_event` receives `TAI_EVT_MCP_CMD`
 
 ## 6. Logging {#6-日志}
 
-The SDK's single log switch is the compile-time `AGENTIC_KIT_LOG_LEVEL` (gated once in `common/log.h`; it applies to the entire SDK, not only this module, and replaces the former `TAI_LOG_LEVEL`). Valid values:
+The SDK's global log switch is the compile-time `AGENTIC_KIT_LOG_LEVEL` (gated once in `common/log.h`; it applies to the entire SDK, not only this module); this module can additionally be lowered alone with `AGENTIC_KIT_TAI_LOG_LEVEL` (the renamed former `TAI_LOG_LEVEL` — lower-only, defaulting to the SDK-wide value). Valid values:
 
 | Value | Meaning |
 |----|------|
@@ -539,7 +539,9 @@ The SDK's single log switch is the compile-time `AGENTIC_KIT_LOG_LEVEL` (gated o
 | 3 | `TAI_LOG_INFO` |
 | 4 | `TAI_LOG_DEBUG` (default) |
 
-Logs above the ceiling are eliminated at compile time; below it they emit unconditionally — there is no runtime level (`tai_set_log_level()` was removed together with the runtime layer). Compile production builds with `-DAGENTIC_KIT_LOG_LEVEL=2` to keep only error + warn; changing where lines go (or dropping them by level) is a build decision as well: define `AGENTIC_KIT_LOG` and take over the dispatch with your own macro.
+Log lines above the ceiling are eliminated at compile time; below it they emit unconditionally — there is no runtime level (`tai_set_log_level()` was removed together with the runtime layer). Compile production builds with `-DAGENTIC_KIT_LOG_LEVEL=2` to keep only error + warn, or lower only this module with `-DAGENTIC_KIT_TAI_LOG_LEVEL=N` (below 3, the `tai_log_packet` JSON formatter and its calls vanish together); changing where lines go (or dropping them by level) is a build decision as well: define `AGENTIC_KIT_LOG` and take over the dispatch with your own macro.
+
+Media middle frames log at INFO with 1/N sampling by default (`AGENTIC_KIT_TAI_LOG_MEDIA_SAMPLE_N`, default 50; set it to 0 to disable sampling and enter flood mode). In flood mode middle frames emit at DEBUG and only when the effective ceiling is 4 — with a ceiling of 3, setting sampling to 0 leaves middle frames with **no logs at all** (fewer than the default sampling; do not mistake it for packet loss).
 
 ---
 

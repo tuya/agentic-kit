@@ -19,6 +19,27 @@
 #include "log.h"
 
 /* =========================================================================
+ * iot-client: logging (src/iot_internal.h)
+ * ========================================================================= */
+
+/* Optional per-module log ceiling. Defaults to the SDK-wide ceiling and can
+ * only LOWER iot-client below it: the effective ceiling is the smaller of
+ * the two, so a value above AGENTIC_KIT_LOG_LEVEL is clamped to it right
+ * below. Typical use: keep the SDK-wide ceiling open for debugging while
+ * silencing one chatty module. Gates the IOT_LOG* vocabulary where it is
+ * defined (src/iot_internal.h). */
+#ifndef AGENTIC_KIT_IOT_LOG_LEVEL
+#define AGENTIC_KIT_IOT_LOG_LEVEL AGENTIC_KIT_LOG_LEVEL
+#endif
+/* Lower-only, enforced ONCE here so any future block-level gate keyed on
+ * this knob sees the effective ceiling; the vocabulary itself already
+ * collapses at the facade, the clamp keeps the knob value honest. */
+#if AGENTIC_KIT_IOT_LOG_LEVEL > AGENTIC_KIT_LOG_LEVEL
+#undef AGENTIC_KIT_IOT_LOG_LEVEL
+#define AGENTIC_KIT_IOT_LOG_LEVEL AGENTIC_KIT_LOG_LEVEL
+#endif
+
+/* =========================================================================
  * iot-client: MQTT transport (modules/iot-client/src/mqtt.c)
  * ========================================================================= */
 

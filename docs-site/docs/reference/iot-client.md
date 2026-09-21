@@ -124,7 +124,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 
 ### Log Level（`log_level_t`） {#log-levellog_level_t}
 
-日志通过 `common/log.h` 的全局日志门面控制：日志量由编译期的 `AGENTIC_KIT_LOG_LEVEL` 唯一决定（无运行时级别）；日志去哪儿同样是编译期决定——定义 `AGENTIC_KIT_LOG` 把每行分发进你自己的宏，在其中输出或按级别丢弃。
+日志通过 `common/log.h` 的全局日志门面控制：日志量由编译期的 `AGENTIC_KIT_LOG_LEVEL` 全局决定，`AGENTIC_KIT_IOT_LOG_LEVEL` 可再单独压低本模块（只降不升，默认等于全局值；无运行时级别）；日志去哪儿同样是编译期决定——定义 `AGENTIC_KIT_LOG` 把每行分发进你自己的宏，在其中输出或按级别丢弃。
 
 注：`log_level_t` 并非枚举，而是 `typedef int`（以便 `LOG_*` 可用于预处理器 `#if` 判断），下表中的名称均为宏定义。
 
@@ -495,7 +495,7 @@ int iot_get_ca_certificate(iot_client_t *client, const char *host, uint16_t port
 IoT Client 使用 `common/log.h` 提供的全局日志门面，不再提供单独的日志回调设置 API。
 
 ```c
-// 日志量在编译期由 -DAGENTIC_KIT_LOG_LEVEL=N 决定，无运行时级别
+// 日志量在编译期由 -DAGENTIC_KIT_LOG_LEVEL=N 决定（-DAGENTIC_KIT_IOT_LOG_LEVEL=N 只压低本模块），无运行时级别
 
 // 日志去向也在编译期决定：在你的 agentic_kit_config.h 里
 // 把分发 remap 进自己的宏（在其中输出或按级别丢弃均可）

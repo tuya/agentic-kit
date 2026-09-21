@@ -130,6 +130,7 @@ int tai_frame_encode(uint8_t frag_flag, uint16_t sequence,
                      const pal_t *pal,
                      uint8_t *out_buf, size_t out_size)
 {
+    (void)pal; /* read only by the TAI_LOG* traces below */
     if (!out_buf || !payload) return TAI_ERR_ARGS;
 
     size_t frame_len = 5 + payload_len + sig_len;
@@ -199,6 +200,7 @@ int tai_frame_verify(const uint8_t *raw_frame, size_t frame_len,
                      const uint8_t sign_key[32],
                      const pal_t *pal)
 {
+    (void)pal; /* read only by the TAI_LOG* traces below */
     if (sig_len == 0) return TAI_OK;
     if (!raw_frame || frame_len < (size_t)(5 + sig_len)) return TAI_ERR_PROTO;
 

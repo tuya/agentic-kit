@@ -92,14 +92,32 @@ const pal_t *get_default_pal(void);
 /* Module-tagged dispatch into the global log facade.  Tag is folded
  * into the format string at compile time, so the dispatch stays
  * tag-agnostic and the call site reads exactly like a printf call.
- * Compile-time ceiling: AGENTIC_KIT_LOG_LEVEL, gated once in log.h.
+ * Ceilings: the SDK-wide AGENTIC_KIT_LOG_LEVEL gates once in log.h;
+ * AGENTIC_KIT_IOT_LOG_LEVEL (defaults to that; iot_client_config_defaults.h)
+ * optionally lowers just this module further -- never raises.
  * Names follow the module-prefix convention of the other modules
  * (TAI_LOG*, TUYA_BLE_HAL_LOG*); the old unprefixed log_error family
  * read like facade API and leaked into integrator-facing samples. */
+#if AGENTIC_KIT_IOT_LOG_LEVEL >= 1
 #define IOT_LOGE(fmt, ...) log_tag_error("iot", fmt, ##__VA_ARGS__)
+#else
+#define IOT_LOGE(...) ((void)0)
+#endif
+#if AGENTIC_KIT_IOT_LOG_LEVEL >= 2
 #define IOT_LOGW(fmt, ...) log_tag_warn("iot", fmt, ##__VA_ARGS__)
+#else
+#define IOT_LOGW(...) ((void)0)
+#endif
+#if AGENTIC_KIT_IOT_LOG_LEVEL >= 3
 #define IOT_LOGI(fmt, ...) log_tag_info("iot", fmt, ##__VA_ARGS__)
+#else
+#define IOT_LOGI(...) ((void)0)
+#endif
+#if AGENTIC_KIT_IOT_LOG_LEVEL >= 4
 #define IOT_LOGD(fmt, ...) log_tag_debug("iot", fmt, ##__VA_ARGS__)
+#else
+#define IOT_LOGD(...) ((void)0)
+#endif
 
 /**
  * @brief Duplicate a string using PAL's allocator.

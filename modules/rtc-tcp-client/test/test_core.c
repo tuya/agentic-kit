@@ -89,12 +89,23 @@ static void test_compile_time_log_ceiling(void)
     tai_log_packet(TAI_VER_21, 1, TAI_PKT_SESSION_CLOSE,
                    NULL, 0, NULL, counted_zero());
 
-#if AGENTIC_KIT_LOG_LEVEL >= 3
+#if AGENTIC_KIT_TAI_LOG_LEVEL >= 3
     CHECK(g_log_arg_evals == 2);
     CHECK(test_log_count_get() == 2);
 #else
     CHECK(g_log_arg_evals == 0);
     CHECK(test_log_count_get() == 0);
+#endif
+
+#if AGENTIC_KIT_LOG_LEVEL >= 3 && AGENTIC_KIT_TAI_LOG_LEVEL < 3
+    /* Module ceiling lowered below a still-open SDK-wide ceiling (built as
+     * tai_log_module_zero_tests): the module vocabulary above is compiled
+     * out by the TAI knob, while the facade itself still dispatches -- a
+     * per-module knob only lowers its own module, it is not a second
+     * global gate. */
+    log_tag_info("test", "module ceiling does not touch the facade");
+    CHECK(g_log_arg_evals == 0);
+    CHECK(test_log_count_get() == 1);
 #endif
 
     test_log_set_mode(TEST_LOG_PASSTHROUGH);

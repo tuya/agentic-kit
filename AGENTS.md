@@ -296,9 +296,14 @@ ordinary changes.
   `paths-ignore` excludes docs-only pushes from all C jobs, and `deploy-docs.yml` triggers on
   `main`, which does not exist here (only its `workflow_dispatch` fires it). GitLab's `pages` job
   is the only thing that actually catches it, so build the site locally after touching it.
-- **`AGENTIC_KIT_LOG_LEVEL` is the one log gate, SDK-wide, compile-time only.** Every SDK log
+- **`AGENTIC_KIT_LOG_LEVEL` is the SDK-wide log gate, compile-time only.** Every SDK log
   macro (log_tag_* in `common/log.h`; iot-client's IOT_LOG*, TAI_LOG*, TUYA_BLE_HAL_LOG*
-  re-tagged on top) expands to nothing above it. There is no runtime level: below the ceiling a
+  re-tagged on top) expands to nothing above it. Optional per-module ceilings
+  (`AGENTIC_KIT_{IOT,TAI,TUYA_BLE}_LOG_LEVEL`, defaults = the global one, in each module's
+  config file) lower a single module further -- lower-only: the facade gate still applies, so
+  they can never resurrect what the global ceiling compiled out, and a value above it is a no-op
+  (clamped once in each module's config file, so block-level gates see the effective ceiling too).
+  There is no runtime level: below the ceiling a
   line emits unconditionally (`log_set_level()`/`log_get_level()` and the tai_set_log_level()
   wrappers are gone, and so is the runtime handler -- `log_set_handler()` no longer exists).
   The destination is a compile-time fact too: define `AGENTIC_KIT_LOG` and every line dispatches
@@ -306,7 +311,7 @@ ordinary changes.
   `log_emit()` remains the default sink, but module code never calls it directly -- a raw call
   would bypass the ceiling. The one site with a runtime-chosen level, the
   media sampler in tai_pkt_log.c, dispatches over the gated macros by its two possible levels.
-  The old per-module `TAI_LOG_LEVEL` gate is gone.
+  The old per-module `TAI_LOG_LEVEL` gate became the namespaced `AGENTIC_KIT_TAI_LOG_LEVEL`.
 - **`mqtt_tls_config_t.verify_peer` is dead** — assigned in one place, read nowhere. Peer
   verification is decided solely by whether `cacert` or `cert_bundle_attach` is non-NULL;
   leaving both NULL is not "use the system trust store" (there is none on an embedded target),

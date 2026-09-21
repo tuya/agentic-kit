@@ -313,9 +313,36 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     )
     add_test(NAME tai_log_level_zero_tests COMMAND tai_log_level_zero_tests)
 
+    # Same suite with ONLY the rtc-tcp-client module ceiling closed
+    # (-DAGENTIC_KIT_TAI_LOG_LEVEL=0) while the SDK-wide ceiling stays at
+    # its default: proves the per-module knob lowers independently -- the
+    # module assertions take the compiled-out branches while test_core.c's
+    # direct-facade probe still dispatches.
+    add_executable(tai_log_module_zero_tests
+        ${AI_TCP_SOURCES}
+        "${AI_TCP_TESTS_DIR}/test_core.c"
+        "${AI_TCP_TESTS_DIR}/test_log.c"
+    )
+    target_include_directories(tai_log_module_zero_tests PRIVATE
+        "${AI_TCP_DIR}/include"
+        "${AI_TCP_DIR}/src"
+        "${AI_TCP_TESTS_DIR}/log_config"
+        "${PAL_DIR}"
+    )
+    target_compile_definitions(tai_log_module_zero_tests PRIVATE
+        AGENTIC_KIT_TAI_LOG_LEVEL=0
+    )
+    target_link_libraries(tai_log_module_zero_tests PRIVATE
+        agentic_kit_pal
+        Threads::Threads
+    )
+    add_test(NAME tai_log_module_zero_tests COMMAND tai_log_module_zero_tests)
+
     # Prove that packet-log level selection is purely compile-time across the
-    # supported ceiling/sampling modes. The script preprocesses and compiles
-    # tai_pkt_log.c in eight configurations, then inspects the expanded sinks.
+    # ceiling/sampling modes. The script preprocesses and compiles tai_pkt_log.c
+    # in nineteen configurations -- the SDK-wide ceiling and the rtc-tcp-client-only
+    # ceiling each swept over levels 0/2/3/4 x sampling 0/50, plus module-above-global
+    # clamp probes -- then inspects the expanded sinks.
     add_test(NAME tai_pkt_log_compile_matrix
         COMMAND "${CMAKE_COMMAND}"
             "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}"

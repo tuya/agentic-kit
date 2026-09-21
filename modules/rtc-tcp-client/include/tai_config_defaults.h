@@ -29,6 +29,24 @@
  * kilobyte sizing.
  */
 
+/* Optional per-module log ceiling for rtc-tcp-client. Defaults to the
+ * SDK-wide ceiling and can only LOWER this module below it: the effective
+ * ceiling is the smaller of the two, so a value above AGENTIC_KIT_LOG_LEVEL
+ * is clamped to it right below. Gates the TAI_LOG* vocabulary and the
+ * packet-log formatter (tai_log_packet) where they are defined (src/). */
+#ifndef AGENTIC_KIT_TAI_LOG_LEVEL
+#define AGENTIC_KIT_TAI_LOG_LEVEL AGENTIC_KIT_LOG_LEVEL
+#endif
+/* Lower-only, enforced ONCE here: block-level gates (the packet-log
+ * formatter, the flood branch, the call sites in tai_client.c) key on
+ * this knob directly, so clamp it to the SDK-wide ceiling to make a
+ * too-high value a true no-op -- without this, module > global would
+ * compile those blocks back in behind dead dispatches. */
+#if AGENTIC_KIT_TAI_LOG_LEVEL > AGENTIC_KIT_LOG_LEVEL
+#undef AGENTIC_KIT_TAI_LOG_LEVEL
+#define AGENTIC_KIT_TAI_LOG_LEVEL AGENTIC_KIT_LOG_LEVEL
+#endif
+
 /* Sample 1-in-N media MIDDLE frames to INFO (tai_pkt_log.c). All
  * non-sampled MIDDLE frames are dropped (no log line). Set to 0 to disable
  * sampling, in which case every MIDDLE frame logs at DEBUG instead. */

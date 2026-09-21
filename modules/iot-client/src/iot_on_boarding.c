@@ -105,6 +105,8 @@ static void internal_message_callback(const char *topic, size_t topic_len,
                                       const uint8_t *payload, size_t payload_len,
                                       void *user_data) {
     (void)user_data;
+    (void)topic;      /* topic/topic_len feed only the trace below; keep  */
+    (void)topic_len;  /* -Wextra quiet when the module ceiling drops it.  */
     IOT_LOGI(">>> internal_message_callback called! topic_len=%u, payload_len=%u", (unsigned)topic_len, (unsigned)payload_len);
 
     if (!g_activate_ctx) {

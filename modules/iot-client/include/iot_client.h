@@ -35,7 +35,9 @@
  * To take over the dispatch (destination, format): define AGENTIC_KIT_LOG;
  * a function target can reuse the default output via log_emit_valist();
  * To quiet the SDK: build with -DAGENTIC_KIT_LOG_LEVEL=N (no runtime level
- * and no runtime handler -- the destination is a compile-time fact).
+ * and no runtime handler -- the destination is a compile-time fact);
+ * to quiet only iot-client: -DAGENTIC_KIT_IOT_LOG_LEVEL=N (defaults to
+ * the SDK-wide ceiling; cannot exceed it).
  */
 
 typedef enum {

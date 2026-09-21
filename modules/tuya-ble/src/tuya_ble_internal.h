@@ -3,27 +3,44 @@
 #include "tuya_ble_prov.h"
 #include "log.h"
 
-/* tuya-ble has no build-time knobs today -- why the constants in
- * tuya_ble_prov.h are not knobs is documented there. When the first one
- * appears it lands in include/tuya_ble_config_defaults.h as
- * AGENTIC_KIT_TUYA_BLE_*; that file must include common/log.h first, since
- * log.h is where integrator overrides are picked up. */
+/* tuya-ble's build-time knobs live in include/tuya_ble_config_defaults.h
+ * (AGENTIC_KIT_TUYA_BLE_*; currently one -- the per-module log ceiling
+ * below). That file includes common/log.h first, since log.h is where
+ * integrator overrides are picked up. */
 
 #include <stdio.h>
 
+#include "tuya_ble_config_defaults.h"
+
 /* Shared SDK-internal binding of the HAL log macros onto the global log
- * facade: every module diagnostic carries the "[ble] " prefix, and the
- * compile-time ceiling is the SDK-wide AGENTIC_KIT_LOG_LEVEL (log.h). */
+ * facade: every module diagnostic carries the "[ble] " prefix. The
+ * ceiling is min(AGENTIC_KIT_LOG_LEVEL, AGENTIC_KIT_TUYA_BLE_LOG_LEVEL):
+ * the SDK-wide gate applies once in log.h, and the module knob (default =
+ * that) only lowers this module further -- never raises. The ceiling
+ * applies at the level a line actually emits at, so LOGI (dispatched at
+ * debug) needs 4, not 3. */
 #undef TUYA_BLE_HAL_LOGI
 #undef TUYA_BLE_HAL_LOGW
 #undef TUYA_BLE_HAL_LOGE
 #undef TUYA_BLE_HAL_HEXDUMP
+#if AGENTIC_KIT_TUYA_BLE_LOG_LEVEL >= 4
 #define TUYA_BLE_HAL_LOGI(fmt, ...) log_tag_debug("ble", fmt, ##__VA_ARGS__)
+#else
+#define TUYA_BLE_HAL_LOGI(fmt, ...)
+#endif
+#if AGENTIC_KIT_TUYA_BLE_LOG_LEVEL >= 2
 #define TUYA_BLE_HAL_LOGW(fmt, ...) log_tag_warn("ble",  fmt, ##__VA_ARGS__)
+#else
+#define TUYA_BLE_HAL_LOGW(fmt, ...)
+#endif
+#if AGENTIC_KIT_TUYA_BLE_LOG_LEVEL >= 1
 #define TUYA_BLE_HAL_LOGE(fmt, ...) log_tag_error("ble", fmt, ##__VA_ARGS__)
-/* HEXDUMP formats every byte before dispatching; below the debug ceiling
+#else
+#define TUYA_BLE_HAL_LOGE(fmt, ...)
+#endif
+/* HEXDUMP formats every byte before dispatching; below the ceiling
  * the whole body and its arguments are compiled out. */
-#if AGENTIC_KIT_LOG_LEVEL >= 4
+#if AGENTIC_KIT_TUYA_BLE_LOG_LEVEL >= 4
 #define TUYA_BLE_HAL_HEXDUMP(buf, len)                                         \
     do {                                                                       \
         const uint8_t *p_ = (const uint8_t *)(buf);                            \

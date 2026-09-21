@@ -123,7 +123,7 @@ Classification for cloud device-removal notifications (protocol 11), received by
 
 ### Log Level (`log_level_t`) {#log-levellog_level_t}
 
-Logging is controlled through the global logging facade in `common/log.h`: log volume is decided solely by the compile-time `AGENTIC_KIT_LOG_LEVEL` (there is no runtime level); where lines land is a compile-time decision too — define `AGENTIC_KIT_LOG` to dispatch every line into your own macro, which may print or drop by level.
+Logging is controlled through the global logging facade in `common/log.h`: log volume is decided by the compile-time `AGENTIC_KIT_LOG_LEVEL`, with `AGENTIC_KIT_IOT_LOG_LEVEL` lowering this module alone (lower-only, defaulting to the SDK-wide value; there is no runtime level); where lines land is a compile-time decision too — define `AGENTIC_KIT_LOG` to dispatch every line into your own macro, which may print or drop by level.
 
 Note: `log_level_t` is not an enum; it is a `typedef int` (so `LOG_*` can be used in preprocessor `#if` conditions). The names in the following table are macros.
 
@@ -494,7 +494,8 @@ Obtains the CA certificate for the target host.
 The IoT Client uses the global logging facade provided by `common/log.h` and no longer provides a separate API for configuring a log callback.
 
 ```c
-// Log volume is a compile-time decision (-DAGENTIC_KIT_LOG_LEVEL=N);
+// Log volume is a compile-time decision (-DAGENTIC_KIT_LOG_LEVEL=N;
+// -DAGENTIC_KIT_IOT_LOG_LEVEL=N lowers this module alone);
 // there is no runtime level
 
 // The destination is a compile-time decision too: in your

@@ -83,12 +83,16 @@
  * TUYA_BLE_HAL_LOG* re-tagged on top of those) compiles out above it --
  * no call, no argument evaluation, no format string in the image.
  *   0 = none, 1 = error, 2 = +warn, 3 = +info, 4 = +debug (default).
- * This ceiling is the ONLY level filter: nothing is held back for runtime,
- * so what compiles in is what emits. Quieting a build is itself a build
- * decision (-DAGENTIC_KIT_LOG_LEVEL=2 for error+warn); so is redirecting
- * or dropping lines wholesale -- define AGENTIC_KIT_LOG (below) and the
- * dispatch lands in your own macro. The former
- * per-module TAI_LOG_LEVEL gate is absorbed here: one knob for the SDK. */
+ * This ceiling is the only SDK-wide level filter: nothing is held back
+ * for runtime, so what compiles in is what emits. Quieting a build is
+ * itself a build decision (-DAGENTIC_KIT_LOG_LEVEL=2 for error+warn); so
+ * is redirecting or dropping lines wholesale -- define AGENTIC_KIT_LOG
+ * (below) and the dispatch lands in your own macro. Optional per-module
+ * ceilings (AGENTIC_KIT_IOT_LOG_LEVEL, AGENTIC_KIT_TAI_LOG_LEVEL,
+ * AGENTIC_KIT_TUYA_BLE_LOG_LEVEL; defaults = this one, in each module's
+ * config file) lower a single module further: they ride the same pickup,
+ * gate the module vocabulary where it is defined, and can never raise a
+ * line above this ceiling. */
 #ifndef AGENTIC_KIT_LOG_LEVEL
 #define AGENTIC_KIT_LOG_LEVEL 4 /* LOG_DEBUG */
 #endif
