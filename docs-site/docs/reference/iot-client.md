@@ -441,6 +441,20 @@ int iot_client_publish(iot_client_t *client, const uint8_t *data, size_t data_le
 
 ---
 
+### `iot_ai_ctrl_set_callback` {#iot_ai_ctrl_set_callback}
+
+```c
+int iot_ai_ctrl_set_callback(iot_client_t *client,
+                             ai_ctrl_callback_t callback,
+                             void *user_data);
+```
+
+注册经过 P2.3 解密和认证的 MQTT protocol-9000 AI 控制通知。回调在调用 `iot_client_process()` 的线程上触发，`type` 和 `json_data` 只在回调期间有效。回调应仅更新有界状态或通知应用线程，不应在其中断开/销毁 IoT client。
+
+若必须接收订阅建立期间立即到达的通知，初始化时设置 `mqtt_disable_auto_connect=true`，先注册回调，再调用 `iot_client_connect()`。传 NULL callback 可注销。RTC TCP 接收背压不会阻塞该 MQTT 路径；应用应把 MQTT 通知和 TAI ChatBreak 汇入同一播放策略，并按 Event 标识丢弃被中断 Event 的后续媒体。服务端通知不是 `tai_chat_break()` 的应答，也不应自动结束云端 VAD 上行流。
+
+---
+
 ### `iot_get_qrcode_info` {#iot_get_qrcode_info}
 
 ```c

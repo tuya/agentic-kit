@@ -142,6 +142,12 @@ tai_config_t cfg = {
 
 ### RTC TCP Client {#rtc-tcp-client}
 
+:::note MQTT 独立控制路径
+设备可同时保持 IoT MQTT 与 RTC TCP Connection。注册 `iot_ai_ctrl_set_callback()` 后，protocol-9000 `asrInterrupt` 不受 RTC TCP 接收背压影响。应用应让一个线程独占 `iot_client_process()` / publish / reconnect，并把 MQTT callback 与 `TAI_EVT_CHAT_BREAK` 汇入同一线程安全的播放策略。
+
+收到 MQTT 打断时，先把对应 Event 标记为过期并清空其播放队列，再恢复 RTC 接收，让 worker 继续校验和排空旧媒体；不要直接丢弃 TCP 字节，否则会破坏 Frame 边界。旧 Event 的后续 `on_audio` 必须被应用丢弃，直到新 Event 开始。服务端打断不要求调用 `tai_chat_break()`，也不要结束或重开云端 VAD 上行流。
+:::
+
 **接收服务端打断（`TAI_EVT_CHAT_BREAK`，type=4）：**
 
 `TAI_EVT_CHAT_BREAK` 有双重身份：用户在 AI 回复中插话时它是打断信号；在云端 VAD 模式下它同时也是**回合结束信号**（云端检测到用户停止说话后下发，当前云端不再下发 `TAI_EVT_SERVER_VAD`）。两种情况下的设备处理相同：

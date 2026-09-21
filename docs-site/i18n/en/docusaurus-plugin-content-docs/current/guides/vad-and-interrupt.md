@@ -144,6 +144,12 @@ When the user speaks again while the AI is responding, the current response need
 
 ### RTC TCP Client {#rtc-tcp-client}
 
+:::note Independent MQTT control path
+A device can keep the IoT MQTT and RTC TCP Connection active together. After `iot_ai_ctrl_set_callback()` is registered, a protocol-9000 `asrInterrupt` is independent of RTC TCP receive backpressure. One application thread should own `iot_client_process()`, publish, and reconnect, while the MQTT callback and `TAI_EVT_CHAT_BREAK` feed the same thread-safe playback policy.
+
+On an MQTT interrupt, first mark the correlated Event stale and flush its playback queue, then release RTC receive pressure so the worker can continue authenticating and draining old media. Never discard raw TCP bytes, which would corrupt Frame boundaries. The application must reject subsequent `on_audio` callbacks for the stale Event until a new Event starts. A server notice does not require `tai_chat_break()`, and it must not end or reopen a Server-VAD uplink.
+:::
+
 **Receive a server-initiated chat break (`TAI_EVT_CHAT_BREAK`, type=4):**
 
 `TAI_EVT_CHAT_BREAK` has two roles: it signals an interruption when the user speaks during the AI response; in server-VAD mode, it is also the **turn-end signal** (sent when the cloud detects that the user has stopped speaking; the current cloud no longer sends `TAI_EVT_SERVER_VAD`). Device-side handling is the same in both cases:
