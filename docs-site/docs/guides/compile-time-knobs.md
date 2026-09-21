@@ -86,7 +86,7 @@ target_compile_definitions(my_sdk_target PRIVATE
     ESP_LOG_LEVEL_LOCAL(lvl_of(level), tag, fmt, ##__VA_ARGS__)
 ```
 
-SDK 里所有日志宏（iot-client 的 `log_error` 族、`TAI_LOG*`、`TUYA_BLE_HAL_LOG*`）都汇到 `log_tag_*`，再经 `AGENTIC_KIT_LOG` 分发——一个定义接管全部。你拿到的是 **level、裸 tag（`"iot"`/`"tai"`/`"ble"`）、printf 格式串与参数**：tag 是独立 token，结构化 sink 和按 tag 过滤从此可行。
+SDK 里所有日志宏（iot-client 的 `IOT_LOG*`、`TAI_LOG*`、`TUYA_BLE_HAL_LOG*`）都汇到 `log_tag_*`，再经 `AGENTIC_KIT_LOG` 分发——一个定义接管全部。你拿到的是 **level、裸 tag（`"iot"`/`"tai"`/`"ble"`）、printf 格式串与参数**：tag 是独立 token，结构化 sink 和按 tag 过滤从此可行。
 
 两条规则，两个方向都成立：
 

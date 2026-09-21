@@ -44,7 +44,7 @@ int mbedtls_cipher_auth_encrypt_wrapper(const cipher_params_t *params,
 
     int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, (const unsigned char *)params->key, key_bits);
     if (ret != 0) {
-        log_error("Failed to set GCM key: -0x%04x", -ret);
+        IOT_LOGE("Failed to set GCM key: -0x%04x", -ret);
         mbedtls_gcm_free(&gcm);
         return ret;
     }
@@ -84,7 +84,7 @@ int mbedtls_cipher_auth_decrypt_wrapper(const cipher_params_t *params,
 
     int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, (const unsigned char *)params->key, key_bits);
     if (ret != 0) {
-        log_error("Failed to set GCM key for decryption: -0x%04x", -ret);
+        IOT_LOGE("Failed to set GCM key for decryption: -0x%04x", -ret);
         mbedtls_gcm_free(&gcm);
         return ret;
     }
@@ -126,7 +126,7 @@ int pv23_encrypt(const pal_t *pal, const uint8_t *plaintext, size_t plaintext_le
     /* IV — random nonce from the shared process-wide DRBG (common/rng.c); the
      * caller's pal locks that DRBG. */
     if (rng_bytes(pal, iv, P23_IV_LEN) != 0) {
-        log_error("Failed to generate IV via RNG");
+        IOT_LOGE("Failed to generate IV via RNG");
         mbedtls_gcm_free(&gcm);
         return OPRT_COMMUNICATION_ERROR;
     }
@@ -134,7 +134,7 @@ int pv23_encrypt(const pal_t *pal, const uint8_t *plaintext, size_t plaintext_le
     // Set up GCM
     ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, 128);
     if (ret != 0) {
-        log_error("Failed to set GCM key: -0x%04x", -ret);
+        IOT_LOGE("Failed to set GCM key: -0x%04x", -ret);
         goto cleanup;
     }
 
@@ -160,7 +160,7 @@ int pv23_encrypt(const pal_t *pal, const uint8_t *plaintext, size_t plaintext_le
                             plaintext, output + offset,
                             P23_TAG_LEN, tag);
     if (ret != 0) {
-        log_error("Failed to encrypt: -0x%04x", -ret);
+        IOT_LOGE("Failed to encrypt: -0x%04x", -ret);
         goto cleanup;
     }
 
@@ -179,12 +179,12 @@ int pv23_decrypt(const pal_t *pal, const uint8_t *ciphertext, size_t ciphertext_
     const uint8_t *key, uint8_t *output, size_t *output_len) {
     (void)pal;   /* decryption needs no RNG; pal is for symmetry with pv23_encrypt */
     if (!ciphertext || !key || !output || !output_len) {
-        log_error("Invalid parameters for p23_decrypt");
+        IOT_LOGE("Invalid parameters for p23_decrypt");
         return OPRT_INVALID_PARAMETER;
     }
 
     if (ciphertext_len < P23_AAD_LEN + P23_IV_LEN + P23_TAG_LEN) {
-        log_error("Ciphertext too short for P2.3 decryption: %u bytes", (unsigned)ciphertext_len);
+        IOT_LOGE("Ciphertext too short for P2.3 decryption: %u bytes", (unsigned)ciphertext_len);
         return OPRT_INVALID_PARAMETER;
     }
 
@@ -208,7 +208,7 @@ int pv23_decrypt(const pal_t *pal, const uint8_t *ciphertext, size_t ciphertext_
 
     int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, 128);
     if (ret != 0) {
-        log_error("Failed to set GCM key for decryption: -0x%04x", -ret);
+        IOT_LOGE("Failed to set GCM key for decryption: -0x%04x", -ret);
         mbedtls_gcm_free(&gcm);
         return ret;
     }
@@ -223,7 +223,7 @@ int pv23_decrypt(const pal_t *pal, const uint8_t *ciphertext, size_t ciphertext_
     if (ret == 0) {
         *output_len = encrypted_len;
     } else {
-        log_error("Failed to decrypt: -0x%04x", -ret);
+        IOT_LOGE("Failed to decrypt: -0x%04x", -ret);
     }
 
     mbedtls_gcm_free(&gcm);
@@ -241,7 +241,7 @@ int iot_md5_password(const char *key, char *password_out)
     if (ret == 0) ret = mbedtls_md5_finish(&md5_ctx, md5_hash);
     mbedtls_md5_free(&md5_ctx);
     if (ret != 0) {
-        log_error("MD5 computation failed: -0x%04x", -ret);
+        IOT_LOGE("MD5 computation failed: -0x%04x", -ret);
         return ret;
     }
 

@@ -79,7 +79,7 @@
 #endif
 
 /* The single compile-time log ceiling for the whole SDK: every log macro
- * (log_tag_* below; iot-client's log_error family, TAI_LOG* and
+ * (log_tag_* below; iot-client's IOT_LOG*, TAI_LOG* and
  * TUYA_BLE_HAL_LOG* re-tagged on top of those) compiles out above it --
  * no call, no argument evaluation, no format string in the image.
  *   0 = none, 1 = error, 2 = +warn, 3 = +info, 4 = +debug (default).
@@ -134,7 +134,7 @@ extern "C" {
  *
  * AGENTIC_KIT_LOG_LEVEL (default 4 = debug) is the maximum level compiled
  * into the SDK. Every log macro the SDK itself uses dispatches through one
- * of the four below — the per-module families (iot-client's log_error,
+ * of the four below — the per-module families (iot-client's IOT_LOG*,
  * TAI_LOG*, TUYA_BLE_HAL_LOG*) are thin re-tags of these — and expands to
  * ((void)0) above the ceiling: no call, no argument evaluation, no format
  * string in the image. Below the ceiling the line emits unconditionally —

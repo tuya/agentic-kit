@@ -76,6 +76,7 @@ iot_atop_request_t  req  = { .api     = "tuya.device.schema.newest.get",
                              .data    = body };
 iot_atop_response_t resp = {0};
 
+/* 出错路径用 SDK 公共日志门面 log_tag_*（应用代码可直接调用，与 SDK 日志同一编译期上限与分发） */
 int rc = iot_atop_call(client, &req, &resp);
 if (rc == OPRT_OK) {
     if (resp.result != NULL) {
@@ -83,10 +84,10 @@ if (rc == OPRT_OK) {
     }
 } else if (rc == OPRT_ATOP_BUSINESS_ERROR) {
     /* 请求到达了云端，被云端拒绝 —— error_code 说明原因 */
-    log_error("rejected: %s (%s)", resp.error_code, resp.error_msg);
+    log_tag_error("app", "rejected: %s (%s)", resp.error_code, resp.error_msg);
 } else {
     /* 传输层失败：DNS / TLS / HTTP / 解密 */
-    log_error("call failed: %d", rc);
+    log_tag_error("app", "call failed: %d", rc);
 }
 
 iot_atop_response_free(client, &resp);   /* 每条路径都要调，包括失败路径 */

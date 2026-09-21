@@ -86,7 +86,7 @@ Where logs go has no runtime switch: you decide it at compile time by defining `
     ESP_LOG_LEVEL_LOCAL(lvl_of(level), tag, fmt, ##__VA_ARGS__)
 ```
 
-Every log macro in the SDK (iot-client's `log_error` family, `TAI_LOG*`, `TUYA_BLE_HAL_LOG*`) funnels into `log_tag_*`, which dispatches through `AGENTIC_KIT_LOG` — one definition takes over all of it. You receive the **level, the bare tag (`"iot"`/`"tai"`/`"ble"`), a printf format and its arguments**: the tag as its own token is what makes structured sinks and per-tag filtering possible.
+Every log macro in the SDK (iot-client's `IOT_LOG*`, `TAI_LOG*`, `TUYA_BLE_HAL_LOG*`) funnels into `log_tag_*`, which dispatches through `AGENTIC_KIT_LOG` — one definition takes over all of it. You receive the **level, the bare tag (`"iot"`/`"tai"`/`"ble"`), a printf format and its arguments**: the tag as its own token is what makes structured sinks and per-tag filtering possible.
 
 Two rules, binding both directions:
 

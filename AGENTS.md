@@ -94,8 +94,8 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
    and `iot_pal_defaults.c` host-only (each IDF app defines its own `get_default_pal()`),
    `pal_freertos.c` IDF-only — so never blind-sync them.
 5. **Module code goes through the PAL**: `pal->malloc`/`pal->free` for memory, the `log_tag_*`
-   macros in `common/log.h` for output (via each module's prefixed `log_info`/`log_warn`/
-   `log_error`). A direct `malloc` or
+   macros in `common/log.h` for output (via each module's own family: `IOT_LOG*`,
+   `TAI_LOG*`, `TUYA_BLE_HAL_LOG*`). A direct `malloc` or
    `printf` is a porting bug even where it links on the host -- and the `test` CI job greps for
    raw `log_emit(`/`printf(` call sites outside `common/log.{h,c}` and the test trees, so one
    fails the pipeline. The one deliberate gap: `pal_t` has
@@ -141,7 +141,7 @@ ordinary changes.
 
 - **`schema` and `dp_state` are one artefact; persist and restore them together.** A NULL, empty,
   `"[]"` or unparseable schema is not an error anywhere: `iot_dp_rebuild()` installs *loose mode*
-  with one `log_info` line and `iot_client_init()` still returns a healthy client. In loose mode
+  with one `IOT_LOGI` line and `iot_client_init()` still returns a healthy client. In loose mode
   cloud DP-sets are never dispatched, every `iot_dp_get`/`set` returns `OPRT_DP_INVALID_ID`,
   `iot_dp_restore_json()` discards the whole snapshot and still returns `OPRT_OK`, and
   `iot_dp_dump_json()` returns `{"dps":{}}` — which an app that periodically persists writes over
@@ -172,7 +172,7 @@ ordinary changes.
 - **A protocol-5 downlink is always "consumed", even when nothing was applied.**
   `iot_dp_dispatch_downlink()` returns consumed for every protocol-5 envelope — non-object `dps`,
   every DP rejected, or the callback snapshot's malloc failing — with per-DP rejections at
-  `log_warn` only. No DP callback, no `message_callback`, no error return, and the cloud already
+  `IOT_LOGW` only. No DP callback, no `message_callback`, no error return, and the cloud already
   has its QoS1 ack. If the app needs to see rejected DP-sets, add an explicit path.
 
 ### iot-client — credentials, config, transport
@@ -297,7 +297,7 @@ ordinary changes.
   `main`, which does not exist here (only its `workflow_dispatch` fires it). GitLab's `pages` job
   is the only thing that actually catches it, so build the site locally after touching it.
 - **`AGENTIC_KIT_LOG_LEVEL` is the one log gate, SDK-wide, compile-time only.** Every SDK log
-  macro (log_tag_* in `common/log.h`; iot-client's log_error family, TAI_LOG*, TUYA_BLE_HAL_LOG*
+  macro (log_tag_* in `common/log.h`; iot-client's IOT_LOG*, TAI_LOG*, TUYA_BLE_HAL_LOG*
   re-tagged on top) expands to nothing above it. There is no runtime level: below the ceiling a
   line emits unconditionally (`log_set_level()`/`log_get_level()` and the tai_set_log_level()
   wrappers are gone, and so is the runtime handler -- `log_set_handler()` no longer exists).
@@ -310,7 +310,7 @@ ordinary changes.
 - **`mqtt_tls_config_t.verify_peer` is dead** — assigned in one place, read nowhere. Peer
   verification is decided solely by whether `cacert` or `cert_bundle_attach` is non-NULL;
   leaving both NULL is not "use the system trust store" (there is none on an embedded target),
-  it connects with verification disabled behind one `log_warn`.
+  it connects with verification disabled behind one `IOT_LOGW`.
 - **`iot_client_process(client, timeout_ms)` ignores `timeout_ms`.** The real blocking budget is
   the compile-time `AGENTIC_KIT_MQTT_RECV_TIMEOUT_MS` (1000 ms), and the CONNECT sets a 60 s keepalive. Do
   not use the argument to pace the app loop.

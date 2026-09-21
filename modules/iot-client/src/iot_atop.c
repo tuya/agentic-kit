@@ -68,14 +68,14 @@ int iot_atop_call(iot_client_t *client,
     }
     if (request->api == NULL || request->api[0] == '\0' ||
         request->version == NULL || request->version[0] == '\0') {
-        log_error("iot_atop_call: api and version are required");
+        IOT_LOGE("iot_atop_call: api and version are required");
         return OPRT_INVALID_PARAMETER;
     }
 
     /* Activated devices only: this path signs with devid + secret_key.
      * Activation uses uuid + authkey and stays behind on-boarding. */
     if (client->devid[0] == '\0' || client->secret_key[0] == '\0') {
-        log_error("iot_atop_call: client has no device credentials yet");
+        IOT_LOGE("iot_atop_call: client has no device credentials yet");
         return OPRT_UNINITIALIZED;
     }
 
@@ -84,7 +84,7 @@ int iot_atop_call(iot_client_t *client,
                            : "{}";
     int rt = atop_body_is_json_object(body);
     if (rt != OPRT_OK) {
-        log_error("iot_atop_call: data is not a JSON object");
+        IOT_LOGE("iot_atop_call: data is not a JSON object");
         return rt;
     }
 
@@ -120,7 +120,7 @@ int iot_atop_call(iot_client_t *client,
     response->server_time = atop_response.t;
 
     if (rt != OPRT_OK) {
-        log_error("iot_atop_call(%s v%s) failed: %d", request->api,
+        IOT_LOGE("iot_atop_call(%s v%s) failed: %d", request->api,
                   request->version, rt);
         atop_base_response_free(client->pal, &atop_response);
         return rt;

@@ -54,11 +54,11 @@ static int parse_host_port(const char *url, char *host_out, size_t host_len, uin
         char *endptr = NULL;
         unsigned long port_val = strtoul(colon + 1, &endptr, 10);
         if (endptr == colon + 1 || port_val == 0 || port_val > 65535) {
-            log_error("Invalid port in URL: %s", url);
+            IOT_LOGE("Invalid port in URL: %s", url);
             return OPRT_INVALID_PARAMETER;
         }
         if (*endptr != '\0' && *endptr != '/' && endptr != slash) {
-            log_error("Invalid characters after port in URL: %s", url);
+            IOT_LOGE("Invalid characters after port in URL: %s", url);
             return OPRT_INVALID_PARAMETER;
         }
         *port_out = (uint16_t)port_val;
@@ -113,7 +113,7 @@ static int iot_client_dns_resolve(iot_client_t *client)
     iot_dns_url_config_response_t dns_resp = {0};
     int ret = iot_dns_url_config(client->pal, &dns_req, &dns_resp);
     if (ret != OPRT_OK) {
-        log_warn("Failed to query IoT DNS for service URLs: %d", ret);
+        IOT_LOGW("Failed to query IoT DNS for service URLs: %d", ret);
         return ret;
     }
 
@@ -125,18 +125,18 @@ static int iot_client_dns_resolve(iot_client_t *client)
                               "%s://%s", scheme, addr);
             if (sn < 0 || (size_t)sn >= sizeof(client->mqtt_url)) {
                 client->mqtt_url[0] = '\0';   /* too long: leave unresolved */
-                log_warn("IoT DNS %s url too long, ignored", mqtt_dns_key);
+                IOT_LOGW("IoT DNS %s url too long, ignored", mqtt_dns_key);
             } else {
-                log_info("IoT DNS %s: %s", mqtt_dns_key, client->mqtt_url);
+                IOT_LOGI("IoT DNS %s: %s", mqtt_dns_key, client->mqtt_url);
             }
         } else if (strcmp(dns_resp.endpoints[i].key, IOT_DNS_KEY_HTTPS) == 0) {
             const char *addr = dns_resp.endpoints[i].addr;
             int sn = snprintf(client->https_url, sizeof(client->https_url), "%s", addr);
             if (sn < 0 || (size_t)sn >= sizeof(client->https_url)) {
                 client->https_url[0] = '\0';
-                log_warn("IoT DNS %s too long, ignored", IOT_DNS_KEY_HTTPS);
+                IOT_LOGW("IoT DNS %s too long, ignored", IOT_DNS_KEY_HTTPS);
             } else {
-                log_info("IoT DNS %s: %s", IOT_DNS_KEY_HTTPS, client->https_url);
+                IOT_LOGI("IoT DNS %s: %s", IOT_DNS_KEY_HTTPS, client->https_url);
             }
         }
     }
@@ -147,11 +147,11 @@ static int iot_client_dns_resolve(iot_client_t *client)
      * how an unknown `region` presents). Say so here, or the only symptom is a
      * refused MQTT connect several layers away, with nothing pointing back. */
     if (client->mqtt_url[0] == '\0') {
-        log_warn("IoT DNS returned no %s for region=%s env=%s — MQTT stays unresolved",
+        IOT_LOGW("IoT DNS returned no %s for region=%s env=%s — MQTT stays unresolved",
                  mqtt_dns_key, dns_req.region ? dns_req.region : "(unset)", dns_req.env);
     }
     if (client->https_url[0] == '\0') {
-        log_warn("IoT DNS returned no %s for region=%s env=%s — falling back to %s",
+        IOT_LOGW("IoT DNS returned no %s for region=%s env=%s — falling back to %s",
                  IOT_DNS_KEY_HTTPS, dns_req.region ? dns_req.region : "(unset)",
                  dns_req.env, iot_region_to_host(client->region, client->env));
     }
@@ -162,7 +162,7 @@ static int iot_client_dns_resolve(iot_client_t *client)
 int iot_init(const pal_t *pal)
 {
     if (!pal_is_valid(pal)) {
-        log_error("iot_init: invalid PAL adapter (NULL or missing function pointers)");
+        IOT_LOGE("iot_init: invalid PAL adapter (NULL or missing function pointers)");
         return OPRT_INVALID_PARAMETER;
     }
     set_pal(pal);
@@ -171,7 +171,7 @@ int iot_init(const pal_t *pal)
      * fails closed if seeding failed, so surface the failure here rather than
      * letting it resurface later as opaque handshake / nonce errors. */
     if (rng_init(pal) != 0) {
-        log_error("iot_init: RNG seed failed (no strong entropy source?)");
+        IOT_LOGE("iot_init: RNG seed failed (no strong entropy source?)");
         return OPRT_COMMUNICATION_ERROR;
     }
 
@@ -193,7 +193,7 @@ int iot_client_report_init_versions(iot_client_t *client,
         return OPRT_INVALID_PARAMETER;
     }
     if (config->skip_version_report) {
-        log_info("skip_version_report set: skipping SDK-meta and firmware-version reports");
+        IOT_LOGI("skip_version_report set: skipping SDK-meta and firmware-version reports");
         return OPRT_OK;
     }
 
@@ -222,7 +222,7 @@ int iot_client_report_init_versions(iot_client_t *client,
         device_meta_save_response_t meta_resp = {0};
         int meta_ret = atop_device_meta_save(client->pal, &meta_req, &meta_resp);
         if (meta_ret != OPRT_OK) {
-            log_warn("atop_device_meta_save failed: %d (non-fatal)", meta_ret);
+            IOT_LOGW("atop_device_meta_save failed: %d (non-fatal)", meta_ret);
             ret = meta_ret;
         }
     }
@@ -234,7 +234,7 @@ int iot_client_report_init_versions(iot_client_t *client,
                              : IOT_SDK_SW_VER;
         int ver_ret = iot_ota_report_version(client, fw_ver);
         if (ver_ret != OPRT_OK) {
-            log_warn("iot_ota_report_version failed: %d (non-fatal)", ver_ret);
+            IOT_LOGW("iot_ota_report_version failed: %d (non-fatal)", ver_ret);
             if (ret == OPRT_OK) {
                 ret = ver_ret;
             }
@@ -247,18 +247,18 @@ int iot_client_report_init_versions(iot_client_t *client,
 IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
 {
     if (!config) {
-        log_error("Invalid config for iot_client_init");
+        IOT_LOGE("Invalid config for iot_client_init");
         return NULL;
     }
 
     const pal_t *pal = get_pal();
     if (!pal) {
-        log_error("iot_client_init: PAL not initialized — call iot_init() first");
+        IOT_LOGE("iot_client_init: PAL not initialized — call iot_init() first");
         return NULL;
     }
     iot_client_t *client = (iot_client_t *)pal->malloc(sizeof(iot_client_t));
     if (client == NULL) {
-        log_error("Failed to allocate iot_client_t");
+        IOT_LOGE("Failed to allocate iot_client_t");
         return NULL;
     }
     memset(client, 0, sizeof(iot_client_t));
@@ -298,7 +298,7 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
     if (client->mqtt_url[0] != '\0' && !config->mqtt_disable_auto_connect) {
         int ret = iot_client_message_connect(client);
         if (ret != OPRT_OK) {
-            log_error("MQTT connect failed: %d", ret);
+            IOT_LOGE("MQTT connect failed: %d", ret);
             iot_client_deinit(client);
             return NULL;
         }
@@ -397,7 +397,7 @@ IOT_API int iot_client_reset(iot_client_t *client,
     if (rt != OPRT_OK) {
         /* Leave the client intact: the caller may retry, and a half-torn-down
          * client the cloud still considers bound is worse than none. */
-        log_error("iot_client_reset failed: %d errorCode=%s", rt,
+        IOT_LOGE("iot_client_reset failed: %d errorCode=%s", rt,
                   response.error_code);
         iot_atop_response_free(client, &response);
         return rt;
@@ -415,22 +415,22 @@ IOT_API int iot_client_reset(iot_client_t *client,
 IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t *config)
 {
     if (!config) {
-        log_error("Invalid config for iot_client_init_on_boarding");
+        IOT_LOGE("Invalid config for iot_client_init_on_boarding");
         return NULL;
     }
 
     const pal_t *pal = get_pal();
     if (!pal) {
-        log_error("iot_client_init_on_boarding: PAL not initialized — call iot_init() first");
+        IOT_LOGE("iot_client_init_on_boarding: PAL not initialized — call iot_init() first");
         return NULL;
     }
 
     if (config->uuid[0] == '\0') {
-        log_error("uuid is required for on boarding");
+        IOT_LOGE("uuid is required for on boarding");
         return NULL;
     }
 
-    log_info("iot_client_init_on_boarding: uuid=%s", config->uuid);
+    IOT_LOGI("iot_client_init_on_boarding: uuid=%s", config->uuid);
 
     /* Build the internal on_boarding_config_t from the public config */
     on_boarding_config_t ob_cfg = {0};
@@ -463,11 +463,11 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
     on_boarding_response_t ob_resp = {0};
     int ret = on_boarding_with_qrcode(pal, &ob_cfg, &ob_resp);
     if (ret != OPRT_OK) {
-        log_error("on_boarding_with_qrcode failed: %d", ret);
+        IOT_LOGE("on_boarding_with_qrcode failed: %d", ret);
         return NULL;
     }
 
-    log_info("On-boarding successful, initializing client with activated credentials");
+    IOT_LOGI("On-boarding successful, initializing client with activated credentials");
 
     /* Build iot_client_config_t from activation results and call iot_client_init.
      * Hand-copy block — AGENTS.md invariant: a new iot_client_config_t field must
@@ -502,7 +502,7 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
     iot_client_t *client = iot_client_init(&client_config);
     pal->free(ob_resp.schema);   /* iot_client_init copied it (or failed) */
     if (client == NULL) {
-        log_error("iot_client_init failed after on-boarding");
+        IOT_LOGE("iot_client_init failed after on-boarding");
         return NULL;
     }
 
@@ -516,27 +516,27 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
 IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boarding_config_t *config, const char *token)
 {
     if (!config) {
-        log_error("Invalid config for iot_client_init_on_boarding_with_token");
+        IOT_LOGE("Invalid config for iot_client_init_on_boarding_with_token");
         return NULL;
     }
 
     const pal_t *pal = get_pal();
     if (!pal) {
-        log_error("iot_client_init_on_boarding_with_token: PAL not initialized — call iot_init() first");
+        IOT_LOGE("iot_client_init_on_boarding_with_token: PAL not initialized — call iot_init() first");
         return NULL;
     }
 
     if (config->uuid[0] == '\0') {
-        log_error("uuid is required for on boarding with token");
+        IOT_LOGE("uuid is required for on boarding with token");
         return NULL;
     }
 
     if (!token || token[0] == '\0') {
-        log_error("token is required for on boarding with token");
+        IOT_LOGE("token is required for on boarding with token");
         return NULL;
     }
 
-    log_info("iot_client_init_on_boarding_with_token: uuid=%s", config->uuid);
+    IOT_LOGI("iot_client_init_on_boarding_with_token: uuid=%s", config->uuid);
 
     on_boarding_config_t ob_cfg = {0};
     strncpy(ob_cfg.uuid, config->uuid, sizeof(ob_cfg.uuid) - 1);
@@ -566,11 +566,11 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
     on_boarding_response_t ob_resp = {0};
     int ret = on_boarding_with_token(pal, &ob_cfg, token, &ob_resp);
     if (ret != OPRT_OK) {
-        log_error("on_boarding_with_token failed: %d", ret);
+        IOT_LOGE("on_boarding_with_token failed: %d", ret);
         return NULL;
     }
 
-    log_info("On-boarding with token successful, initializing client with activated credentials");
+    IOT_LOGI("On-boarding with token successful, initializing client with activated credentials");
 
     /* Hand-copy block — same AGENTS.md invariant as in iot_client_init_on_boarding():
      * a new iot_client_config_t field must be forwarded here too, and no test
@@ -602,7 +602,7 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
     iot_client_t *client = iot_client_init(&client_config);
     pal->free(ob_resp.schema);   /* iot_client_init copied it (or failed) */
     if (client == NULL) {
-        log_error("iot_client_init failed after on-boarding with token");
+        IOT_LOGE("iot_client_init failed after on-boarding with token");
         return NULL;
     }
 
@@ -627,7 +627,7 @@ IOT_API int iot_client_get_session_token_ex(iot_client_t *client, const char *ag
     }
 
     if (client == NULL || token == NULL || token_len == 0) {
-        log_error("iot_client_get_session_token: invalid parameters");
+        IOT_LOGE("iot_client_get_session_token: invalid parameters");
         return OPRT_INVALID_PARAMETER;
     }
 
@@ -651,12 +651,12 @@ IOT_API int iot_client_get_session_token_ex(iot_client_t *client, const char *ag
         if (rejection != NULL) {
             *rejection = resp.rejection;
         }
-        log_error("atop_ai_token_get failed: %d", ret);
+        IOT_LOGE("atop_ai_token_get failed: %d", ret);
         return ret;
     }
     size_t resp_token_len = strlen(resp.token);
     if (resp_token_len >= token_len) {
-        log_error("token buffer too small: need %zu, have %zu", resp_token_len + 1, token_len);
+        IOT_LOGE("token buffer too small: need %zu, have %zu", resp_token_len + 1, token_len);
         client->pal->free(resp.token);
         return OPRT_INVALID_RESULT;
     }
@@ -718,18 +718,18 @@ IOT_API int iot_get_ca_certificate(iot_client_t *client, const char *host, uint1
     iot_dns_ca_cert_response_t resp = {0};
     int ret = iot_dns_get_ca_cert(pal, &req, &resp);
     if (ret != OPRT_OK) {
-        log_error("iot_dns_get_ca_cert failed: %d", ret);
+        IOT_LOGE("iot_dns_get_ca_cert failed: %d", ret);
         return ret;
     }
 
     size_t cert_len = resp.ca_certificate ? strlen(resp.ca_certificate) : 0;
     if (cert_len == 0) {
-        log_error("iot_get_ca_certificate: no CA cert for %s:%u", host, port);
+        IOT_LOGE("iot_get_ca_certificate: no CA cert for %s:%u", host, port);
         iot_dns_ca_cert_response_free(pal, &resp);
         return OPRT_INVALID_RESULT;
     }
     if (cert_len >= ca_certificate_len) {
-        log_error("ca_certificate buffer too small: need %zu, have %zu", cert_len + 1, ca_certificate_len);
+        IOT_LOGE("ca_certificate buffer too small: need %zu, have %zu", cert_len + 1, ca_certificate_len);
         iot_dns_ca_cert_response_free(pal, &resp);
         return OPRT_INVALID_RESULT;
     }
@@ -743,7 +743,7 @@ IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, char *url, 
 {
     const pal_t *pal = get_pal();
     if (!pal) {
-        log_error("iot_get_qrcode_info: PAL not initialized — call iot_init() first");
+        IOT_LOGE("iot_get_qrcode_info: PAL not initialized — call iot_init() first");
         return OPRT_UNINITIALIZED;
     }
 
@@ -773,7 +773,7 @@ IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, char *url, 
     iot_dns_url_config_response_t dns_resp = {0};
     int ret = iot_dns_url_config(pal, &dns_req, &dns_resp);
     if (ret != OPRT_OK) {
-        log_error("iot_get_qrcode_info: iot_dns_url_config failed: %d", ret);
+        IOT_LOGE("iot_get_qrcode_info: iot_dns_url_config failed: %d", ret);
         return ret;
     }
 
@@ -788,7 +788,7 @@ IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, char *url, 
     iot_dns_url_config_response_free(pal, &dns_resp);
 
     if (host[0] == '\0') {
-        log_error("iot_get_qrcode_info: %s not found in DNS response", IOT_DNS_KEY_HTTPS);
+        IOT_LOGE("iot_get_qrcode_info: %s not found in DNS response", IOT_DNS_KEY_HTTPS);
         return OPRT_COMMUNICATION_ERROR;
     }
 
@@ -806,13 +806,13 @@ IOT_API int iot_get_qrcode_info(const iot_qrcode_request_t *request, char *url, 
     qrcode_info_response_t resp = {0};
     ret = atop_qrcode_info_get(pal, &req, &resp);
     if (ret != OPRT_OK) {
-        log_error("atop_qrcode_info_get failed: %d", ret);
+        IOT_LOGE("atop_qrcode_info_get failed: %d", ret);
         return ret;
     }
 
     size_t resp_url_len = strlen(resp.short_url);
     if (resp_url_len >= url_len) {
-        log_error("url buffer too small: need %zu, have %zu", resp_url_len + 1, url_len);
+        IOT_LOGE("url buffer too small: need %zu, have %zu", resp_url_len + 1, url_len);
         pal->free(resp.short_url);
         return OPRT_INVALID_RESULT;
     }

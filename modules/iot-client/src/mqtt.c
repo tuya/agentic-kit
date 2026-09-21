@@ -83,7 +83,7 @@ static int32_t transport_send(NetworkContext_t *pNetworkContext,
         int r = tls_write(pNetworkContext->tls, (const uint8_t *)pBuffer,
                           bytesToSend, 30000 /* 30s */);
         if (r != TLS_OK) {
-            log_error("TLS write error");
+            IOT_LOGE("TLS write error");
             return OPRT_COMMUNICATION_ERROR;
         }
         return (int32_t)bytesToSend;
@@ -98,7 +98,7 @@ static int32_t transport_send(NetworkContext_t *pNetworkContext,
             return 0;
         }
         if (bytes_sent < 0) {
-            log_error("TCP send failed: %d", bytes_sent);
+            IOT_LOGE("TCP send failed: %d", bytes_sent);
             return OPRT_COMMUNICATION_ERROR;
         }
         return (int32_t)bytes_sent;
@@ -124,7 +124,7 @@ static int32_t transport_recv(NetworkContext_t *pNetworkContext,
             // no-data to TLS_ERR_AGAIN, so 0 here always means the peer closed.
             // Must surface as an error: returning 0 would look like an idle poll
             // and the dead link would only be noticed at the keepalive timeout.
-            log_error("TLS read error/closed (n=%d)", n);
+            IOT_LOGE("TLS read error/closed (n=%d)", n);
             return OPRT_COMMUNICATION_ERROR;
         }
         return n;   // >0 bytes
@@ -139,7 +139,7 @@ static int32_t transport_recv(NetworkContext_t *pNetworkContext,
             return OPRT_OK;
         }
         if (bytes_received < 0) {
-            log_error("TCP recv failed: %d", bytes_received);
+            IOT_LOGE("TCP recv failed: %d", bytes_received);
             return OPRT_COMMUNICATION_ERROR;
         }
         if (bytes_received == 0) {
@@ -148,7 +148,7 @@ static int32_t transport_recv(NetworkContext_t *pNetworkContext,
              * an idle poll, so a dropped link would go unnoticed until the
              * 60 s keepalive expired. This branch used to be the asymmetric
              * one; only mqtt_disable_tls=true builds ever reached it. */
-            log_error("TCP peer closed the connection");
+            IOT_LOGE("TCP peer closed the connection");
             return OPRT_COMMUNICATION_ERROR;
         }
         return (int32_t)bytes_received;
@@ -185,10 +185,10 @@ static void *connect_to_broker(mqtt_client *client) {
     void *handle = client->pal->tcp_connect(client->broker_host, (uint16_t)client->broker_port,
                                             AGENTIC_KIT_MQTT_CONNECT_TIMEOUT_MS);
     if (!handle) {
-        log_error("Failed to connect to broker %s:%d", client->broker_host, client->broker_port);
+        IOT_LOGE("Failed to connect to broker %s:%d", client->broker_host, client->broker_port);
         return NULL;
     }
-    log_info("TCP connection established to %s:%d", client->broker_host, client->broker_port);
+    IOT_LOGI("TCP connection established to %s:%d", client->broker_host, client->broker_port);
     return handle;
 }
 
@@ -197,7 +197,7 @@ static int connect_to_broker_tls(NetworkContext_t *network_ctx, const char *host
                                  const char *cacert, tls_cert_bundle_attach_fn cert_bundle_attach) {
     bool has_cacert = (cacert && cacert[0] != '\0');
     if (!has_cacert && !cert_bundle_attach) {
-        log_warn("No CA certificate provided - server verification disabled");
+        IOT_LOGW("No CA certificate provided - server verification disabled");
     }
 
     tls_config_t cfg = {
@@ -215,11 +215,11 @@ static int connect_to_broker_tls(NetworkContext_t *network_ctx, const char *host
 
     network_ctx->tls = tls_connect(&cfg);
     if (!network_ctx->tls) {
-        log_error("Failed to establish TLS connection to %s:%d", host, port);
+        IOT_LOGE("Failed to establish TLS connection to %s:%d", host, port);
         return OPRT_TLS_HANDSHAKE_FAILED;
     }
     network_ctx->use_tls = true;
-    log_info("TLS connection established to %s:%d", host, port);
+    IOT_LOGI("TLS connection established to %s:%d", host, port);
     return OPRT_OK;
 }
 
@@ -238,17 +238,17 @@ static void mqtt_event_callback(MQTTContext_t *pMqttContext,
                                 MQTTDeserializedInfo_t *pDeserializedInfo) {
     NetworkContext_t *pNetworkContext = (NetworkContext_t *)pMqttContext->transportInterface.pNetworkContext;
     if (!pNetworkContext || !pNetworkContext->client) {
-        log_warn("mqtt_event_callback: invalid network context");
+        IOT_LOGW("mqtt_event_callback: invalid network context");
         return;
     }
 
     mqtt_client *client = pNetworkContext->client;
 
-    log_debug("MQTT event callback: packet type = 0x%02X", pPacketInfo->type);
+    IOT_LOGD("MQTT event callback: packet type = 0x%02X", pPacketInfo->type);
 
     if ((pPacketInfo->type & 0xF0U) == MQTT_PACKET_TYPE_PUBLISH) {
         MQTTPublishInfo_t *pPublish = pDeserializedInfo->pPublishInfo;
-        log_info("Received PUBLISH: topic=%.*s, payload_len=%u",
+        IOT_LOGI("Received PUBLISH: topic=%.*s, payload_len=%u",
                  (int)pPublish->topicNameLength, pPublish->pTopicName, (unsigned)pPublish->payloadLength);
         if (client->message_callback) {
             client->message_callback(pPublish->pTopicName, pPublish->topicNameLength,
@@ -262,41 +262,41 @@ static void mqtt_event_callback(MQTTContext_t *pMqttContext,
             // Skip packet ID (2 bytes), get first return code
             uint8_t return_code = pPacketInfo->pRemainingData[2];
             if (return_code == 0x80) {
-                log_error("Received SUBACK with failure code 0x%02X", return_code);
+                IOT_LOGE("Received SUBACK with failure code 0x%02X", return_code);
                 client->suback_status = return_code;
             } else {
-                log_info("Received SUBACK with granted QoS %d", return_code);
+                IOT_LOGI("Received SUBACK with granted QoS %d", return_code);
                 client->suback_status = 0;
             }
         } else {
-            log_warn("Received SUBACK with invalid length");
+            IOT_LOGW("Received SUBACK with invalid length");
             client->suback_status = 0x80;
         }
     } else if (pPacketInfo->type == MQTT_PACKET_TYPE_PUBACK) {
-        log_debug("Received PUBACK");
+        IOT_LOGD("Received PUBACK");
     }
 }
 
 // Create MQTT client with full configuration
 mqtt_client *mqtt_client_create_with_config(const mqtt_client_config_t *config) {
     if (!config) {
-        log_error("Invalid parameters for MQTT client creation");
+        IOT_LOGE("Invalid parameters for MQTT client creation");
         return NULL;
     }
     if (!config->pal) {
-        log_error("mqtt_client_create_with_config: config->pal is NULL");
+        IOT_LOGE("mqtt_client_create_with_config: config->pal is NULL");
         return NULL;
     }
     if (!config->broker_url || !config->client_id ||
         !config->password || !config->subscribe_topic) {
-        log_error("Invalid parameters for MQTT client creation");
+        IOT_LOGE("Invalid parameters for MQTT client creation");
         return NULL;
     }
 
     const pal_t *pal = config->pal;
     mqtt_client *client = (mqtt_client *)pal->malloc(sizeof(mqtt_client));
     if (!client) {
-        log_error("Failed to allocate memory for MQTT client");
+        IOT_LOGE("Failed to allocate memory for MQTT client");
         return NULL;
     }
     memset(client, 0, sizeof(mqtt_client));
@@ -304,7 +304,7 @@ mqtt_client *mqtt_client_create_with_config(const mqtt_client_config_t *config) 
 
     // Parse broker URL
     if (parse_broker_url(config->broker_url, client->broker_host, &client->broker_port) != 0) {
-        log_error("Failed to parse broker URL: %s", config->broker_url);
+        IOT_LOGE("Failed to parse broker URL: %s", config->broker_url);
         client->pal->free(client);
         return NULL;
     }
@@ -316,13 +316,13 @@ mqtt_client *mqtt_client_create_with_config(const mqtt_client_config_t *config) 
     if (client->use_tls) {
         if (config->tls_config && config->tls_config->cacert && config->tls_config->cacert[0] != '\0') {
             client->cacert = config->tls_config->cacert;
-            log_info("TLS enabled with CA cert PEM");
+            IOT_LOGI("TLS enabled with CA cert PEM");
         } else {
             client->cacert = NULL;
             if (config->tls_config && config->tls_config->cert_bundle_attach) {
-                log_info("TLS enabled with platform cert bundle");
+                IOT_LOGI("TLS enabled with platform cert bundle");
             } else {
-                log_warn("TLS enabled without CA certificate - server verification disabled");
+                IOT_LOGW("TLS enabled without CA certificate - server verification disabled");
             }
         }
         if (config->tls_config)
@@ -356,7 +356,7 @@ mqtt_client *mqtt_client_create_with_config(const mqtt_client_config_t *config) 
     client->transport.send = transport_send;
     client->transport.recv = transport_recv;
     client->transport.pNetworkContext = &client->network_context;
-    log_info("MQTT client created for broker %s:%d (TLS: %s), clientId: %s, username: %s",
+    IOT_LOGI("MQTT client created for broker %s:%d (TLS: %s), clientId: %s, username: %s",
              client->broker_host, client->broker_port, client->use_tls ? "yes" : "no",
              client->client_id, client->username);
     return client;
@@ -427,7 +427,7 @@ int mqtt_client_connect(mqtt_client *client) {
     if (!client->buffer) {
         client->buffer = client->pal->malloc(AGENTIC_KIT_MQTT_MAX_PACKET_SIZE);
         if (!client->buffer) {
-            log_error("Failed to allocate MQTT buffer (%u bytes)", AGENTIC_KIT_MQTT_MAX_PACKET_SIZE);
+            IOT_LOGE("Failed to allocate MQTT buffer (%u bytes)", AGENTIC_KIT_MQTT_MAX_PACKET_SIZE);
             return OPRT_MALLOC_FAILED;
         }
         client->fixed_buffer.pBuffer = client->buffer;
@@ -459,7 +459,7 @@ int mqtt_client_connect(mqtt_client *client) {
     MQTTStatus_t status = MQTT_Init(&client->mqtt_context, &client->transport,
                                     mqtt_get_time_ms, mqtt_event_callback, &client->fixed_buffer);
     if (status != MQTTSuccess) {
-        log_error("MQTT_Init failed: %s (%d)", MQTT_Status_strerror(status), status);
+        IOT_LOGE("MQTT_Init failed: %s (%d)", MQTT_Status_strerror(status), status);
         return mqtt_abort_connect(client);
     }
 
@@ -470,10 +470,10 @@ int mqtt_client_connect(mqtt_client *client) {
                                    client->incoming_publish_records,
                                    MQTT_QOS_RECORD_COUNT);
     if (status != MQTTSuccess) {
-        log_error("MQTT_InitStatefulQoS failed: %s (%d)", MQTT_Status_strerror(status), status);
+        IOT_LOGE("MQTT_InitStatefulQoS failed: %s (%d)", MQTT_Status_strerror(status), status);
         return mqtt_abort_connect(client);
     }
-    log_info("QoS1 and QoS2 support initialized");
+    IOT_LOGI("QoS1 and QoS2 support initialized");
 
     // Setup CONNECT packet
     MQTTConnectInfo_t connect_info = {0};
@@ -486,24 +486,24 @@ int mqtt_client_connect(mqtt_client *client) {
     connect_info.pPassword = client->password;
     connect_info.passwordLength = strlen(client->password);
 
-    log_info("MQTT CONNECT packet:");
-    log_info("  clientId : [%u] %s", (unsigned)connect_info.clientIdentifierLength, connect_info.pClientIdentifier);
-    log_info("  username : [%u] %s", (unsigned)connect_info.userNameLength, connect_info.pUserName);
-    log_info("  password : [%u] ****", (unsigned)connect_info.passwordLength);
-    log_info("  keepAlive: %u s, cleanSession: %d", connect_info.keepAliveSeconds, connect_info.cleanSession);
+    IOT_LOGI("MQTT CONNECT packet:");
+    IOT_LOGI("  clientId : [%u] %s", (unsigned)connect_info.clientIdentifierLength, connect_info.pClientIdentifier);
+    IOT_LOGI("  username : [%u] %s", (unsigned)connect_info.userNameLength, connect_info.pUserName);
+    IOT_LOGI("  password : [%u] ****", (unsigned)connect_info.passwordLength);
+    IOT_LOGI("  keepAlive: %u s, cleanSession: %d", connect_info.keepAliveSeconds, connect_info.cleanSession);
 
     bool sessionPresent = false;
     status = MQTT_Connect(&client->mqtt_context, &connect_info, NULL,
                          AGENTIC_KIT_MQTT_SEND_TIMEOUT_MS, &sessionPresent);
 
     if (status != MQTTSuccess) {
-        log_error("MQTT_Connect failed: %s (%d)", MQTT_Status_strerror(status), status);
+        IOT_LOGE("MQTT_Connect failed: %s (%d)", MQTT_Status_strerror(status), status);
         return mqtt_abort_connect(client);
     }
 
     client->connected = true;
     client->link_dead = false;
-    log_info("Successfully connected to MQTT broker");
+    IOT_LOGI("Successfully connected to MQTT broker");
     return OPRT_OK;
 }
 
@@ -529,11 +529,11 @@ int mqtt_client_subscribe(mqtt_client *client) {
     mqtt_note_transport_state(client, status);
 
     if (status != MQTTSuccess) {
-        log_error("MQTT_Subscribe failed: %s (%d)", MQTT_Status_strerror(status), status);
+        IOT_LOGE("MQTT_Subscribe failed: %s (%d)", MQTT_Status_strerror(status), status);
         return OPRT_COMMUNICATION_ERROR;
     }
 
-    log_info("Subscribe request sent for topic: %s, waiting for SUBACK...", client->subscribe_topic);
+    IOT_LOGI("Subscribe request sent for topic: %s, waiting for SUBACK...", client->subscribe_topic);
 
     int retries = 50;
     while (retries-- > 0) {
@@ -541,21 +541,21 @@ int mqtt_client_subscribe(mqtt_client *client) {
         mqtt_note_transport_state(client, status);
         if (status == MQTTSuccess) {
             if (client->suback_status == 0) {
-                log_info("Successfully subscribed to topic: %s", client->subscribe_topic);
+                IOT_LOGI("Successfully subscribed to topic: %s", client->subscribe_topic);
                 return OPRT_OK;
             }
             if (client->suback_status > 0) {
-                log_error("Subscription rejected by broker: code 0x%02X", client->suback_status);
+                IOT_LOGE("Subscription rejected by broker: code 0x%02X", client->suback_status);
                 return OPRT_COMMUNICATION_ERROR;
             }
         } else if (status != MQTTNeedMoreBytes) {
-            log_error("MQTT_ProcessLoop failed while waiting for SUBACK: %s (%d)", MQTT_Status_strerror(status), status);
+            IOT_LOGE("MQTT_ProcessLoop failed while waiting for SUBACK: %s (%d)", MQTT_Status_strerror(status), status);
             return OPRT_COMMUNICATION_ERROR;
         }
         usleep(100000);
     }
 
-    log_error("Timeout waiting for SUBACK");
+    IOT_LOGE("Timeout waiting for SUBACK");
     return OPRT_COMMUNICATION_ERROR;
 }
 
@@ -582,11 +582,11 @@ int mqtt_client_publish(mqtt_client *client, const char *topic,
     mqtt_note_transport_state(client, status);
 
     if (status != MQTTSuccess) {
-        log_error("MQTT_Publish failed: %s (%d)", MQTT_Status_strerror(status), status);
+        IOT_LOGE("MQTT_Publish failed: %s (%d)", MQTT_Status_strerror(status), status);
         return OPRT_COMMUNICATION_ERROR;
     }
 
-    log_debug("Published message to topic: %s", topic);
+    IOT_LOGD("Published message to topic: %s", topic);
     return OPRT_OK;
 }
 
@@ -605,7 +605,7 @@ int mqtt_client_process(mqtt_client *client, uint32_t timeout_ms) {
     mqtt_note_transport_state(client, status);
 
     if (status != MQTTSuccess && status != MQTTNeedMoreBytes) {
-        log_error("MQTT_ProcessLoop failed: %s (%d)", MQTT_Status_strerror(status), status);
+        IOT_LOGE("MQTT_ProcessLoop failed: %s (%d)", MQTT_Status_strerror(status), status);
         return OPRT_COMMUNICATION_ERROR;
     }
 
@@ -640,7 +640,7 @@ void mqtt_client_disconnect(mqtt_client *client) {
 
     client->connected = false;
 
-    log_info("Disconnected from MQTT broker");
+    IOT_LOGI("Disconnected from MQTT broker");
 }
 
 // Destroy client
