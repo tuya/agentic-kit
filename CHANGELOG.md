@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- iot-client — authenticated MQTT protocol-9000 AI control notices can be delivered independently of RTC TCP receive backpressure (PR pending).
-  - Register `ai_ctrl_callback_t` with `iot_ai_ctrl_set_callback()` and keep one application thread pumping MQTT.
 
 - docs-site — English edition of the full documentation site, published at `/en/` with Simplified Chinese retained at `/`.
   - All 29 docs are mirrored under `docs-site/i18n/en/`, with a locale selector in both the landing-page navbar and the custom docs topbar, localized navbar/footer/sidebar catalogs, and English SVG schematics under `current/images/`.
@@ -47,9 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   records to 1(#32).
 
 ### Fixed
-
-- rtc-tcp-client — enforce receive backpressure before reads and between Frames; resume buffered Frames first with a fresh liveness budget and timed CPU yields (PR pending).
-  - Custom PAL ports must supply the new mandatory `pal_t.sleep_ms` callback (IoT and TAI); rebuild all consumers because `pal_t` grows. `tcp_poll` timeout semantics are unchanged.
 
 - tuya-ble — accept incoming Trsmitr versions >= 2 for app Pairing compatibility while keeping TX at version 4 (#39).
 - Docs — the pair-by-ble callback sample no longer claims credentials are never logged; the

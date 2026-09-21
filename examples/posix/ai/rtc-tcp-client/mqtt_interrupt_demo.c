@@ -142,6 +142,10 @@ static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *user_data
                msg->event_id && msg->event_id[0] ? msg->event_id : "(unscoped)");
     } else if (msg->event_type == TAI_EVT_END) {
         pthread_mutex_lock(&state->mutex);
+        if (msg->event_id && state->current_event_id[0] &&
+            strcmp(state->current_event_id, msg->event_id) == 0) {
+            state->current_event_id[0] = '\0';
+        }
         state->done = 1;
         pthread_mutex_unlock(&state->mutex);
     }

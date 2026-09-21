@@ -14,6 +14,10 @@
 #include "log.h"
 #include "../src/tai_internal.h"   /* frame/packet codec + key derivation for the handshake mock */
 
+extern const char *test_reserved_audio_event_id;
+extern uint8_t     test_reserved_audio_body[40];
+extern size_t      test_reserved_audio_body_len;
+
 /* =========================================================================
  * Byte FIFO: single-producer, single-consumer, mutex-protected.
  * ========================================================================= */
@@ -349,11 +353,36 @@ static void lb_hs_feed(const uint8_t *buf, size_t len)
                                  ack_na ? ack_attrs : NULL, ack_na,
                                  (const uint8_t *)"", 0, app, sizeof(app));
     if (alen > 0) {
-        uint8_t frame[128];
-        int flen = tai_frame_encode(TAI_FRAG_NONE, 1, app, (size_t)alen,
-                                    sign_key, sig_len, tai_pal_loopback(),
-                                    frame, sizeof(frame));
-        if (flen > 0) lb_fifo_push(&g_rx, frame, (size_t)flen);
+        uint8_t batch[384];
+        int batch_len = tai_frame_encode(TAI_FRAG_NONE, 1, app, (size_t)alen,
+                                         sign_key, sig_len, tai_pal_loopback(),
+                                         batch, sizeof(batch));
+        if (batch_len > 0 && g_hs.mode == TAI_LB_HS_ACK_WITH_TEXT) {
+            uint8_t text_payload[32];
+            int text_header_len = tai_pack_text_hdr(TAI_VER_21,
+                                                     TAI_DATA_ID_TEXT_DOWN,
+                                                     TAI_STREAM_ONE_SHOT, 1,
+                                                     text_payload,
+                                                     sizeof(text_payload));
+            static const char text[] = "coalesced";
+            if (text_header_len > 0 &&
+                (size_t)text_header_len + sizeof(text) - 1 <= sizeof(text_payload)) {
+                memcpy(text_payload + text_header_len, text, sizeof(text) - 1);
+                uint8_t text_app[64];
+                int text_app_len = tai_packet_encode(
+                    TAI_VER_21, TAI_PKT_TEXT, NULL, 0,
+                    text_payload, (size_t)text_header_len + sizeof(text) - 1,
+                    text_app, sizeof(text_app));
+                if (text_app_len > 0) {
+                    int text_frame_len = tai_frame_encode(
+                        TAI_FRAG_NONE, 2, text_app, (size_t)text_app_len,
+                        sign_key, sig_len, tai_pal_loopback(),
+                        batch + batch_len, sizeof(batch) - (size_t)batch_len);
+                    if (text_frame_len > 0) batch_len += text_frame_len;
+                }
+            }
+        }
+        if (batch_len > 0) lb_fifo_push(&g_rx, batch, (size_t)batch_len);
     }
     g_hs.done = 1;
 }
