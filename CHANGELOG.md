@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- iot-client — authenticated MQTT protocol-9000 AI control notices can be delivered independently of RTC TCP receive backpressure (PR pending).
+  - Register `ai_ctrl_callback_t` with `iot_ai_ctrl_set_callback()` and keep one application thread pumping MQTT.
+
 - docs-site — English edition of the full documentation site, published at `/en/` with Simplified Chinese retained at `/`.
   - All 29 docs are mirrored under `docs-site/i18n/en/`, with a locale selector in both the landing-page navbar and the custom docs topbar, localized navbar/footer/sidebar catalogs, and English SVG schematics under `current/images/`.
   - Heading anchors use explicit IDs shared across locales, and `npm run check:i18n` gates path, image, and anchor parity as part of `npm run build`.
