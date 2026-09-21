@@ -496,25 +496,6 @@ static int lb_thread_join(void *handle)
 }
 
 /* =========================================================================
- * Logging -- suppressed by default. Set TAI_LOOPBACK_VERBOSE=1 to enable.
- * ========================================================================= */
-static void lb_log(log_level_t level, const char *fmt, va_list args)
-{
-    static int checked = 0, enabled = 0;
-    if (!checked) {
-        const char *v = getenv("TAI_LOOPBACK_VERBOSE");
-        enabled = (v && v[0] && v[0] != '0');
-        checked = 1;
-    }
-    if (!enabled) return;
-    static const char *lvl[] = { "?", "E", "W", "I", "D" };
-    const char *l = (level >= 1 && level <= 4) ? lvl[level] : "?";
-    char msg[1024];
-    vsnprintf(msg, sizeof msg, fmt ? fmt : "", args);
-    fprintf(stderr, "[TAI/%s] %s\n", l, msg);
-}
-
-/* =========================================================================
  * Factory
  * ========================================================================= */
 static const pal_t g_loopback_pal = {
@@ -537,6 +518,5 @@ static const pal_t g_loopback_pal = {
 const pal_t *tai_pal_loopback(void)
 {
     lb_init_once();
-    log_set_handler(lb_log);
     return &g_loopback_pal;
 }

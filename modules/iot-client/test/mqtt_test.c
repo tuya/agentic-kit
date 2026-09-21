@@ -5,12 +5,12 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <stdbool.h>
-#include <stdarg.h>   /* capture_log_handler takes a va_list */
 
 #include "mqtt.h"
 #include "iot_client.h"
 #include "iot_internal.h"
 #include "log.h"
+#include "test_log.h"
 
 #define TEST_CLIENT_ID   "mqtt_test_client"
 #define TEST_USERNAME    "test_user"
@@ -390,51 +390,10 @@ static int test_connect_auth_fail(void)
  * MQTTServerRefused and no way to tell "wrong password" from "device unbound in
  * the cloud" -- which is the whole reason the wiring exists. */
 
+/* The capture itself lives in the compile-time sink (test_log.h): the
+ * window appends each dispatched line here -- va_copy/truncation
+ * discipline included -- and keeps stderr readable. */
 static char log_capture[4096];
-static size_t log_capture_len;
-static log_fn_t saved_log_fn;
-
-static void capture_log_handler(log_level_t level, const char *fmt, va_list args)
-{
-    /* va_copy is mandatory, not tidiness: vsnprintf() below consumes `args`, and
-     * handing a consumed va_list to log_default_handler() -- which vfprintf()s
-     * it again -- is undefined behaviour (C11 7.16.1). It happened to work on
-     * macOS/arm64 and produced parameter-shifted garbage on Linux/x86-64, where
-     * a bogus "host:port" sent a test off connecting to nowhere until the CI
-     * timeout killed it. */
-    va_list copy;
-    va_copy(copy, args);
-    char line[512];
-    int n = vsnprintf(line, sizeof(line), fmt, copy);
-    va_end(copy);
-        /* vsnprintf returns the length it WOULD have written, so it exceeds
-         * the buffer on a truncated message -- copying `n` reads past `line`.
-         * Routed lines do get long: one coreHTTP parse error interpolates up to
-         * a whole response buffer. */
-    size_t len = (n > 0 && (size_t)n < sizeof(line)) ? (size_t)n : sizeof(line) - 1;
-    if (n > 0 && log_capture_len + len + 1 < sizeof(log_capture)) {
-        memcpy(log_capture + log_capture_len, line, len);
-        log_capture_len += len;
-        log_capture[log_capture_len++] = '\n';
-        log_capture[log_capture_len] = '\0';
-    }
-    /* Keep the default output too, so a failing run is still readable. */
-    log_default_handler(level, fmt, args);
-}
-
-static void capture_start(void)
-{
-    log_capture[0] = '\0';
-    log_capture_len = 0;
-    saved_log_fn = capture_log_handler;
-    log_set_handler(capture_log_handler);
-}
-
-static void capture_stop(void)
-{
-    log_set_handler(NULL);
-    (void)saved_log_fn;
-}
 
 static int test_connack_reason_is_logged(void)
 {
@@ -453,9 +412,9 @@ static int test_connack_reason_is_logged(void)
         return -1;
     }
 
-    capture_start();
+    test_log_capture_begin(log_capture, sizeof log_capture);
     int ret = mqtt_client_connect(c);
-    capture_stop();
+    test_log_capture_end();
 
     int result = 0;
     if (ret == 0) {
@@ -471,7 +430,7 @@ static int test_connack_reason_is_logged(void)
     }
     /* And the SDK's own line names the status symbolically. This must match the
      * message too, not just the enum name: coreMQTT itself logs "MQTT connection
-     * failed with status = MQTTServerRefused", captured by the same handler, so a
+     * failed with status = MQTTServerRefused", captured by the same window, so a
      * bare search for the enum name passes even with mqtt.c back on a raw "%d". */
     if (strstr(log_capture, "MQTT_Connect failed: MQTTServerRefused") == NULL) {
         printf("  the SDK's own log line lost the symbolic status name\n");

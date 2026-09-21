@@ -3,6 +3,7 @@
 #include "tuya_ble_prov.h"
 #include "tuya_ble_bigdata.h"
 #include "log.h"
+#include "test_log.h"
 #include "mbedtls/aes.h"
 #include "mbedtls/md5.h"
 #include <stdio.h>
@@ -335,15 +336,6 @@ static int pending_credentials_are_not_replaced(void)
 }
 
 static unsigned transport_log_flags;
-static void capture_transport_log(log_level_t level, const char *fmt, va_list args)
-{
-    char message[256];
-    vsnprintf(message, sizeof(message), fmt, args);
-    if (level != LOG_WARN || !strstr(message, "[ble] [TRSMITR]")) return;
-    if (strstr(message, "out-of-order")) transport_log_flags |= 1;
-    if (strstr(message, "RX transfer expired")) transport_log_flags |= 2;
-    if (strstr(message, "TX stalled")) transport_log_flags |= 4;
-}
 
 static int transport_warnings_reach_log_facade(void)
 {
@@ -353,10 +345,12 @@ static int transport_warnings_reach_log_facade(void)
     CHECK(!setup(&state, &peer, key));
     uint8_t first[] = {0, 10, 0x40, 0xaa};
     uint8_t skipped[] = {2, 0xbb};
-    log_level_t saved_level = log_get_level();
+    /* Capture the window, then scan it with the filter the old in-handler
+     * pass applied: the three phrases below exist only in [TRSMITR]
+     * warns, so substring hits are warn hits. */
+    char captured[4096];
     transport_log_flags = 0;
-    log_set_level(LOG_WARN);
-    log_set_handler(capture_transport_log);
+    test_log_capture_begin(captured, sizeof captured);
     int start = tuya_ble_prov_on_data(&state, first, sizeof(first));
     int invalid = tuya_ble_prov_on_data(&state, skipped, sizeof(skipped));
     int restart = tuya_ble_prov_on_data(&state, first, sizeof(first));
@@ -364,8 +358,10 @@ static int transport_warnings_reach_log_facade(void)
     peer.busy = 1;
     int queued = tuya_ble_prov_send_frame(&state, 0x001e, NULL, 0, TUYA_BLE_ENCRYPTION_MODE_NONE);
     int stalled = tuya_ble_prov_tick(&state, 20000);
-    log_set_handler(NULL);
-    log_set_level(saved_level);
+    test_log_capture_end();
+    if (strstr(captured, "out-of-order")) transport_log_flags |= 1;
+    if (strstr(captured, "RX transfer expired")) transport_log_flags |= 2;
+    if (strstr(captured, "TX stalled")) transport_log_flags |= 4;
     CHECK(!start && invalid < 0 && !restart && !expired && !queued && stalled < 0);
     CHECK(transport_log_flags == 7);
     return 0;

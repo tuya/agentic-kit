@@ -49,7 +49,7 @@ int rng_init(const pal_t *pal)
         return 0;
     }
     if (!pal || !pal->mutex_create) {
-        log_emit(LOG_ERROR, "[rng] rng_init requires a pal with mutex support");
+        log_tag_error("rng", "rng_init requires a pal with mutex support");
         return -1;
     }
     mbedtls_entropy_init(&g_entropy);
@@ -58,12 +58,12 @@ int rng_init(const pal_t *pal)
     int rc = mbedtls_ctr_drbg_seed(&g_drbg, mbedtls_entropy_func, &g_entropy,
                                    pers, sizeof(pers) - 1);
     if (rc != 0) {
-        log_emit(LOG_ERROR, "[rng] DRBG seed failed: -0x%04x", (unsigned) -rc);
+        log_tag_error("rng", "DRBG seed failed: -0x%04x", (unsigned) -rc);
         return -1;
     }
     g_rng_mutex = pal->mutex_create();
     if (!g_rng_mutex) {
-        log_emit(LOG_ERROR, "[rng] mutex_create failed");
+        log_tag_error("rng", "mutex_create failed");
         return -1;
     }
     g_ready = 1;
@@ -81,7 +81,7 @@ int rng_bytes(const pal_t *pal, uint8_t *buf, size_t len)
         return 0;
     }
     if (!g_ready) {
-        log_emit(LOG_ERROR, "[rng] rng_bytes() called before rng_init()");
+        log_tag_error("rng", "rng_bytes() called before rng_init()");
         return -1;
     }
     /* g_rng_mutex is always set once g_ready is true; the caller's pal (the one
@@ -90,7 +90,7 @@ int rng_bytes(const pal_t *pal, uint8_t *buf, size_t len)
     int rc = mbedtls_ctr_drbg_random(&g_drbg, buf, len);
     pal->mutex_unlock(g_rng_mutex);
     if (rc != 0) {
-        log_emit(LOG_ERROR, "[rng] DRBG random failed: -0x%04x", (unsigned) -rc);
+        log_tag_error("rng", "DRBG random failed: -0x%04x", (unsigned) -rc);
     }
     return rc == 0 ? 0 : -1;
 }

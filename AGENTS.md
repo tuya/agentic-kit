@@ -93,9 +93,12 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
    omission is invisible until someone flashes a board. They diverge on purpose — `pal_posix.c`
    and `iot_pal_defaults.c` host-only (each IDF app defines its own `get_default_pal()`),
    `pal_freertos.c` IDF-only — so never blind-sync them.
-5. **Module code goes through the PAL**: `pal->malloc`/`pal->free` for memory, `log_emit` for
-   output (via each module's prefixed `log_info`/`log_warn`/`log_error`). A direct `malloc` or
-   `printf` is a porting bug even where it links on the host. The one deliberate gap: `pal_t` has
+5. **Module code goes through the PAL**: `pal->malloc`/`pal->free` for memory, the `log_tag_*`
+   macros in `common/log.h` for output (via each module's prefixed `log_info`/`log_warn`/
+   `log_error`). A direct `malloc` or
+   `printf` is a porting bug even where it links on the host -- and the `test` CI job greps for
+   raw `log_emit(`/`printf(` call sites outside `common/log.{h,c}` and the test trees, so one
+   fails the pipeline. The one deliberate gap: `pal_t` has
    only a monotonic `time_ms`, so ATOP signing reads libc `time(NULL)` — a port needs a real-time
    clock the C library can see, or every signed request carries a `t` the cloud rejects.
 6. **CHANGELOG entries are terse, and carry a PR number.** One line per change —
@@ -293,10 +296,17 @@ ordinary changes.
   `paths-ignore` excludes docs-only pushes from all C jobs, and `deploy-docs.yml` triggers on
   `main`, which does not exist here (only its `workflow_dispatch` fires it). GitLab's `pages` job
   is the only thing that actually catches it, so build the site locally after touching it.
-- **`-DLOG_LEVEL=...` does nothing.** `common/log.h` advertises it as a compile-time ceiling but
-  no file references it; `log_emit()` filters on a runtime global, after the varargs have been
-  evaluated. The only working compile-time gate is `TAI_LOG_LEVEL`, and it covers rtc-tcp-client
-  only.
+- **`AGENTIC_KIT_LOG_LEVEL` is the one log gate, SDK-wide, compile-time only.** Every SDK log
+  macro (log_tag_* in `common/log.h`; iot-client's log_error family, TAI_LOG*, TUYA_BLE_HAL_LOG*
+  re-tagged on top) expands to nothing above it. There is no runtime level: below the ceiling a
+  line emits unconditionally (`log_set_level()`/`log_get_level()` and the tai_set_log_level()
+  wrappers are gone, and so is the runtime handler -- `log_set_handler()` no longer exists).
+  The destination is a compile-time fact too: define `AGENTIC_KIT_LOG` and every line dispatches
+  into your own macro (a function target can reuse the default output via `log_emit_valist()`).
+  `log_emit()` remains the default sink, but module code never calls it directly -- a raw call
+  would bypass the ceiling. The one site with a runtime-chosen level, the
+  media sampler in tai_pkt_log.c, dispatches over the gated macros by its two possible levels.
+  The old per-module `TAI_LOG_LEVEL` gate is gone.
 - **`mqtt_tls_config_t.verify_peer` is dead** — assigned in one place, read nowhere. Peer
   verification is decided solely by whether `cacert` or `cert_bundle_attach` is non-NULL;
   leaving both NULL is not "use the system trust store" (there is none on an embedded target),

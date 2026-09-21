@@ -195,7 +195,7 @@ static void usage(const char *argv0)
 "\n"
 "Other:\n"
 "  -a, --agent-code CODE     agent code   (default: product's default agent)\n"
-"  -v, --verbose             enable SDK debug logging\n"
+"  -v, --verbose             logs are compile-time: -DAGENTIC_KIT_LOG_LEVEL=N\n"
 "  -h, --help                this text\n",
         argv0, DEFAULT_DEVID, region_name(DEFAULT_REGION), env_name(DEFAULT_ENV),
         DEFAULT_BATTERY_DP,
@@ -826,7 +826,11 @@ int main(int argc, char **argv)
         fprintf(stderr, "iot_init_default failed\n");
         return 1;
     }
-    log_set_level(o.verbose ? LOG_DEBUG : LOG_WARN);   /* both SDKs share the facade */
+    /* Log volume is decided at compile time now; the default ceiling (4)
+     * emits everything. -v cannot change it anymore, so just say so. */
+    if (o.verbose)
+        fprintf(stderr, "-v: SDK log level is compile-time "
+                        "(-DAGENTIC_KIT_LOG_LEVEL=N); this build is already verbose\n");
 
     iot_client_config_t iot_cfg = {
         .region            = DEFAULT_REGION,

@@ -239,7 +239,7 @@ cmake --build build --target agent_trigger_demo
 | `--timeout S` | 等待推送的超时秒数 | `120` |
 | `--repeat N` | 收到 N 次推送后退出，`0` = 一直监听 | `1` |
 | `--audio FILE` | TTS 音频输出文件，传空串则丢弃 | `output_trigger_tts.pcm` |
-| `-v, --verbose` | 打开 SDK 详细日志 | — |
+| `-v, --verbose` | 仅打印提示：日志级别是编译期的（`-DAGENTIC_KIT_LOG_LEVEL=N`），默认构建已全开 | — |
 
 运行成功后，控制台输出示例：
 

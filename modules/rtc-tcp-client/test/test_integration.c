@@ -21,6 +21,7 @@
 
 #include "../src/tai_internal.h"
 #include "tai_pal_loopback.h"
+#include "test_log.h"
 
 /* =========================================================================
  * Test harness
@@ -2027,6 +2028,10 @@ static void test_disconnect_latency(void)
 int main(void)
 {
     printf("=== Tuya AI -- integration tests (loopback PAL) ===\n");
+    /* Logging is suppressed by default; set TAI_LOOPBACK_VERBOSE=1 to
+     * enable -- the gate the loopback PAL's old lb_log handler applied,
+     * now a mode default of this build's compile-time sink. */
+    test_log_env_default();
     pthread_mutex_init(&g_st.mtx, NULL);
 
     test_text_query();

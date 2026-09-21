@@ -254,7 +254,7 @@ All options:
 | `--timeout S` | Timeout in seconds while waiting for pushes | `120` |
 | `--repeat N` | Exit after N pushes; `0` = listen indefinitely | `1` |
 | `--audio FILE` | TTS audio output file; an empty string discards the audio | `output_trigger_tts.pcm` |
-| `-v, --verbose` | Enable detailed SDK logs | — |
+| `-v, --verbose` | Prints a notice only: the SDK log level is compile-time (`-DAGENTIC_KIT_LOG_LEVEL=N`); the default build already logs everything | — |
 
 Example console output from a successful run (literal output, including the Chinese generated message):
 

@@ -154,7 +154,8 @@ int demo_ota_confirm_run(const char *devid, const char *secret_key,
         fprintf(stderr, "[%s] iot_init_default failed\n", TAG);
         return 1;
     }
-    log_set_level(LOG_INFO);
+    /* Log volume is decided at compile time now; build with
+     * -DAGENTIC_KIT_LOG_LEVEL=3 to restore the info-only volume. */
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
 

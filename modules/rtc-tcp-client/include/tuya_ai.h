@@ -411,21 +411,18 @@ int tai_send_mcp_response(tai_ctx_t *ctx, const char *json_rpc_response);
 /* =========================================================================
  * Logging
  *
- * The SDK emits log messages through the global log facade.  Two
- * filters apply:
+ * The SDK emits log messages through the global log facade.  The single
+ * filter is compile-time: AGENTIC_KIT_LOG_LEVEL (default 4 = DEBUG;
+ * SDK-wide, gated once in common/log.h).  Messages above this level are
+ * optimised away at build time; below it, a line emits unconditionally --
+ * there is no runtime level knob.
  *
- *   1. Compile-time maximum (TAI_LOG_LEVEL, default 4 = DEBUG).
- *      Messages above this level are optimised away at build time.
- *   2. Runtime level, set via tai_set_log_level().  Default: TAI_LOG_INFO.
- *
- * These thin inlines exist for source-compatibility with callers; new
- * code should prefer log_set_level() / log_get_level() directly.
- *
- * Valid level values are TAI_LOG_ERROR (1) through TAI_LOG_DEBUG (4).
- * Use 0 to disable all logging at runtime.
+ * Quiet a build with -DAGENTIC_KIT_LOG_LEVEL=N (valid values: 0 = none,
+ * then TAI_LOG_ERROR (1) .. TAI_LOG_DEBUG (4)).  The destination is
+ * decided at compile time as well: define AGENTIC_KIT_LOG (see log.h)
+ * to route every line into your own macro — a function target can
+ * reuse the default output via log_emit_valist().
  * ========================================================================= */
-static inline void tai_set_log_level(int level) { log_set_level(level); }
-static inline int  tai_get_log_level(void)      { return log_get_level(); }
 
 #ifdef __cplusplus
 }

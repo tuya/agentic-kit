@@ -529,22 +529,17 @@ Sends the response to an MCP command. When `on_event` receives `TAI_EVT_MCP_CMD`
 
 ## 6. Logging {#6-日志}
 
-```c
-static inline void tai_set_log_level(int level);
-static inline int  tai_get_log_level(void);
-```
-
-Sets/gets the runtime log level. Valid values:
+The SDK's single log switch is the compile-time `AGENTIC_KIT_LOG_LEVEL` (gated once in `common/log.h`; it applies to the entire SDK, not only this module, and replaces the former `TAI_LOG_LEVEL`). Valid values:
 
 | Value | Meaning |
 |----|------|
-| 0 | Disable all logging |
+| 0 | Off entirely |
 | 1 | `TAI_LOG_ERROR` |
 | 2 | `TAI_LOG_WARN` |
-| 3 | `TAI_LOG_INFO` (runtime default) |
-| 4 | `TAI_LOG_DEBUG` |
+| 3 | `TAI_LOG_INFO` |
+| 4 | `TAI_LOG_DEBUG` (default) |
 
-The runtime default level is `TAI_LOG_INFO` (3). Explicitly call `tai_set_log_level(4)` when DEBUG output is required. The maximum compiled log level can be set at compile time by defining the `TAI_LOG_LEVEL` macro (default 4); logs above that level are eliminated during compilation.
+Logs above the ceiling are eliminated at compile time; below it they emit unconditionally — there is no runtime level (`tai_set_log_level()` was removed together with the runtime layer). Compile production builds with `-DAGENTIC_KIT_LOG_LEVEL=2` to keep only error + warn; changing where lines go (or dropping them by level) is a build decision as well: define `AGENTIC_KIT_LOG` and take over the dispatch with your own macro.
 
 ---
 

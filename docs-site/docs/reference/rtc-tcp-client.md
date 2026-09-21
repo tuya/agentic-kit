@@ -529,22 +529,17 @@ int tai_send_mcp_response(tai_ctx_t *ctx, const char *json_rpc_response);
 
 ## 6. 日志 {#6-日志}
 
-```c
-static inline void tai_set_log_level(int level);
-static inline int  tai_get_log_level(void);
-```
-
-设置/获取运行时日志级别。有效值：
+SDK 日志的唯一开关是编译期的 `AGENTIC_KIT_LOG_LEVEL`（在 `common/log.h` 统一设限，作用于整个 SDK，不限于本模块；原 `TAI_LOG_LEVEL` 已并入）。有效值：
 
 | 值 | 含义 |
 |----|------|
-| 0 | 禁用所有日志 |
+| 0 | 全关 |
 | 1 | `TAI_LOG_ERROR` |
 | 2 | `TAI_LOG_WARN` |
-| 3 | `TAI_LOG_INFO`（运行时默认） |
-| 4 | `TAI_LOG_DEBUG` |
+| 3 | `TAI_LOG_INFO` |
+| 4 | `TAI_LOG_DEBUG`（默认） |
 
-运行时默认级别为 `TAI_LOG_INFO`（3），需要 DEBUG 输出时显式调用 `tai_set_log_level(4)`。编译时可通过定义 `TAI_LOG_LEVEL` 宏设置最大编译级别（默认 4，超过的日志在编译期消除）。
+高于上限的日志在编译期消除；上限以下无条件输出——没有运行时级别（`tai_set_log_level()` 已随运行时层一起移除）。量产用 `-DAGENTIC_KIT_LOG_LEVEL=2` 压到 error + warn；改变日志去向（或按级别丢弃）同样是构建决策：定义 `AGENTIC_KIT_LOG` 把分发接管进你自己的宏。
 
 ---
 

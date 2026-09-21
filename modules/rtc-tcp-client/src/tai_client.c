@@ -111,8 +111,9 @@ static inline void ctx_io_close(tai_ctx_t *ctx)
 
 /* Decode + log an outgoing application packet.  Separated from send_app
  * so the stack-allocated attr array only exists during the log call. */
+#if AGENTIC_KIT_LOG_LEVEL >= 3
 static void log_send_packet(tai_ctx_t *ctx,
-                            const uint8_t *app_bytes, size_t app_len)
+                             const uint8_t *app_bytes, size_t app_len)
 {
     uint8_t     pkt_type;
     tai_attr_t  attrs[AGENTIC_KIT_TAI_MAX_ATTRS];
@@ -126,6 +127,7 @@ static void log_send_packet(tai_ctx_t *ctx,
                        pkt_type, attrs, attr_count, payload, payload_len);
     }
 }
+#endif
 
 /* =========================================================================
  * Scatter-gather streaming send (§6)
@@ -289,8 +291,9 @@ static int send_app_sg(tai_ctx_t *ctx, size_t hdr_len,
  * tai_connect (sig_len=0). */
 static int send_app(tai_ctx_t *ctx, const uint8_t *app_bytes, size_t app_len)
 {
-    if (log_get_level() >= LOG_INFO)
-        log_send_packet(ctx, app_bytes, app_len);
+#if AGENTIC_KIT_LOG_LEVEL >= 3
+    log_send_packet(ctx, app_bytes, app_len);
+#endif
     return send_app_sg(ctx, /*hdr_len=*/0, app_bytes, app_len);
 }
 
@@ -490,8 +493,9 @@ int tai_connect(tai_ctx_t *ctx)
         TAI_LOGE(ctx->pal, TAG, "send ClientHello failed: %d", rc);
         tai_disconnect(ctx); return rc;
     }
-    if (log_get_level() >= LOG_INFO)
-        log_send_packet(ctx, ctx->tx_ctrl_buf, (size_t)app_len);
+#if AGENTIC_KIT_LOG_LEVEL >= 3
+    log_send_packet(ctx, ctx->tx_ctrl_buf, (size_t)app_len);
+#endif
 
     /* 5. SessionNew */
     app_len = tai_proto_build_session_new(ctx,

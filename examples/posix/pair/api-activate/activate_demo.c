@@ -56,7 +56,8 @@ int demo_activate_run(const char *token,
         fprintf(stderr, "[%s] iot_init_default failed\n", TAG);
         return -1;
     }
-    log_set_level(LOG_DEBUG);
+    /* Full SDK debug output used to need log_set_level(LOG_DEBUG) here;
+     * the default compile-time ceiling (4) now emits it unconditionally. */
 
     iot_on_boarding_config_t cfg = {
         .timeout_ms       = 10000,

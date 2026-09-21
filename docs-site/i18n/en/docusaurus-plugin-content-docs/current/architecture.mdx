@@ -61,6 +61,7 @@ These low-level foundational libraries are shared by the IoT and RTC protocol st
   <tbody>
     <tr><td><strong>Shared TLS</strong></td><td><code>common/tls.c</code></td><td>The mbedTLS-based TLS-over-TCP transport layer shared by the IoT (MQTT / HTTP) and RTC (rtc-tcp-client) stacks</td></tr>
     <tr><td><strong>Shared RNG</strong></td><td><code>common/rng.c</code></td><td>The single process-wide CTR-DRBG random number generator, seeded once at startup and reused throughout the SDK</td></tr>
+    <tr><td><strong>Log facade</strong></td><td><code>common/log.h</code> / <code>common/log.c</code></td><td>SDK-wide compile-time log ceiling and dispatch (<code>AGENTIC_KIT_LOG_LEVEL</code> / <code>AGENTIC_KIT_LOG</code>); see Compile-Time Knobs</td></tr>
   </tbody>
 </table>
 
