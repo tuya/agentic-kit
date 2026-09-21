@@ -529,22 +529,19 @@ Sends the response to an MCP command. When `on_event` receives `TAI_EVT_MCP_CMD`
 
 ## 6. Logging {#6-日志}
 
-```c
-static inline void tai_set_log_level(int level);
-static inline int  tai_get_log_level(void);
-```
-
-Sets/gets the runtime log level. Valid values:
+The SDK's global log switch is the compile-time `AGENTIC_KIT_LOG_LEVEL` (gated once in `common/log.h`; it applies to the entire SDK, not only this module); this module can additionally be lowered alone with `AGENTIC_KIT_TAI_LOG_LEVEL` (the renamed former `TAI_LOG_LEVEL` — lower-only, defaulting to the SDK-wide value). Valid values:
 
 | Value | Meaning |
 |----|------|
-| 0 | Disable all logging |
+| 0 | Off entirely |
 | 1 | `TAI_LOG_ERROR` |
 | 2 | `TAI_LOG_WARN` |
-| 3 | `TAI_LOG_INFO` (runtime default) |
-| 4 | `TAI_LOG_DEBUG` |
+| 3 | `TAI_LOG_INFO` |
+| 4 | `TAI_LOG_DEBUG` (default) |
 
-The runtime default level is `TAI_LOG_INFO` (3). Explicitly call `tai_set_log_level(4)` when DEBUG output is required. The maximum compiled log level can be set at compile time by defining the `TAI_LOG_LEVEL` macro (default 4); logs above that level are eliminated during compilation.
+Log lines above the ceiling are eliminated at compile time; below it they emit unconditionally — there is no runtime level (`tai_set_log_level()` was removed together with the runtime layer). Compile production builds with `-DAGENTIC_KIT_LOG_LEVEL=2` to keep only error + warn, or lower only this module with `-DAGENTIC_KIT_TAI_LOG_LEVEL=N` (below 3, the `tai_log_packet` JSON formatter and its calls vanish together); changing where lines go (or dropping them by level) is a build decision as well: define `AGENTIC_KIT_LOG` and take over the dispatch with your own macro.
+
+Media middle frames log at INFO with 1/N sampling by default (`AGENTIC_KIT_TAI_LOG_MEDIA_SAMPLE_N`, default 50; set it to 0 to disable sampling and enter flood mode). In flood mode middle frames emit at DEBUG and only when the effective ceiling is 4 — with a ceiling of 3, setting sampling to 0 leaves middle frames with **no logs at all** (fewer than the default sampling; do not mistake it for packet loss).
 
 ---
 

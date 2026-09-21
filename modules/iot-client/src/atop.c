@@ -35,13 +35,13 @@
 int atop_activate_request(const pal_t *pal, const activite_request_t *request, activite_response_t *response)
 {
     if (request == NULL || response == NULL) {
-        log_error("atop_activate_request: request or response is NULL");
+        IOT_LOGE("atop_activate_request: request or response is NULL");
         return OPRT_INVALID_PARAMETER;
     }
 
     #define CHECK_STR_PARAM(field) \
         if (request->field == NULL || request->field[0] == '\0') { \
-            log_error("atop_activate_request: invalid parameter '%s'", #field); \
+            IOT_LOGE("atop_activate_request: invalid parameter '%s'", #field); \
             return OPRT_INVALID_PARAMETER; \
         }
     CHECK_STR_PARAM(token);
@@ -84,7 +84,7 @@ int atop_activate_request(const pal_t *pal, const activite_request_t *request, a
 
     char *buffer = (char *)pal->malloc(prealloc_size);
     if (NULL == buffer) {
-        log_error("post buffer malloc fail");
+        IOT_LOGE("post buffer malloc fail");
         return OPRT_MALLOC_FAILED;
     }
     uint32_t timestamp = (uint32_t)time(NULL);
@@ -213,7 +213,7 @@ int atop_activate_request(const pal_t *pal, const activite_request_t *request, a
     }
     offset += (size_t)write_len;
 
-    log_info("POST JSON:%s", buffer);
+    IOT_LOGI("POST JSON:%s", buffer);
 
     /* atop_base_request object construct */
     atop_base_request_t atop_request = {.uuid = request->uuid,
@@ -238,13 +238,13 @@ int atop_activate_request(const pal_t *pal, const activite_request_t *request, a
     rt = atop_base_request(pal, &atop_request, &atop_response);
     pal->free(buffer);
     if (OPRT_OK != rt) {
-        log_error("atop_base_request error:%d", rt);
+        IOT_LOGE("atop_base_request error:%d", rt);
         return rt;
     }
 
     cJSON *result = atop_response.result;
     if (result == NULL) {
-        log_error("activate response no result");
+        IOT_LOGE("activate response no result");
         atop_base_response_free(pal, &atop_response);
         return OPRT_COMMUNICATION_ERROR;
     }
@@ -262,7 +262,7 @@ int atop_activate_request(const pal_t *pal, const activite_request_t *request, a
     response->schema = pal_strdup(pal, cJSON_GetStringValue(cJSON_GetObjectItem(result, "schema")));
 
     if (!response->devid || !response->secret_key || !response->local_key) {
-        log_error("activate response missing required fields");
+        IOT_LOGE("activate response missing required fields");
         atop_activate_response_free(pal, response);
         atop_base_response_free(pal, &atop_response);
         return OPRT_COMMUNICATION_ERROR;
@@ -298,14 +298,14 @@ void atop_activate_response_free(const pal_t *pal, activite_response_t *response
 int atop_device_meta_save(const pal_t *pal, const device_meta_save_request_t *request, device_meta_save_response_t *response)
 {
     if (request == NULL || response == NULL) {
-        log_error("atop_device_meta_save: request or response is NULL");
+        IOT_LOGE("atop_device_meta_save: request or response is NULL");
         return OPRT_INVALID_PARAMETER;
     }
 
     if (request->devid == NULL || request->devid[0] == '\0' ||
         request->key == NULL || request->key[0] == '\0' ||
         request->sdk_version == NULL || request->sdk_version[0] == '\0') {
-        log_error("atop_device_meta_save: devid, key, or sdk_version is empty");
+        IOT_LOGE("atop_device_meta_save: devid, key, or sdk_version is empty");
         return OPRT_INVALID_PARAMETER;
     }
 
@@ -317,7 +317,7 @@ int atop_device_meta_save(const pal_t *pal, const device_meta_save_request_t *re
     size_t post_len = 64 + strlen(request->sdk_version) * 2;
     char *post_data = (char *)pal->malloc(post_len);
     if (post_data == NULL) {
-        log_error("atop_device_meta_save: malloc failed");
+        IOT_LOGE("atop_device_meta_save: malloc failed");
         return OPRT_MALLOC_FAILED;
     }
     int write_len = snprintf(post_data, post_len,
@@ -328,7 +328,7 @@ int atop_device_meta_save(const pal_t *pal, const device_meta_save_request_t *re
         return OPRT_COMMUNICATION_ERROR;
     }
 
-    log_debug("device meta save post data:%s", post_data);
+    IOT_LOGD("device meta save post data:%s", post_data);
 
     atop_base_request_t atop_request = {
         .devid = request->devid,
@@ -351,14 +351,14 @@ int atop_device_meta_save(const pal_t *pal, const device_meta_save_request_t *re
     pal->free(post_data);
 
     if (rt != OPRT_OK) {
-        log_error("atop_device_meta_save request error:%d", rt);
+        IOT_LOGE("atop_device_meta_save request error:%d", rt);
         atop_base_response_free(pal, &atop_response);
         return rt;
     }
 
     cJSON *result = atop_response.result;
     if (result == NULL) {
-        log_error("atop_device_meta_save: no result");
+        IOT_LOGE("atop_device_meta_save: no result");
         atop_base_response_free(pal, &atop_response);
         return OPRT_COMMUNICATION_ERROR;
     }
@@ -384,12 +384,12 @@ int atop_device_meta_save(const pal_t *pal, const device_meta_save_request_t *re
 int atop_qrcode_info_get(const pal_t *pal, const qrcode_info_request_t *request, qrcode_info_response_t *response)
 {
     if (request == NULL || response == NULL) {
-        log_error("atop_qrcode_info_get: request or response is NULL");
+        IOT_LOGE("atop_qrcode_info_get: request or response is NULL");
         return OPRT_INVALID_PARAMETER;
     }
 
     if (request->authkey == NULL || request->authkey[0] == '\0') {
-        log_error("atop_qrcode_info_get: authkey is empty");
+        IOT_LOGE("atop_qrcode_info_get: authkey is empty");
         return OPRT_INVALID_PARAMETER;
     }
 
@@ -399,7 +399,7 @@ int atop_qrcode_info_get(const pal_t *pal, const qrcode_info_request_t *request,
 
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
-        log_error("atop_qrcode_info_get: failed to create JSON object");
+        IOT_LOGE("atop_qrcode_info_get: failed to create JSON object");
         return OPRT_MALLOC_FAILED;
     }
 
@@ -411,11 +411,11 @@ int atop_qrcode_info_get(const pal_t *pal, const qrcode_info_request_t *request,
     char *post_data = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (post_data == NULL) {
-        log_error("atop_qrcode_info_get: failed to print JSON");
+        IOT_LOGE("atop_qrcode_info_get: failed to print JSON");
         return OPRT_MALLOC_FAILED;
     }
 
-    log_debug("qrcode info post data:%s", post_data);
+    IOT_LOGD("qrcode info post data:%s", post_data);
 
     atop_base_request_t atop_request = {
         .uuid = request->uuid,
@@ -438,21 +438,21 @@ int atop_qrcode_info_get(const pal_t *pal, const qrcode_info_request_t *request,
     cJSON_free(post_data);
 
     if (rt != OPRT_OK) {
-        log_error("atop_qrcode_info_get request error:%d", rt);
+        IOT_LOGE("atop_qrcode_info_get request error:%d", rt);
         atop_base_response_free(pal,&atop_response);
         return rt;
     }
 
     cJSON *result = atop_response.result;
     if (result == NULL) {
-        log_error("atop_qrcode_info_get: no result");
+        IOT_LOGE("atop_qrcode_info_get: no result");
         atop_base_response_free(pal,&atop_response);
         return OPRT_COMMUNICATION_ERROR;
     }
 
     cJSON *short_url = cJSON_GetObjectItem(result, "shortUrl");
     if (short_url == NULL || !cJSON_IsString(short_url)) {
-        log_error("atop_qrcode_info_get: missing short_url in result");
+        IOT_LOGE("atop_qrcode_info_get: missing short_url in result");
         atop_base_response_free(pal,&atop_response);
         return OPRT_INVALID_RESULT;
     }
@@ -461,11 +461,11 @@ int atop_qrcode_info_get(const pal_t *pal, const qrcode_info_request_t *request,
     atop_base_response_free(pal,&atop_response);
 
     if (response->short_url == NULL) {
-        log_error("atop_qrcode_info_get: failed to allocate memory for short_url");
+        IOT_LOGE("atop_qrcode_info_get: failed to allocate memory for short_url");
         return OPRT_MALLOC_FAILED;
     }
 
-    log_debug("qrcode info short_url: %s", response->short_url);
+    IOT_LOGD("qrcode info short_url: %s", response->short_url);
     return OPRT_OK;
 }
 
@@ -503,7 +503,7 @@ int atop_ai_token_get(const pal_t *pal, const ai_token_request_t *request, ai_to
     // Create request JSON
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
-        log_error("Failed to create JSON object");
+        IOT_LOGE("Failed to create JSON object");
         return OPRT_MALLOC_FAILED;
     }
 
@@ -514,11 +514,11 @@ int atop_ai_token_get(const pal_t *pal, const ai_token_request_t *request, ai_to
     char *post_data = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (post_data == NULL) {
-        log_error("Failed to print JSON");
+        IOT_LOGE("Failed to print JSON");
         return OPRT_MALLOC_FAILED;
     }
 
-    log_debug("post data:%s", post_data);
+    IOT_LOGD("post data:%s", post_data);
 
     // Prepare atop_base_request
     atop_base_request_t atop_request = {
@@ -551,14 +551,14 @@ int atop_ai_token_get(const pal_t *pal, const ai_token_request_t *request, ai_to
                  atop_response.error_code);
         snprintf(response->rejection.msg, sizeof(response->rejection.msg), "%s",
                  atop_response.error_msg);
-        log_error("http post err, rt:%d", rt);
+        IOT_LOGE("http post err, rt:%d", rt);
         atop_base_response_free(pal,&atop_response);
         return rt;
     }
 
     cJSON *result = atop_response.result;
     if (result == NULL) {
-        log_error("http post err, no result");
+        IOT_LOGE("http post err, no result");
         atop_base_response_free(pal,&atop_response);
         return OPRT_COMMUNICATION_ERROR;
     }
@@ -575,11 +575,11 @@ int atop_ai_token_get(const pal_t *pal, const ai_token_request_t *request, ai_to
     atop_base_response_free(pal, &atop_response);
 
     if (response->token == NULL) {
-        log_error("Failed to allocate token");
+        IOT_LOGE("Failed to allocate token");
         return OPRT_MALLOC_FAILED;
     }
 
-    log_debug("token: [%zu chars, prefix=%.4s...]",
+    IOT_LOGD("token: [%zu chars, prefix=%.4s...]",
               strlen(response->token),
               strlen(response->token) >= 4 ? response->token : "----");
     return OPRT_OK;
@@ -600,13 +600,13 @@ static bool schema_str_is_empty(const char *s)
 int atop_schema_newest_get(const pal_t *pal, const schema_newest_request_t *request, schema_newest_response_t *response)
 {
     if (request == NULL || response == NULL) {
-        log_error("atop_schema_newest_get: request or response is NULL");
+        IOT_LOGE("atop_schema_newest_get: request or response is NULL");
         return OPRT_INVALID_PARAMETER;
     }
     if (request->devid == NULL || request->devid[0] == '\0' ||
         request->key == NULL || request->key[0] == '\0' ||
         request->schema_id == NULL || request->schema_id[0] == '\0') {
-        log_error("atop_schema_newest_get: devid, key, or schema_id is empty");
+        IOT_LOGE("atop_schema_newest_get: devid, key, or schema_id is empty");
         return OPRT_INVALID_PARAMETER;
     }
 
@@ -616,7 +616,7 @@ int atop_schema_newest_get(const pal_t *pal, const schema_newest_request_t *requ
 
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
-        log_error("atop_schema_newest_get: failed to create JSON object");
+        IOT_LOGE("atop_schema_newest_get: failed to create JSON object");
         return OPRT_MALLOC_FAILED;
     }
     cJSON_AddStringToObject(root, "schemaId", request->schema_id);
@@ -629,11 +629,11 @@ int atop_schema_newest_get(const pal_t *pal, const schema_newest_request_t *requ
     char *post_data = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (post_data == NULL) {
-        log_error("atop_schema_newest_get: failed to print JSON");
+        IOT_LOGE("atop_schema_newest_get: failed to print JSON");
         return OPRT_MALLOC_FAILED;
     }
 
-    log_debug("schema newest get post data:%s", post_data);
+    IOT_LOGD("schema newest get post data:%s", post_data);
 
     atop_base_request_t atop_request = {
         .devid = request->devid,
@@ -656,7 +656,7 @@ int atop_schema_newest_get(const pal_t *pal, const schema_newest_request_t *requ
     cJSON_free(post_data);
 
     if (rt != OPRT_OK) {
-        log_error("atop_schema_newest_get request error:%d", rt);
+        IOT_LOGE("atop_schema_newest_get request error:%d", rt);
         atop_base_response_free(pal, &atop_response);
         return rt;
     }
@@ -707,10 +707,10 @@ int atop_schema_newest_get(const pal_t *pal, const schema_newest_request_t *requ
     atop_base_response_free(pal, &atop_response);
 
     if (response->updated) {
-        log_info("atop_schema_newest_get: newer schema received (%zu bytes)",
+        IOT_LOGI("atop_schema_newest_get: newer schema received (%zu bytes)",
                  strlen(response->schema));
     } else {
-        log_debug("atop_schema_newest_get: no newer schema");
+        IOT_LOGD("atop_schema_newest_get: no newer schema");
     }
     return OPRT_OK;
 }
@@ -737,12 +737,12 @@ void atop_schema_newest_response_free(const pal_t *pal, schema_newest_response_t
 int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota_upgrade_response_t *response)
 {
     if (request == NULL || response == NULL) {
-        log_error("atop_upgrade_get: request or response is NULL");
+        IOT_LOGE("atop_upgrade_get: request or response is NULL");
         return OPRT_INVALID_PARAMETER;
     }
     if (request->devid == NULL || request->devid[0] == '\0' ||
         request->key == NULL || request->key[0] == '\0') {
-        log_error("atop_upgrade_get: devid or key is empty");
+        IOT_LOGE("atop_upgrade_get: devid or key is empty");
         return OPRT_INVALID_PARAMETER;
     }
 
@@ -752,7 +752,7 @@ int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota
 
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
-        log_error("atop_upgrade_get: failed to create JSON object");
+        IOT_LOGE("atop_upgrade_get: failed to create JSON object");
         return OPRT_MALLOC_FAILED;
     }
     cJSON_AddNumberToObject(root, "type", request->channel);
@@ -761,11 +761,11 @@ int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota
     char *post_data = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (post_data == NULL) {
-        log_error("atop_upgrade_get: failed to print JSON");
+        IOT_LOGE("atop_upgrade_get: failed to print JSON");
         return OPRT_MALLOC_FAILED;
     }
 
-    log_debug("upgrade get post data:%s", post_data);
+    IOT_LOGD("upgrade get post data:%s", post_data);
 
     atop_base_request_t atop_request = {
         .devid = request->devid,
@@ -788,7 +788,7 @@ int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota
     cJSON_free(post_data);
 
     if (rt != OPRT_OK) {
-        log_error("atop_upgrade_get request error:%d", rt);
+        IOT_LOGE("atop_upgrade_get request error:%d", rt);
         atop_base_response_free(pal, &atop_response);
         return rt;
     }
@@ -796,7 +796,7 @@ int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota
     cJSON *result = atop_response.result;
     if (result == NULL) {
         /* success=true but result=null → cloud has no upgrade configured for this device */
-        log_debug("atop_upgrade_get: no upgrade available");
+        IOT_LOGD("atop_upgrade_get: no upgrade available");
         atop_base_response_free(pal, &atop_response);
         return OPRT_OK;   /* no-upgrade is success; response->has_upgrade stays false */
     }
@@ -814,7 +814,7 @@ int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota
         }
     }
     if (chosen_url == NULL) {
-        log_debug("atop_upgrade_get: no cdnUrl/httpsUrl (no upgrade)");
+        IOT_LOGD("atop_upgrade_get: no cdnUrl/httpsUrl (no upgrade)");
         atop_base_response_free(pal, &atop_response);
         return OPRT_OK;   /* no-upgrade is success; response->has_upgrade stays false */
     }
@@ -853,7 +853,7 @@ int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota
 
     atop_base_response_free(pal, &atop_response);
 
-    log_info("atop_upgrade_get: upgrade available, version=%s, size=%ld",
+    IOT_LOGI("atop_upgrade_get: upgrade available, version=%s, size=%ld",
              response->version ? response->version : "?", response->file_size);
     return OPRT_OK;
 }
@@ -878,7 +878,7 @@ int atop_version_update(const pal_t *pal, const ota_version_update_request_t *re
     if (request->devid == NULL || request->devid[0] == '\0' ||
         request->key == NULL || request->key[0] == '\0' ||
         request->sw_ver == NULL || request->sw_ver[0] == '\0') {
-        log_error("atop_version_update: devid, key, or sw_ver is empty");
+        IOT_LOGE("atop_version_update: devid, key, or sw_ver is empty");
         return OPRT_INVALID_PARAMETER;
     }
 
@@ -891,7 +891,7 @@ int atop_version_update(const pal_t *pal, const ota_version_update_request_t *re
     #define VER_UPDATE_BUF_LEN 256
     char *post_data = (char *)pal->malloc(VER_UPDATE_BUF_LEN);
     if (post_data == NULL) {
-        log_error("atop_version_update: malloc failed");
+        IOT_LOGE("atop_version_update: malloc failed");
         return OPRT_MALLOC_FAILED;
     }
 
@@ -900,12 +900,12 @@ int atop_version_update(const pal_t *pal, const ota_version_update_request_t *re
         "\\\"baselineVer\\\":\\\"%s\\\",\\\"softVer\\\":\\\"%s\\\"}]\",\"t\":%" PRIu32 "}",
         request->channel, pv, bv, request->sw_ver, timestamp);
     if (write_len < 0 || (size_t)write_len >= VER_UPDATE_BUF_LEN) {
-        log_error("atop_version_update: failed to build post data, write_len=%d", write_len);
+        IOT_LOGE("atop_version_update: failed to build post data, write_len=%d", write_len);
         pal->free(post_data);
         return OPRT_COMMUNICATION_ERROR;
     }
 
-    log_debug("version update post data:%s", post_data);
+    IOT_LOGD("version update post data:%s", post_data);
 
     atop_base_request_t atop_request = {
         .devid = request->devid,
@@ -928,7 +928,7 @@ int atop_version_update(const pal_t *pal, const ota_version_update_request_t *re
     pal->free(post_data);
 
     if (rt != OPRT_OK) {
-        log_error("atop_version_update request error:%d", rt);
+        IOT_LOGE("atop_version_update request error:%d", rt);
         atop_base_response_free(pal, &atop_response);
         return rt;
     }
@@ -937,7 +937,7 @@ int atop_version_update(const pal_t *pal, const ota_version_update_request_t *re
      * envelope now returns OPRT_ATOP_BUSINESS_ERROR and is caught above. */
     atop_base_response_free(pal, &atop_response);
 
-    log_debug("atop_version_update: success");
+    IOT_LOGD("atop_version_update: success");
     return OPRT_OK;
 }
 
@@ -948,7 +948,7 @@ int atop_upgrade_status_update(const pal_t *pal, const ota_status_update_request
     }
     if (request->devid == NULL || request->devid[0] == '\0' ||
         request->key == NULL || request->key[0] == '\0') {
-        log_error("atop_upgrade_status_update: devid or key is empty");
+        IOT_LOGE("atop_upgrade_status_update: devid or key is empty");
         return OPRT_INVALID_PARAMETER;
     }
 
@@ -957,7 +957,7 @@ int atop_upgrade_status_update(const pal_t *pal, const ota_status_update_request
     #define STATUS_UPD_BUF_LEN 128
     char *post_data = (char *)pal->malloc(STATUS_UPD_BUF_LEN);
     if (post_data == NULL) {
-        log_error("atop_upgrade_status_update: malloc failed");
+        IOT_LOGE("atop_upgrade_status_update: malloc failed");
         return OPRT_MALLOC_FAILED;
     }
 
@@ -969,7 +969,7 @@ int atop_upgrade_status_update(const pal_t *pal, const ota_status_update_request
         return OPRT_COMMUNICATION_ERROR;
     }
 
-    log_debug("upgrade status update post data:%s", post_data);
+    IOT_LOGD("upgrade status update post data:%s", post_data);
 
     atop_base_request_t atop_request = {
         .devid = request->devid,
@@ -992,7 +992,7 @@ int atop_upgrade_status_update(const pal_t *pal, const ota_status_update_request
     pal->free(post_data);
 
     if (rt != OPRT_OK) {
-        log_error("atop_upgrade_status_update request error:%d", rt);
+        IOT_LOGE("atop_upgrade_status_update request error:%d", rt);
         atop_base_response_free(pal, &atop_response);
         return rt;
     }
@@ -1001,7 +1001,7 @@ int atop_upgrade_status_update(const pal_t *pal, const ota_status_update_request
      * envelope now returns OPRT_ATOP_BUSINESS_ERROR and is caught above. */
     atop_base_response_free(pal, &atop_response);
 
-    log_debug("atop_upgrade_status_update: success (channel=%d, status=%d)",
+    IOT_LOGD("atop_upgrade_status_update: success (channel=%d, status=%d)",
               request->channel, (int)request->status);
     return OPRT_OK;
 }

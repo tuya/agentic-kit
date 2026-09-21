@@ -152,7 +152,7 @@ int iot_ota_verify_init(iot_client_t *client,
         mbedtls_sha256_init(&ctx->digest.sha256);
         ret = mbedtls_sha256_starts(&ctx->digest.sha256, 0);
         if (ret != 0) {
-            log_error("sha256 starts failed: -0x%04x", -ret);
+            IOT_LOGE("sha256 starts failed: -0x%04x", -ret);
             ctx_free(ctx);
             return ret;
         }
@@ -160,7 +160,7 @@ int iot_ota_verify_init(iot_client_t *client,
         mbedtls_md5_init(&ctx->digest.md5);
         ret = mbedtls_md5_starts(&ctx->digest.md5);
         if (ret != 0) {
-            log_error("md5 starts failed: -0x%04x", -ret);
+            IOT_LOGE("md5 starts failed: -0x%04x", -ret);
             ctx_free(ctx);
             return ret;
         }
@@ -184,7 +184,7 @@ int iot_ota_verify_update(iot_ota_verify_ctx_t *ctx,
         ret = mbedtls_md5_update(&ctx->digest.md5, data, len);
     }
     if (ret != 0) {
-        log_error("digest update failed: -0x%04x", -ret);
+        IOT_LOGE("digest update failed: -0x%04x", -ret);
         return ret;
     }
     return OPRT_OK;
@@ -203,7 +203,7 @@ int iot_ota_verify_finish(iot_ota_verify_ctx_t *ctx)
         uint8_t sha[32];
         ret = mbedtls_sha256_finish(&ctx->digest.sha256, sha);
         if (ret != 0) {
-            log_error("sha256 finish failed: -0x%04x", -ret);
+            IOT_LOGE("sha256 finish failed: -0x%04x", -ret);
             ctx_free(ctx);
             return ret;
         }
@@ -218,7 +218,7 @@ int iot_ota_verify_finish(iot_ota_verify_ctx_t *ctx)
         ret = mbedtls_md_hmac(md_info, ctx->key, ctx->key_len,
                               (const uint8_t *)sha_hex, OTA_SHA256_HEX_LEN, mac);
         if (ret != 0) {
-            log_error("hmac failed: -0x%04x", -ret);
+            IOT_LOGE("hmac failed: -0x%04x", -ret);
             ctx_free(ctx);
             return ret;
         }
@@ -227,7 +227,7 @@ int iot_ota_verify_finish(iot_ota_verify_ctx_t *ctx)
         uint8_t md5[16];
         ret = mbedtls_md5_finish(&ctx->digest.md5, md5);
         if (ret != 0) {
-            log_error("md5 finish failed: -0x%04x", -ret);
+            IOT_LOGE("md5 finish failed: -0x%04x", -ret);
             ctx_free(ctx);
             return ret;
         }

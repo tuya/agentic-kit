@@ -76,6 +76,8 @@ iot_atop_request_t  req  = { .api     = "tuya.device.schema.newest.get",
                               .data    = body };
 iot_atop_response_t resp = {0};
 
+/* Error paths use the SDK's public log facade log_tag_* (callable from application
+ * code; same compile-time ceiling and dispatch as SDK logs) */
 int rc = iot_atop_call(client, &req, &resp);
 if (rc == OPRT_OK) {
     if (resp.result != NULL) {
@@ -83,10 +85,10 @@ if (rc == OPRT_OK) {
     }
 } else if (rc == OPRT_ATOP_BUSINESS_ERROR) {
     /* The request reached the cloud but was rejected — error_code explains why */
-    log_error("rejected: %s (%s)", resp.error_code, resp.error_msg);
+    log_tag_error("app", "rejected: %s (%s)", resp.error_code, resp.error_msg);
 } else {
     /* Transport-layer failure: DNS / TLS / HTTP / decryption */
-    log_error("call failed: %d", rc);
+    log_tag_error("app", "call failed: %d", rc);
 }
 
 iot_atop_response_free(client, &resp);   /* Call on every path, including failures */

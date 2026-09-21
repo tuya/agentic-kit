@@ -32,8 +32,12 @@
 
 /* ---- Logging subsystem ----
  * The IoT SDK shares the process-wide log facade (see log.h).
- * To redirect output: log_set_handler(my_fn);
- * To filter at runtime: log_set_level(LOG_INFO);
+ * To take over the dispatch (destination, format): define AGENTIC_KIT_LOG;
+ * a function target can reuse the default output via log_emit_valist();
+ * To quiet the SDK: build with -DAGENTIC_KIT_LOG_LEVEL=N (no runtime level
+ * and no runtime handler -- the destination is a compile-time fact);
+ * to quiet only iot-client: -DAGENTIC_KIT_IOT_LOG_LEVEL=N (defaults to
+ * the SDK-wide ceiling; cannot exceed it).
  */
 
 typedef enum {
@@ -77,8 +81,8 @@ typedef struct {
  * @brief Initialize IoT SDK with the built-in default PAL adapter (POSIX / FreeRTOS).
  *
  * Must be called before any other SDK function.  Logging is dispatched
- * through the log facade — install a custom handler with
- * log_set_handler() if you need non-default output.
+ * through the log facade — the destination is a compile-time fact: define
+ * AGENTIC_KIT_LOG (log.h) for non-default output.
  *
  * @return OPRT_OK on success
  */

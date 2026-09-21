@@ -17,6 +17,7 @@
 /* Pull in the full internal header so we can call internal functions */
 #include "../src/tai_internal.h"
 #include "rng.h"
+#include "test_log.h"
 
 /* -------------------------------------------------------------------------
  * Minimal stub PAL.  TLS and crypto are no longer PAL responsibilities --
@@ -54,6 +55,7 @@ static const pal_t g_stub_pal = {
  * Test framework
  * ------------------------------------------------------------------------- */
 static int g_pass = 0, g_fail = 0;
+static int g_log_arg_evals = 0;
 
 #define CHECK(expr)                                               \
     do {                                                          \
@@ -68,6 +70,47 @@ static int g_pass = 0, g_fail = 0;
 
 #define TEST(name) do { printf("  %-50s", name); } while (0)
 #define PASS()     do { printf("OK\n"); } while (0)
+
+static size_t counted_zero(void)
+{
+    g_log_arg_evals++;
+    return 0;
+}
+
+static void test_compile_time_log_ceiling(void)
+{
+    TEST("compile-time log ceiling gates packet logs");
+
+    g_log_arg_evals = 0;
+    test_log_count_reset();
+    test_log_set_mode(TEST_LOG_COUNT);
+
+    TAI_LOGI((g_log_arg_evals++, &g_stub_pal), "test", "compiled log");
+    tai_log_packet(TAI_VER_21, 1, TAI_PKT_SESSION_CLOSE,
+                   NULL, 0, NULL, counted_zero());
+
+#if AGENTIC_KIT_TAI_LOG_LEVEL >= 3
+    CHECK(g_log_arg_evals == 2);
+    CHECK(test_log_count_get() == 2);
+#else
+    CHECK(g_log_arg_evals == 0);
+    CHECK(test_log_count_get() == 0);
+#endif
+
+#if AGENTIC_KIT_LOG_LEVEL >= 3 && AGENTIC_KIT_TAI_LOG_LEVEL < 3
+    /* Module ceiling lowered below a still-open SDK-wide ceiling (built as
+     * tai_log_module_zero_tests): the module vocabulary above is compiled
+     * out by the TAI knob, while the facade itself still dispatches -- a
+     * per-module knob only lowers its own module, it is not a second
+     * global gate. */
+    log_tag_info("test", "module ceiling does not touch the facade");
+    CHECK(g_log_arg_evals == 0);
+    CHECK(test_log_count_get() == 1);
+#endif
+
+    test_log_set_mode(TEST_LOG_PASSTHROUGH);
+    PASS();
+}
 
 /* -------------------------------------------------------------------------
  * 1. Varint encode/decode
@@ -558,6 +601,7 @@ int main(void)
     test_crypto();
     test_proto_client_hello();
     test_hmac_sg();
+    test_compile_time_log_ceiling();
 
     printf("\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

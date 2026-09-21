@@ -26,9 +26,9 @@
 /* coreMQTT invokes these with a doubly-parenthesised argument --
  * LogError( ( "fmt", args ) ) -- so `message` arrives complete with its own
  * parentheses, which then serve as the call parentheses of the macro below.
- * Same shape as the log_* wrappers in iot_client_config_defaults.h. */
-#define CORE_MQTT_LOG_ERROR( ... ) log_emit(LOG_ERROR, "[mqtt] " __VA_ARGS__)
-#define CORE_MQTT_LOG_WARN( ... )  log_emit(LOG_WARN,  "[mqtt] " __VA_ARGS__)
+ * Same shape as the wrappers in core_http_config.h. */
+#define CORE_MQTT_LOG_ERROR( ... ) log_tag_error("mqtt", "" __VA_ARGS__)
+#define CORE_MQTT_LOG_WARN( ... )  log_tag_warn("mqtt", "" __VA_ARGS__)
 
 /* #undef first: coreHTTP's core_http_config_defaults.h defines both as empty
  * under its own #ifndef. A translation unit that reached that header first

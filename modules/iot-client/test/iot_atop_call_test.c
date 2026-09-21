@@ -28,6 +28,7 @@
 #include "iot_atop.h"
 #include "iot_client.h"
 #include "iot_internal.h"
+#include "test_log.h"
 #include "log.h"
 
 #include <stdarg.h>
@@ -476,35 +477,10 @@ static int test_unknown_api_reaches_the_cloud(void)
  * HTTP_DO_NOT_USE_CUSTOM_CONFIG is not set. Nothing else in this suite notices
  * if that wiring goes away, because every other case fits the buffer. */
 
+/* The capture itself lives in the compile-time sink (test_log.h): the
+ * window appends each dispatched line here -- va_copy/truncation
+ * discipline included -- and keeps stderr readable. */
 static char http_log_capture[8192];
-static size_t http_log_capture_len;
-
-static void http_capture_handler(log_level_t level, const char *fmt, va_list args)
-{
-    /* va_copy is mandatory, not tidiness: vsnprintf() below consumes `args`, and
-     * handing a consumed va_list to log_default_handler() -- which vfprintf()s
-     * it again -- is undefined behaviour (C11 7.16.1). It happened to work on
-     * macOS/arm64 and produced parameter-shifted garbage on Linux/x86-64, where
-     * a bogus "host:port" sent a test off connecting to nowhere until the CI
-     * timeout killed it. */
-    va_list copy;
-    va_copy(copy, args);
-    char line[1024];
-    int n = vsnprintf(line, sizeof(line), fmt, copy);
-    va_end(copy);
-        /* vsnprintf returns the length it WOULD have written, so it exceeds
-         * the buffer on a truncated message -- copying `n` reads past `line`.
-         * Routed lines do get long: one coreHTTP parse error interpolates up to
-         * a whole response buffer. */
-    size_t len = (n > 0 && (size_t)n < sizeof(line)) ? (size_t)n : sizeof(line) - 1;
-    if (n > 0 && http_log_capture_len + len + 1 < sizeof(http_log_capture)) {
-        memcpy(http_log_capture + http_log_capture_len, line, len);
-        http_log_capture_len += len;
-        http_log_capture[http_log_capture_len++] = '\n';
-        http_log_capture[http_log_capture_len] = '\0';
-    }
-    log_default_handler(level, fmt, args);
-}
 
 static int test_oversized_response_is_explained(void)
 {
@@ -516,11 +492,9 @@ static int test_oversized_response_is_explained(void)
                                .data = body };
     iot_atop_response_t resp = {0};
 
-    http_log_capture[0] = '\0';
-    http_log_capture_len = 0;
-    log_set_handler(http_capture_handler);
+    test_log_capture_begin(http_log_capture, sizeof http_log_capture);
     int rt = iot_atop_call(&g_client, &req, &resp);
-    log_set_handler(NULL);
+    test_log_capture_end();
 
     int result = 0;
     if (rt == OPRT_OK) {

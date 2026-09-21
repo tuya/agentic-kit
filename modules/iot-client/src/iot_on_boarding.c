@@ -38,14 +38,14 @@ static void activate_context_destroy(void);
 static void parse_activation_message(const pal_t *pal, const char *json_str, activation_message_t *message) {
     cJSON *root = cJSON_Parse(json_str);
     if (!root) {
-        log_error("Failed to parse activation response JSON");
+        IOT_LOGE("Failed to parse activation response JSON");
         return;
     }
 
     // Get data object
     cJSON *data = cJSON_GetObjectItem(root, "data");
     if (!data) {
-        log_error("Activation response missing 'data' field");
+        IOT_LOGE("Activation response missing 'data' field");
         cJSON_Delete(root);
         return;
     }
@@ -55,7 +55,7 @@ static void parse_activation_message(const pal_t *pal, const char *json_str, act
     if (https_url && cJSON_IsString(https_url)) {
         message->https_url = pal_strdup(pal, https_url->valuestring);
         if (message->https_url) {
-            log_info("Activation httpsUrl: %s", message->https_url);
+            IOT_LOGI("Activation httpsUrl: %s", message->https_url);
         }
     }
 
@@ -78,13 +78,13 @@ static void parse_activation_message(const pal_t *pal, const char *json_str, act
         } else if (strcmp(r, "WEAZ") == 0) {
             message->region = WEAZ;
         } else {
-            log_error("Invalid region: %s", r);
+            IOT_LOGE("Invalid region: %s", r);
             cJSON_Delete(root);
             return;
         }
-        log_info("on boarding region: %s", r);
+        IOT_LOGI("on boarding region: %s", r);
     } else {
-        log_error("Activation response missing 'region' field");
+        IOT_LOGE("Activation response missing 'region' field");
         cJSON_Delete(root);
         return;
     }
@@ -94,7 +94,7 @@ static void parse_activation_message(const pal_t *pal, const char *json_str, act
     if (token && cJSON_IsString(token)) {
         strncpy(message->token, token->valuestring, sizeof(message->token) - 1);
         message->token[sizeof(message->token) - 1] = '\0';
-        log_info("Activation token received");
+        IOT_LOGI("Activation token received");
     }
 
     cJSON_Delete(root);
@@ -105,15 +105,17 @@ static void internal_message_callback(const char *topic, size_t topic_len,
                                       const uint8_t *payload, size_t payload_len,
                                       void *user_data) {
     (void)user_data;
-    log_info(">>> internal_message_callback called! topic_len=%u, payload_len=%u", (unsigned)topic_len, (unsigned)payload_len);
+    (void)topic;      /* topic/topic_len feed only the trace below; keep  */
+    (void)topic_len;  /* -Wextra quiet when the module ceiling drops it.  */
+    IOT_LOGI(">>> internal_message_callback called! topic_len=%u, payload_len=%u", (unsigned)topic_len, (unsigned)payload_len);
 
     if (!g_activate_ctx) {
-        log_warn("g_activate_ctx is NULL!");
+        IOT_LOGW("g_activate_ctx is NULL!");
         return;
     }
 
-    log_info("Received activation message on topic: %.*s", (int)topic_len, topic);
-    log_debug("Base64 encoded payload (%u bytes)", (unsigned)payload_len);
+    IOT_LOGI("Received activation message on topic: %.*s", (int)topic_len, topic);
+    IOT_LOGD("Base64 encoded payload (%u bytes)", (unsigned)payload_len);
 
     const pal_t *pal = g_activate_ctx->pal;
 
@@ -132,17 +134,17 @@ static void internal_message_callback(const char *topic, size_t topic_len,
             if (base64_decoded) {
                 ret = mbedtls_base64_decode(base64_decoded, decoded_len, &decoded_len, payload, payload_len);
                 if (ret == 0) {
-                    log_info("Base64 decoded: %u bytes", (unsigned)decoded_len);
+                    IOT_LOGI("Base64 decoded: %u bytes", (unsigned)decoded_len);
                     final_payload = base64_decoded;
                     final_len = decoded_len;
                 } else {
-                    log_warn("Base64 decode failed (ret=%d), using raw payload", ret);
+                    IOT_LOGW("Base64 decode failed (ret=%d), using raw payload", ret);
                     pal->free(base64_decoded);
                     base64_decoded = NULL;
                 }
             }
         } else {
-            log_debug("Base64 decode size check failed (ret=%d), assuming raw data", ret);
+            IOT_LOGD("Base64 decode size check failed (ret=%d), assuming raw data", ret);
         }
     }
 
@@ -156,17 +158,17 @@ static void internal_message_callback(const char *topic, size_t topic_len,
                                   (const uint8_t *)authkey,
                                   decrypted, &decrypted_len);
             if (ret == 0) {
-                log_info("Decrypted payload (%u bytes): %.*s", (unsigned)decrypted_len, (int)decrypted_len, decrypted);
+                IOT_LOGI("Decrypted payload (%u bytes): %.*s", (unsigned)decrypted_len, (int)decrypted_len, decrypted);
                 final_payload = decrypted;
                 final_len = decrypted_len;
             } else {
-                log_warn("Failed to decrypt payload (ret=%d), using base64 decoded data", ret);
+                IOT_LOGW("Failed to decrypt payload (ret=%d), using base64 decoded data", ret);
                 pal->free(decrypted);
                 decrypted = NULL;
             }
         }
     } else {
-        log_debug("No authkey provided or authkey too short, storing decoded payload");
+        IOT_LOGD("No authkey provided or authkey too short, storing decoded payload");
     }
 
     activation_message_t message = {0};
@@ -192,7 +194,7 @@ static void internal_message_callback(const char *topic, size_t topic_len,
             } else {
                 g_activate_ctx->message->https_url = NULL;
             }
-            log_info("Activation message stored in context");
+            IOT_LOGI("Activation message stored in context");
         }
     }
 
@@ -211,7 +213,7 @@ static void internal_message_callback(const char *topic, size_t topic_len,
 
 static int activate_device(const pal_t *pal, on_boarding_config_t *on_boarding, const activation_message_t *act_msg, on_boarding_response_t *response) {
     if (!on_boarding || !response) {
-        log_error("Invalid parameters for on boarding");
+        IOT_LOGE("Invalid parameters for on boarding");
         return OPRT_INVALID_PARAMETER;
     }
 
@@ -277,34 +279,34 @@ static int activate_device(const pal_t *pal, on_boarding_config_t *on_boarding, 
     request.cacert = on_boarding->cacert;
     request.cert_bundle_attach = on_boarding->cert_bundle_attach;
 
-    log_info("Sending activation request with:");
-    log_info("  - Token: [%zu chars, prefix=%.4s...]",
+    IOT_LOGI("Sending activation request with:");
+    IOT_LOGI("  - Token: [%zu chars, prefix=%.4s...]",
              request.token ? strlen(request.token) : 0,
              (request.token && strlen(request.token) >= 4) ? request.token : "----");
-    log_info("  - Software Version: %s", request.sw_ver);
-    log_info("  - Product Key: %s", request.product_key);
-    log_info("  - Protocol Version: %s", request.pv);
-    log_info("  - Baseline Version: %s", request.bv);
-    log_info("  - UUID: %s", request.uuid);
+    IOT_LOGI("  - Software Version: %s", request.sw_ver);
+    IOT_LOGI("  - Product Key: %s", request.product_key);
+    IOT_LOGI("  - Protocol Version: %s", request.pv);
+    IOT_LOGI("  - Baseline Version: %s", request.bv);
+    IOT_LOGI("  - UUID: %s", request.uuid);
     if (request.host) {
-        log_info("  - Server: %s:%d", request.host, request.port > 0 ? request.port : 443);
+        IOT_LOGI("  - Server: %s:%d", request.host, request.port > 0 ? request.port : 443);
     } else {
-        log_info("  - Server: (default)");
+        IOT_LOGI("  - Server: (default)");
     }
     if (request.devid) {
-        log_info("  - Device ID: %s", request.devid);
+        IOT_LOGI("  - Device ID: %s", request.devid);
     }
     if (request.modules) {
-        log_info("  - Modules: %s", request.modules);
+        IOT_LOGI("  - Modules: %s", request.modules);
     }
     if (request.feature) {
-        log_info("  - Feature: %s", request.feature);
+        IOT_LOGI("  - Feature: %s", request.feature);
     }
     if (request.skill_param) {
-        log_info("  - Skill Param: %s", request.skill_param);
+        IOT_LOGI("  - Skill Param: %s", request.skill_param);
     }
     if (request.firmware_key) {
-        log_info("  - Firmware Key: (set)");
+        IOT_LOGI("  - Firmware Key: (set)");
     }
 
     // Send activation request
@@ -312,31 +314,31 @@ static int activate_device(const pal_t *pal, on_boarding_config_t *on_boarding, 
     int ret = atop_activate_request(pal, &request, &activate_response);
 
     if (ret == OPRT_OK) {
-        log_info("✓ Activation successful!");
+        IOT_LOGI("✓ Activation successful!");
 
-        log_info("Device ID: %s", activate_response.devid);
+        IOT_LOGI("Device ID: %s", activate_response.devid);
 
     } else {
-        log_error("✗ Activation request failed with error code: %d", ret);
+        IOT_LOGE("✗ Activation request failed with error code: %d", ret);
 
         // Map error codes to readable messages
         switch (ret) {
             case OPRT_INVALID_PARAMETER:
-                log_error("  - Invalid parameters");
+                IOT_LOGE("  - Invalid parameters");
                 break;
             case OPRT_COMMUNICATION_ERROR:
-                log_error("  - Communication error");
+                IOT_LOGE("  - Communication error");
                 break;
             case OPRT_ATOP_BUSINESS_ERROR:
                 /* e.g. an expired/used pairing token -- the cloud's errorCode
                  * and errorMsg are logged by the envelope layer just above. */
-                log_error("  - Rejected by the cloud (see errorCode above)");
+                IOT_LOGE("  - Rejected by the cloud (see errorCode above)");
                 break;
             case OPRT_TLS_HANDSHAKE_FAILED:
-                log_error("  - TLS handshake failed");
+                IOT_LOGE("  - TLS handshake failed");
                 break;
             default:
-                log_error("  - Unknown error");
+                IOT_LOGE("  - Unknown error");
                 break;
         }
     }
@@ -398,7 +400,7 @@ static int __token_to_region(const char *token, iot_region_t *region)
     } else if (strcmp(prefix, "SG") == 0) {
         *region = SG;
     } else {
-        log_error("Unknown region prefix in token: %s", prefix);
+        IOT_LOGE("Unknown region prefix in token: %s", prefix);
         return OPRT_INVALID_PARAMETER;
     }
     return OPRT_OK;
@@ -408,20 +410,20 @@ int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
                            const char *token, on_boarding_response_t *response)
 {
     if (!on_boarding || !token || token[0] == '\0' || !response) {
-        log_error("Invalid parameters for on_boarding_with_token");
+        IOT_LOGE("Invalid parameters for on_boarding_with_token");
         return OPRT_INVALID_PARAMETER;
     }
 
     size_t token_len = strlen(token);
     if (token_len < 7) {
-        log_error("Token too short: need at least 7 chars (2 region + token + 4 secret)");
+        IOT_LOGE("Token too short: need at least 7 chars (2 region + token + 4 secret)");
         return OPRT_INVALID_PARAMETER;
     }
 
     iot_region_t region;
     int ret = __token_to_region(token, &region);
     if (ret != OPRT_OK) {
-        log_error("Failed to parse region from token prefix");
+        IOT_LOGE("Failed to parse region from token prefix");
         return ret;
     }
 
@@ -438,7 +440,7 @@ int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
     act_msg.env = on_boarding->env;
     act_msg.https_url = iot_region_to_host(region, on_boarding->env);
 
-    log_info("on_boarding_with_token: region=%d env=%d",
+    IOT_LOGI("on_boarding_with_token: region=%d env=%d",
              region, on_boarding->env);
 
     return activate_device(pal, on_boarding, &act_msg, response);
@@ -450,7 +452,7 @@ static int activate_context_init(const pal_t *pal) {
     }
     g_activate_ctx = (activate_context_t *)pal->malloc(sizeof(activate_context_t));
     if (!g_activate_ctx) {
-        log_error("Failed to allocate activate context");
+        IOT_LOGE("Failed to allocate activate context");
         return OPRT_MALLOC_FAILED;
     }
     g_activate_ctx->received_activation_message = false;
@@ -462,7 +464,7 @@ static int activate_context_init(const pal_t *pal) {
 
 static void activate_context_destroy() {
     if (!g_activate_ctx) {
-        log_error("Activate context is not initialized");
+        IOT_LOGE("Activate context is not initialized");
         return;
     }
     const pal_t *pal = g_activate_ctx->pal;
@@ -476,18 +478,18 @@ static void activate_context_destroy() {
 
 int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding, on_boarding_response_t *response) {
     if (!on_boarding || !response) {
-        log_error("Invalid parameters for on boarding");
+        IOT_LOGE("Invalid parameters for on boarding");
         return OPRT_INVALID_PARAMETER;
     }
 
     if (g_on_boarding_in_progress) {
-        log_error("on_boarding_with_qrcode: already in progress");
+        IOT_LOGE("on_boarding_with_qrcode: already in progress");
         return OPRT_NOT_SUPPORTED;
     }
     g_on_boarding_in_progress = true;
 
     if (activate_context_init(pal) != 0) {
-        log_error("Failed to initialize activate context");
+        IOT_LOGE("Failed to initialize activate context");
         return OPRT_MALLOC_FAILED;
     }
 
@@ -507,7 +509,7 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
     // clientId: acon_{uuid}
     client_id = (char *)pal->malloc(6 + uuid_len);
     if (!client_id) {
-        log_error("Failed to allocate client_id buffer (%zu bytes)", 6 + uuid_len);
+        IOT_LOGE("Failed to allocate client_id buffer (%zu bytes)", 6 + uuid_len);
         ret = OPRT_MALLOC_FAILED;
         goto end;
     }
@@ -517,7 +519,7 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
     // username: acon_{uuid}|pv=2.3
     username = (char *)pal->malloc(14 + uuid_len);
     if (!username) {
-        log_error("Failed to allocate username buffer (%zu bytes)", 14 + uuid_len);
+        IOT_LOGE("Failed to allocate username buffer (%zu bytes)", 14 + uuid_len);
         ret = OPRT_MALLOC_FAILED;
         goto end;
     }
@@ -527,7 +529,7 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
     // password: first 16 chars of MD5(authkey)
     char password[17];
     if (iot_md5_password(on_boarding->authkey, password) != 0) {
-        log_error("Failed to compute MQTT auth password (MD5)");
+        IOT_LOGE("Failed to compute MQTT auth password (MD5)");
         ret = OPRT_COMMUNICATION_ERROR;
         goto end;
     }
@@ -535,15 +537,15 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
     // subscribe topic: d/ai/{uuid}
     subscribe_topic = (char *)pal->malloc(6 + uuid_len);
     if (!subscribe_topic) {
-        log_error("Failed to allocate subscribe_topic buffer (%zu bytes)", 6 + uuid_len);
+        IOT_LOGE("Failed to allocate subscribe_topic buffer (%zu bytes)", 6 + uuid_len);
         ret = OPRT_MALLOC_FAILED;
         goto end;
     }
     sn = snprintf(subscribe_topic, 6 + uuid_len, "d/ai/%s", on_boarding->uuid);
     if (sn < 0 || (size_t)sn >= 6 + uuid_len) { ret = OPRT_COMMUNICATION_ERROR; goto end; }
 
-    log_info("Device activation starting...");
-    log_info("  subscribe_topic: %s", subscribe_topic);
+    IOT_LOGI("Device activation starting...");
+    IOT_LOGI("  subscribe_topic: %s", subscribe_topic);
 
 
     // Query MQTT endpoint from IoT DNS service
@@ -565,7 +567,7 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
     iot_dns_url_config_response_t dns_resp = {0};
     int dns_ret = iot_dns_url_config(pal, &dns_req, &dns_resp);
     if (dns_ret != OPRT_OK) {
-        log_error("Failed to query IoT DNS for MQTT endpoint: %d", dns_ret);
+        IOT_LOGE("Failed to query IoT DNS for MQTT endpoint: %d", dns_ret);
         ret = OPRT_COMMUNICATION_ERROR;
         goto end;
     }
@@ -578,7 +580,7 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
         }
     }
     if (!mqtt_addr) {
-        log_error("IoT DNS returned no %s endpoint", mqtt_dns_key);
+        IOT_LOGE("IoT DNS returned no %s endpoint", mqtt_dns_key);
         iot_dns_url_config_response_free(pal, &dns_resp);
         ret = OPRT_INVALID_RESULT;
         goto end;
@@ -588,7 +590,7 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
     size_t broker_url_len = strlen(scheme) + 3 + strlen(mqtt_addr) + 1;
     broker_url = (char *)pal->malloc(broker_url_len);
     if (!broker_url) {
-        log_error("Failed to allocate broker URL buffer (%zu bytes)", broker_url_len);
+        IOT_LOGE("Failed to allocate broker URL buffer (%zu bytes)", broker_url_len);
         iot_dns_url_config_response_free(pal, &dns_resp);
         ret = OPRT_MALLOC_FAILED;
         goto end;
@@ -599,7 +601,7 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
         ret = OPRT_COMMUNICATION_ERROR;
         goto end;
     }
-    log_info("MQTT broker URL from DNS: %s", broker_url);
+    IOT_LOGI("MQTT broker URL from DNS: %s", broker_url);
 
     mqtt_tls_config_t tls_config = {0};
     if (!on_boarding->mqtt_disable_tls) {
@@ -608,7 +610,7 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
         } else if (on_boarding->cert_bundle_attach) {
             tls_config.cert_bundle_attach = on_boarding->cert_bundle_attach;
         } else {
-            log_warn("MQTT TLS without CA certificate - server verification disabled");
+            IOT_LOGW("MQTT TLS without CA certificate - server verification disabled");
         }
         tls_config.verify_peer = false;
     }
@@ -629,14 +631,14 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
     client = mqtt_client_create_with_config(&mqtt_config);
     iot_dns_url_config_response_free(pal, &dns_resp);
     if (!client) {
-        log_error("Failed to create MQTT client for activation");
+        IOT_LOGE("Failed to create MQTT client for activation");
         ret = OPRT_MALLOC_FAILED;
         goto end;
     }
 
     // Connect to broker
     if (mqtt_client_connect(client) != 0) {
-        log_error("Failed to connect to MQTT broker");
+        IOT_LOGE("Failed to connect to MQTT broker");
         mqtt_client_destroy(client);
         client = NULL;
         ret = OPRT_COMMUNICATION_ERROR;
@@ -645,7 +647,7 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
 
     // Subscribe to activation topic
     if (mqtt_client_subscribe(client) != 0) {
-        log_error("Failed to subscribe to activation topic");
+        IOT_LOGE("Failed to subscribe to activation topic");
         mqtt_client_disconnect(client);
         mqtt_client_destroy(client);
         client = NULL;
@@ -653,7 +655,7 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
         goto end;
     }
 
-    log_info("Subscribed to %s, waiting for activation message...", subscribe_topic);
+    IOT_LOGI("Subscribed to %s, waiting for activation message...", subscribe_topic);
 
     // Wait for activation message
     uint32_t elapsed_ms = 0;
@@ -662,7 +664,7 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
     uint32_t timeout_ms = on_boarding->timeout_ms > 0 ? on_boarding->timeout_ms : 0xFFFFFFFF;
     while (!g_activate_ctx->received_activation_message && elapsed_ms < timeout_ms) {
         if (mqtt_client_process(client, poll_interval_ms) != 0) {
-            log_warn("MQTT process returned error");
+            IOT_LOGW("MQTT process returned error");
         }
         elapsed_ms += poll_interval_ms;
     }
@@ -671,7 +673,7 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
     client = NULL;
 
     if (elapsed_ms >= timeout_ms) {
-        log_error("Timeout waiting for activation message");
+        IOT_LOGE("Timeout waiting for activation message");
         ret = OPRT_COMMUNICATION_ERROR;
         goto end;
     }
@@ -679,7 +681,7 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
     g_activate_ctx->message->env = on_boarding->env;
     ret = activate_device(pal, on_boarding, g_activate_ctx->message, response);
     if (ret != OPRT_OK) {
-        log_error("Failed to activate device: %d", ret);
+        IOT_LOGE("Failed to activate device: %d", ret);
     }
 end:
     pal->free(client_id);

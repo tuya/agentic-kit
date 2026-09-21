@@ -53,6 +53,22 @@ test:
     - . venv/bin/activate
     - pip install -q ${PIP_DEPS}
   script:
+    # Static guard: SDK code must log through the facade (common/log.h
+    # log_tag_*), never call log_emit/printf directly -- a raw call site
+    # bypasses the compile-time ceiling and reappears in every build.
+    # Allowed: the facade + its sink (common/log.{h,c}) and test harnesses;
+    # examples and third_party are out of scope. The word boundary is
+    # hand-rolled as (^|[^A-Za-z0-9_]) so fprintf/snprintf-style libc calls
+    # are not flagged and the CI image's git needs no PCRE.
+    - |
+      LEAKS=$(git grep -nE '(^|[^A-Za-z0-9_])(log_emit|printf)[ ]*\(' -- modules common pal \
+                ':!common/log.h' ':!common/log.c' ':(exclude,glob)**/test/**' || true)
+      if [ -n "$LEAKS" ]; then
+        echo "Raw log_emit/printf call sites outside the log facade:"
+        echo "$LEAKS"
+        echo "Route them through the log_tag_* macros in common/log.h instead."
+        exit 1
+      fi
     # cd into the build dir rather than using `--test-dir` (the CI image's
     # ctest does not honour that flag and would silently find no tests).
     - cd ${CMAKE_BUILD_DIR}
@@ -71,14 +87,15 @@ test:memory-leak:
       VG=modules/iot-client/test/run_valgrind_check.sh
       chmod +x "$VG"
       # Leak-check the pure (no-subprocess) binaries, grouped by module:
-      #   rtc-tcp-client : tai_unit_tests, tai_integration_tests
+      #   rtc-tcp-client : tai_unit_tests, tai_log_level_zero_tests,
+      #                    tai_log_module_zero_tests, tai_integration_tests
       #   iot-client     : iot_cipher_test
       #   tuya-ble       : tuya_ble_test
       # rtc-client is a prebuilt closed lib (headers + libstm.a) with no offline
       # test, so there is nothing to leak-check for it here. The mock-driven iot
       # tests are covered by the `test` job; under valgrind their Python
       # handshakes would time out.
-      for t in tai_unit_tests tai_integration_tests iot_cipher_test tuya_ble_test; do
+      for t in tai_unit_tests tai_log_level_zero_tests tai_log_module_zero_tests tai_integration_tests iot_cipher_test tuya_ble_test; do
         echo "==================== valgrind: ${t} ===================="
         "$VG" "./${CMAKE_BUILD_DIR}/${t}" 2>&1 | tee "valgrind-${t}.log"
         rc=${PIPESTATUS[0]}

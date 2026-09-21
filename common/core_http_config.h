@@ -23,8 +23,8 @@
 /* coreHTTP invokes these with a doubly-parenthesised argument --
  * LogError( ( "fmt", args ) ) -- so `message` arrives complete with its own
  * parentheses, which then serve as the call parentheses of the macro below. */
-#define CORE_HTTP_LOG_ERROR( ... ) log_emit(LOG_ERROR, "[http] " __VA_ARGS__)
-#define CORE_HTTP_LOG_WARN( ... )  log_emit(LOG_WARN,  "[http] " __VA_ARGS__)
+#define CORE_HTTP_LOG_ERROR( ... ) log_tag_error("http", "" __VA_ARGS__)
+#define CORE_HTTP_LOG_WARN( ... )  log_tag_warn("http", "" __VA_ARGS__)
 
 /* #undef first, mirroring core_mqtt_config.h: whichever of the two vendored
  * config headers a translation unit reaches second must win rather than warn.

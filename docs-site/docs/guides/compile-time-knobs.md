@@ -6,7 +6,7 @@ sidebar_position: 9
 
 # 编译期旋钮配置
 
-SDK 的全部编译期旋钮——TAI 收发缓冲与调度、MQTT 超时与包大小、ATOP HTTP 缓冲、FreeRTOS 任务栈——共 18 个，默认值按**所属子系统**存放（集成方覆盖的统一挂载点在 `common/log.h`，原因见下文）：FreeRTOS 任务旋钮在 `pal/pal_config_defaults.h`；模块旋钮在各自 include/ 目录——`modules/iot-client/include/iot_client_config_defaults.h`（MQTT + ATOP HTTP）、`modules/rtc-tcp-client/include/tai_config_defaults.h`（TAI 缓冲与调度）；tuya-ble 目前没有编译期旋钮（原因见下文速查表）。每个旋钮的完整说明（单位、联动、踩过的坑）在各自文件的注释里；本页讲怎么按产品覆盖它们、这套机制为什么长这样，并给出速查表。
+SDK 的全部编译期旋钮——TAI 收发缓冲与调度、MQTT 超时与包大小、ATOP HTTP 缓冲、FreeRTOS 任务栈、日志级别（全局一条 + 模块级三条，每模块一条）——共 22 个，默认值按**所属子系统**存放：全局日志上限 `AGENTIC_KIT_LOG_LEVEL` 在 `common/log.h`（这个头同时承载集成方覆盖的统一挂载点，原因见下文）；FreeRTOS 任务旋钮在 `pal/pal_config_defaults.h`；模块旋钮在各自 include/ 目录——`modules/iot-client/include/iot_client_config_defaults.h`（MQTT + ATOP HTTP + 模块日志上限）、`modules/rtc-tcp-client/include/tai_config_defaults.h`（TAI 缓冲、调度与模块日志上限）、`modules/tuya-ble/include/tuya_ble_config_defaults.h`（模块日志上限；tuya-ble 目前仅此一个旋钮，原因见下文）。每个旋钮的完整说明（单位、联动、踩过的坑）在各自文件的注释里；本页讲怎么按产品覆盖它们、这套机制为什么长这样，并给出速查表。
 
 ## 三种覆盖方式（任选其一） {#三种覆盖方式任选其一}
 
@@ -18,6 +18,8 @@ SDK 的全部编译期旋钮——TAI 收发缓冲与调度、MQTT 超时与包�
 /* agentic_kit_config.h —— 只写要改的，其余用 SDK 默认 */
 #define AGENTIC_KIT_RESPONSE_BUFFER_SIZE  8192   /* 产品 DP schema 大 */
 #define AGENTIC_KIT_TAI_FRAG_BUF_SIZE    16000U  /* ESP32 无 PSRAM：缩小收包缓冲 */
+#define AGENTIC_KIT_LOG_LEVEL                2   /* 量产只留 error+warn；代价见下文"日志"一节 */
+#define AGENTIC_KIT_TAI_LOG_LEVEL            0   /* 全局压到 2 之后，把 rtc-tcp-client 整个模块再关死（连 ERROR/WARN 也静音；只降不升，见下文） */
 ```
 
 ESP-IDF 工程（SDK 以组件形式编译）：把文件放进项目任意目录，加一行让组件看得到它——
@@ -39,7 +41,8 @@ cmake -B build -DCMAKE_C_FLAGS="-I<config 所在目录>"
 
 ```cmake
 target_compile_definitions(my_sdk_target PRIVATE
-    AGENTIC_KIT_RESPONSE_BUFFER_SIZE=8192)
+    AGENTIC_KIT_RESPONSE_BUFFER_SIZE=8192
+    AGENTIC_KIT_LOG_LEVEL=2)
 ```
 
 ### 方式三：`AGENTIC_KIT_USER_CONFIG` 指定任意文件名 {#方式三-agentic_kit_user_config-指定任意文件名}
@@ -58,7 +61,7 @@ target_compile_definitions(my_sdk_target PRIVATE
 
 ## 为什么这样设计 {#为什么这样设计}
 
-**为什么默认值分散在各子系统、覆盖挂载点却只有一个。** 这些默认值原本散落在各调用点，缓冲大小实际是**产品属性**（schema 多大、有没有 PSRAM、音频帧长多少），选型时需要按内存预算逐项审；生产事故复盘时也要能一眼回答"这块内存是哪个旋钮、为什么是这个值"。现在默认值跟着所属子系统走——FreeRTOS 任务在 `pal/pal_config_defaults.h`、模块旋钮在各自 include/——审预算、做评审时对着所属文件即可。而集成方覆盖的**捡起逻辑**只存在于 `common/log.h` 一处：SDK 每个编译单元都包含这个头，各 `*_config_defaults.h` 也都先包含它，因此任何 `#ifndef` 默认值生效前，你的覆盖一定已经就位——一份 `agentic_kit_config.h` 打动全部 18 个旋钮，不需要按子系统拆多个覆盖文件。
+**为什么默认值分散在各子系统、覆盖挂载点却只有一个。** 这些默认值原本散落在各调用点，缓冲大小实际是**产品属性**（schema 多大、有没有 PSRAM、音频帧长多少），选型时需要按内存预算逐项审；生产事故复盘时也要能一眼回答"这块内存是哪个旋钮、为什么是这个值"。现在默认值跟着所属子系统走——日志在 `common/log.h`、FreeRTOS 任务在 `pal/pal_config_defaults.h`、模块旋钮在各自 include/——审预算、做评审时对着所属文件即可。而集成方覆盖的**捡起逻辑**只存在于 `common/log.h` 一处：SDK 每个编译单元都包含这个头，各 `*_config_defaults.h` 也都先包含它，因此任何 `#ifndef` 默认值生效前，你的覆盖一定已经就位——一份 `agentic_kit_config.h` 打动全部 22 个旋钮，不需要按子系统拆多个覆盖文件。
 
 **为什么都加 `AGENTIC_KIT_` 前缀。** 撞名不是假设出来的风险：coreMQTT 自带的 `core_mqtt_config_defaults.h` 定义了同名 `MQTT_SEND_TIMEOUT_MS`（默认 20000U），与 SDK 的 2000U 谁生效取决于包含顺序；`LOG_LEVEL` 也被多个平台 SDK 占用。前缀把这些名字搬进 SDK 自己的命名空间——你的 `-D` 不会再打到别人的宏，别人的也不会打到你的。
 
@@ -66,9 +69,72 @@ target_compile_definitions(my_sdk_target PRIVATE
 
 **为什么是 `#ifndef` 默认 + 先包含你的文件，而不是让你直接改 SDK 文件。** 你不碰 SDK 源文件，升级没有合并冲突；你的文件里没写的旋钮自动跟随 SDK 默认值。
 
+## 日志：编译期闸门，单层 {#日志编译期闸门单层}
+
+`AGENTIC_KIT_LOG_LEVEL` 是所有从源码编译的 SDK 模块的全局日志开关（预编译的 rtc-client 除外——它的日志走自己的运行时接口，见其参考页 §3.5），且只在编译期起作用：**0 = 全关，1 = error，2 = +warn，3 = +info，4 = +debug（默认）**。高于上限的日志在编译期整体消失——没有函数调用、不求值参数、格式字符串也不进固件（直接省 flash/RAM）；上限以下的日志无条件输出。**没有运行时级别，编译进什么就出什么。**
+
+需要按模块区分级别时（比如 iot-client 只要 info、rtc-tcp-client 要 debug），用**每模块上限**：`AGENTIC_KIT_IOT_LOG_LEVEL`、`AGENTIC_KIT_TAI_LOG_LEVEL`、`AGENTIC_KIT_TUYA_BLE_LOG_LEVEL`，默认都等于全局上限，且**只能把单个模块再压低**——有效上限 = 两者取小，设得比全局高没有效果（超出部分会在模块的 config 文件里被钳回全局值，块级门控看到的就是有效上限）。它们门控在各自模块词汇表的定义处（`IOT_LOG*` / `TAI_LOG*` / `TUYA_BLE_HAL_LOG*`，外加 rtc-tcp-client 的包日志格式化器），与全局上限走同一条覆盖捡起通道。上面那个"iot 只要 info、rtc 要 debug"就是：全局保持默认 4，再加一行 `-DAGENTIC_KIT_IOT_LOG_LEVEL=3`。注意上限按**行实际输出的级别**判断：tuya-ble 的 `TUYA_BLE_HAL_LOGI` 派发在 debug，想保留它得给 4 而不是 3。
+
+因此日志量是构建决策：量产固件用 `-DAGENTIC_KIT_LOG_LEVEL=2` 编译，error + warn 之外的一切（代码与字符串）都不进镜像；开发构建保持默认 4 拿到全部日志。运行时层已整体移除（`log_set_level()`/`log_get_level()`/`tai_set_log_level()` 均已删除），级别不再有第二个开关。**日志去哪儿同样是构建决策**：默认输出到 stderr；定义 `AGENTIC_KIT_LOG`（见下节）把每行分发进你自己的宏——需要"运行时收放"的场合（比如测试里捕获/静默），把模式做进你宏的目标函数即可，SDK 不持有任何日志状态。
+
+> **迁移**：原来的 per-module `-DTAI_LOG_LEVEL=N` 现在是 `-DAGENTIC_KIT_TAI_LOG_LEVEL=N`（仍只作用于 rtc-tcp-client，语义变化：只能在全局上限**之下**再压低本模块；要把整个 SDK 一起压低用 `-DAGENTIC_KIT_LOG_LEVEL=N`）。原来在启动时调 `log_set_level(N)` 的代码：删除调用，改用 `-DAGENTIC_KIT_LOG_LEVEL=N` 编译，或在你 `AGENTIC_KIT_LOG` 的目标里按 level 过滤。原来用 `log_set_handler()` 安装 handler 的代码：把那个函数变成 `AGENTIC_KIT_LOG` 的目标（它现在直接拿到 level 和裸 tag，连格式串里的 tag 前缀都不用再剥）。
+
+### 改写日志分发：AGENTIC_KIT_LOG {#改写日志分发agentic_kit_log}
+
+日志的去向没有运行时开关，它由你在编译期决定：在旋钮的同一个覆盖文件里定义 `AGENTIC_KIT_LOG`，SDK 的每行日志就分发进你自己的宏。这正是接宏式日志系统（ESP-IDF 的 `ESP_LOGx`、Zephyr 的 `LOG_*`）的路——宏对宏，没有 `va_list` 中转（`va_list` 没法转发给宏，凡走函数桥接的方案都得 `vsnprintf` 进缓冲再拿 `%s` 喂出去：多一次拷贝、多一个截断点、丢掉对方宏的格式检查）：
+
+```c
+/* agentic_kit_config.h —— 与旋钮同一个文件、同一个捡起机制；
+ * level 是 SDK 的 1–4 整数，esp_log_level_t 需要一层映射 */
+#define AGENTIC_KIT_LOG(level, tag, fmt, ...)                                   \
+    ESP_LOG_LEVEL_LOCAL((level) == LOG_ERROR ? ESP_LOG_ERROR :                  \
+                        (level) == LOG_WARN  ? ESP_LOG_WARN :                   \
+                        (level) == LOG_INFO  ? ESP_LOG_INFO :                   \
+                                              ESP_LOG_DEBUG,                    \
+                        tag, fmt, ##__VA_ARGS__)
+```
+
+SDK 里所有日志宏（iot-client 的 `IOT_LOG*`、`TAI_LOG*`、`TUYA_BLE_HAL_LOG*`）都汇到 `log_tag_*`，再经 `AGENTIC_KIT_LOG` 分发——一个定义接管全部。你拿到的是 **level、裸 tag、printf 格式串与参数**：tag 是独立 token，结构化 sink 和按 tag 过滤从此可行。实际取值：iot-client 一律 `"iot"`，tuya-ble 一律 `"ble"`，rtc-tcp-client 按源文件细分（`"client"`/`"transport"`/`"proto"`/`"crypto"`/`"pkt"`），公共与 PAL 层另有 `"mqtt"`/`"http"`/`"tls"`/`"rng"`/`"pal"`。
+
+两条规则，两个方向都成立：
+
+- **闸门仍然在上**：被 `AGENTIC_KIT_LOG_LEVEL` 编译掉的行，改写救不回来（`log_tag_*` 在上限之上展开为 `((void)0)`）；
+- **改写必须覆盖编译 SDK 源的每个目标**——与旋钮同一条铁律。没有运行时分发可以回退，也没有第二道开关：编译进什么，就打印什么。默认展开保留 `log_emit` 的 `format(printf)` 编译期检查；换成你自己的宏就不再有这层检查（除非你自己加回 attribute）。你的目标若是函数而不是宏，它可以调 `log_emit_valist()`（facade 的 `va_list` 入口，对应 `esp_log_writev` 的角色）复用默认 stderr 输出，不必重写格式化。
+
+函数型 sink 的完整形状——注意 `log_emit_valist()` **不带 tag 参数**，tag 要在宏里折进格式串，输出才会像默认那样带 `[tag]` 前缀：
+
+```c
+/* agentic_kit_config.h */
+#define AGENTIC_KIT_LOG(level, tag, fmt, ...) \
+    my_sink(level, "[" tag "] " fmt, ##__VA_ARGS__)
+
+/* 你的代码（另需 #include <stdarg.h>） */
+void my_sink(log_level_t level, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    log_emit_valist(level, fmt, ap);
+    va_end(ap);
+}
+```
+
 ## 旋钮速查 {#旋钮速查}
 
-默认值与详细理由以各 config 文件的注释为准；"何时调整"是最常见的场景提示。各表所在文件：PAL 表在 `pal/pal_config_defaults.h`；iot-client 两表在 `modules/iot-client/include/iot_client_config_defaults.h`；TAI 表在 `modules/rtc-tcp-client/include/tai_config_defaults.h`。
+默认值与详细理由以各 config 文件的注释为准；"何时调整"是最常见的场景提示。各表所在文件：全局日志上限在 `common/log.h`；三个模块日志上限在各自模块的 config 文件（见本页开头的文件清单）；PAL 表在 `pal/pal_config_defaults.h`；iot-client 三表在 `modules/iot-client/include/iot_client_config_defaults.h`；TAI 表在 `modules/rtc-tcp-client/include/tai_config_defaults.h`；tuya-ble 表在 `modules/tuya-ble/include/tuya_ble_config_defaults.h`。
+
+### 全 SDK {#全-sdk}
+
+| 旋钮 | 默认 | 何时调整 |
+|------|------|---------|
+| `AGENTIC_KIT_LOG_LEVEL` | 4（debug） | 量产降到 1–2（编译期单层，见上文） |
+
+### 每模块日志上限 {#每模块日志上限}
+
+| 旋钮 | 默认 | 何时调整 |
+|------|------|---------|
+| `AGENTIC_KIT_IOT_LOG_LEVEL` | = `AGENTIC_KIT_LOG_LEVEL` | 只压低 iot-client 一个模块（只降不升，见上文"日志"节） |
+| `AGENTIC_KIT_TAI_LOG_LEVEL` | = `AGENTIC_KIT_LOG_LEVEL` | 只压低 rtc-tcp-client；低于 3 时连包日志格式化器一起去掉 |
+| `AGENTIC_KIT_TUYA_BLE_LOG_LEVEL` | = `AGENTIC_KIT_LOG_LEVEL` | 只压低 tuya-ble；`TUYA_BLE_HAL_LOGI` 派发在 debug，保留它需 4 |
 
 ### iot-client：MQTT {#iot-client-mqtt}
 
@@ -114,6 +180,8 @@ target_compile_definitions(my_sdk_target PRIVATE
 
 | 旧名 | 新名 |
 |------|------|
+| `LOG_LEVEL` | `AGENTIC_KIT_LOG_LEVEL` |
+| `TAI_LOG_LEVEL` | `AGENTIC_KIT_TAI_LOG_LEVEL`（仍只作用于 rtc-tcp-client，且只能压低到全局上限之下；全局用 `AGENTIC_KIT_LOG_LEVEL`） |
 | `MQTT_MAX_PACKET_SIZE` | `AGENTIC_KIT_MQTT_MAX_PACKET_SIZE` |
 | `MQTT_SEND_TIMEOUT_MS` | `AGENTIC_KIT_MQTT_SEND_TIMEOUT_MS` |
 | `MQTT_RECV_TIMEOUT_MS` | `AGENTIC_KIT_MQTT_RECV_TIMEOUT_MS` |
@@ -136,9 +204,9 @@ target_compile_definitions(my_sdk_target PRIVATE
 ## 这些名字故意不在 config 文件里 {#这些名字故意不在-config-文件里}
 
 - **`TUYA_BLE_HAL_LOGI/LOGW/LOGE/HEXDUMP`** —— 定义在 `modules/tuya-ble/include/tuya_ble_prov.h`，是该公开头文件的端口绑定契约，由端口在包含前覆盖。
-- **`TUYA_BLE_RX_BUF_SIZE` / `TUYA_BLE_TX_BUF_SIZE` / `TUYA_BLE_TX_QUEUE_DEPTH`** —— 同样在 `tuya_ble_prov.h`，但原因不同：它们决定公共结构体 `tuya_ble_prov_state_t` 的布局，端口按它们设定自己的缓冲尺寸，属于端口 API 的一部分；改它们改的是端口要跟着重编、重定尺寸的结构体布局（该头文件本身声明布局不保证 ABI 稳定），不是构建旋钮。tuya-ble 目前因此没有任何编译期旋钮（完整说明见 `tuya_ble_prov.h` 的头注释；将来出现旋钮时将以 `AGENTIC_KIT_TUYA_BLE_*` 命名落在 `modules/tuya-ble/include/tuya_ble_config_defaults.h`）。
+- **`TUYA_BLE_RX_BUF_SIZE` / `TUYA_BLE_TX_BUF_SIZE` / `TUYA_BLE_TX_QUEUE_DEPTH`** —— 同样在 `tuya_ble_prov.h`，但原因不同：它们决定公共结构体 `tuya_ble_prov_state_t` 的布局，端口按它们设定自己的缓冲尺寸，属于端口 API 的一部分；改它们改的是端口要跟着重编、重定尺寸的结构体布局（该头文件本身声明布局不保证 ABI 稳定），不是构建旋钮。tuya-ble 的编译期旋钮因此只有一个——模块日志上限 `AGENTIC_KIT_TUYA_BLE_LOG_LEVEL`，按上述命名约定落在 `modules/tuya-ble/include/tuya_ble_config_defaults.h`（几何/布局常量的完整说明见 `tuya_ble_prov.h` 的头注释）。
 - **`IOT_SDK_SW_VER` / `PV` / `BV` 与区域 ATOP 域名** —— `modules/iot-client/src/iot_internal.h`，发版管理的值，不是构建旋钮（内部头，与旋钮分家，不走覆盖机制）。
-- **coreMQTT / coreHTTP 日志路由** —— `common/core_mqtt_config.h`、`common/core_http_config.h`；它们把 coreMQTT/coreHTTP 的内部日志路由到全局日志 facade，不是构建旋钮。
+- **coreMQTT / coreHTTP 日志路由** —— `common/core_mqtt_config.h`、`common/core_http_config.h`；路由后的日志行同样过 `AGENTIC_KIT_LOG_LEVEL` 闸门，无需单独调整。
 
 ## 怎么确认覆盖生效了 {#怎么确认覆盖生效了}
 
@@ -156,7 +224,7 @@ target_compile_definitions(my_sdk_target PRIVATE
 cc -I<sdk>/modules/iot-client/include -I<sdk>/common -I<你的 config 目录> -c probe.c   # 安静通过 = 生效
 ```
 
-**行为观察**。ATOP 响应超限时，错误日志会直接给出当前缓冲大小并建议对应 `-D`（默认 handler 的输出形状是 `HH:MM:SS [E] [模块tag]`；`(server said …)` 是 HTTP 状态码——服务端往往已成功返回 200，这正是这行日志要澄清的误解）：
+**行为观察**。ATOP 响应超限时，错误日志会直接给出当前缓冲大小并建议对应 `-D`（默认输出的形状是 `HH:MM:SS [E] [模块tag]`；`(server said …)` 是 HTTP 状态码——服务端往往已成功返回 200，这正是这行日志要澄清的误解）：
 
 ```text
 14:13:15 [E] [iot] HTTP response does not fit: need 6558 B body + 300 B headers, buffer is 4096 B (server said 200). Rebuild with a larger -DAGENTIC_KIT_RESPONSE_BUFFER_SIZE.

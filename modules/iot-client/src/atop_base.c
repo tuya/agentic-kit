@@ -87,7 +87,7 @@
      if (md5_ret == 0) md5_ret = mbedtls_md5_finish(&ctx, digest);
      mbedtls_md5_free(&ctx);
      if (md5_ret != 0) {
-         log_error("MD5 computation failed: -0x%04x", -md5_ret);
+         IOT_LOGE("MD5 computation failed: -0x%04x", -md5_ret);
          return OPRT_COMMUNICATION_ERROR;
      }
 
@@ -133,7 +133,7 @@
      printlen += (size_t)ret;
      rt = atop_url_params_sign(pal, key, params, param_num, (uint8_t *)buffer + printlen, &sign_len);
      if (rt != 0) {
-         log_error("atop_url_params_sign error:%d", rt);
+         IOT_LOGE("atop_url_params_sign error:%d", rt);
          return rt;
      }
      printlen += sign_len;
@@ -164,13 +164,13 @@
      size_t buflen = AES_GCM128_NONCE_LEN + ilen + AES_GCM128_TAG_LEN;
      uint8_t *encrypted_buffer = pal->malloc(buflen);
      if (encrypted_buffer == NULL) {
-         log_error("encrypted_buffer malloc fail");
+         IOT_LOGE("encrypted_buffer malloc fail");
          return OPRT_MALLOC_FAILED;
      }
 
      /* Nonce - generate random nonce from the shared DRBG */
      if (rng_bytes(pal, encrypted_buffer, AES_GCM128_NONCE_LEN) != 0) {
-         log_error("Failed to generate nonce via RNG");
+         IOT_LOGE("Failed to generate nonce via RNG");
          pal->free(encrypted_buffer);
          return OPRT_COMMUNICATION_ERROR;
      }
@@ -189,7 +189,7 @@
                                              encrypted_buffer + AES_GCM128_NONCE_LEN, &encrypt_olen,
                                              encrypted_buffer + AES_GCM128_NONCE_LEN + ilen, AES_GCM128_TAG_LEN);
      if (ret != OPRT_OK) {
-         log_error("mbedtls_cipher_auth_encrypt_wrapper:0x%x", ret);
+         IOT_LOGE("mbedtls_cipher_auth_encrypt_wrapper:0x%x", ret);
          pal->free(encrypted_buffer);
          return ret;
      }
@@ -243,7 +243,7 @@
                                  .data_len = ilen - AES_GCM128_NONCE_LEN - AES_GCM128_TAG_LEN},
          output, olen, (unsigned char *)(input + (ilen - AES_GCM128_TAG_LEN)), AES_GCM128_TAG_LEN);
      if (rt != OPRT_OK) {
-         log_error("aes128_ecb_decode error:%d", rt);
+         IOT_LOGE("aes128_ecb_decode error:%d", rt);
          return rt;
      }
 
@@ -301,7 +301,7 @@
      char *value;
      size_t value_length;
 
-     log_debug("atop_response_data_decode: %s", (char *)input);
+     IOT_LOGD("atop_response_data_decode: %s", (char *)input);
 
      cJSON *root = cJSON_Parse((char *)input);
      if (NULL == root) {
@@ -310,26 +310,26 @@
 
      cJSON *item = cJSON_GetObjectItem(root, "result");
      if (NULL == item) {
-         log_error("no result");
+         IOT_LOGE("no result");
          cJSON_Delete(root);
          return OPRT_COMMUNICATION_ERROR;
      }
 
      if (!cJSON_IsString(item) || item->valuestring == NULL) {
-         log_error("result is not a string");
+         IOT_LOGE("result is not a string");
          cJSON_Delete(root);
          return OPRT_COMMUNICATION_ERROR;
      }
      value = item->valuestring;
      value_length = strlen(value);
 
-     log_debug("base64 encode result:\r\n%.*s", (int)value_length, value);
+     IOT_LOGD("base64 encode result:\r\n%.*s", (int)value_length, value);
 
      // base64 decode buffer
      size_t b64buffer_len = value_length * 3 / 4;
      uint8_t *b64buffer = pal->malloc(b64buffer_len);
      if (b64buffer == NULL) {
-         log_error("Failed to allocate base64 decode buffer");
+         IOT_LOGE("Failed to allocate base64 decode buffer");
          cJSON_Delete(root);
          return OPRT_MALLOC_FAILED;
      }
@@ -338,7 +338,7 @@
      // base64 decode
      rt = mbedtls_base64_decode(b64buffer, b64buffer_len, &b64buffer_olen, (const uint8_t *)value, value_length);
      if (rt != OPRT_OK) {
-         log_error("base64 decode error:%d", rt);
+         IOT_LOGE("base64 decode error:%d", rt);
          pal->free(b64buffer);
          cJSON_Delete(root);
          return rt;
@@ -348,16 +348,16 @@
      if (rt != OPRT_OK && b64buffer_olen % 16 == 0) {
          /* GCM failed — cloud may use the older AES-128-ECB response format (et=1).
           * Try ECB with the same raw 16-byte key. */
-         log_debug("GCM decrypt failed (%d), retrying with AES-ECB (old protocol)", rt);
+         IOT_LOGD("GCM decrypt failed (%d), retrying with AES-ECB (old protocol)", rt);
          rt = atop_response_result_decrypt_ecb(key, (const uint8_t *)b64buffer, b64buffer_olen, output, olen);
      }
      cJSON_Delete(root);
      pal->free(b64buffer);
      if (rt != OPRT_OK) {
-         log_error("atop_data_decrpyt error: %d", rt);
+         IOT_LOGE("atop_data_decrpyt error: %d", rt);
          return rt;
      }
-     log_debug("result:\r\n%.*s", (int)*olen, output);
+     IOT_LOGD("result:\r\n%.*s", (int)*olen, output);
 
      return rt;
  }
@@ -368,20 +368,20 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
     (void)ilen;
 
     if (NULL == input || NULL == response) {
-        log_error("param error");
+        IOT_LOGE("param error");
         return OPRT_INVALID_PARAMETER;
     }
 
     // json parse (input buffer is expected to be null-terminated)
     cJSON *root = cJSON_Parse((const char *)input);
     if (NULL == root) {
-        log_error("Json parse error");
+        IOT_LOGE("Json parse error");
         return OPRT_COMMUNICATION_ERROR;
     }
 
     // verify success key
     if (!cJSON_HasObjectItem(root, "success")) {
-        log_error("not found json success key");
+        IOT_LOGE("not found json success key");
         cJSON_Delete(root);
         return OPRT_COMMUNICATION_ERROR;
      }
@@ -419,7 +419,7 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
          /* Keep the server's explanation in the log even on this malformed
           * path -- it is often the only clue (e.g. a signature-time-skew
           * message from a gateway that omits errorCode). */
-         log_error("atop rejected without errorCode (errorMsg=%s)",
+         IOT_LOGE("atop rejected without errorCode (errorMsg=%s)",
                    response->error_msg);
          cJSON_Delete(root);
          return OPRT_COMMUNICATION_ERROR;
@@ -427,7 +427,7 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
 
      snprintf(response->error_code, sizeof(response->error_code), "%s",
               error_code_item->valuestring);
-     log_error("atop rejected: errorCode=%s errorMsg=%s",
+     IOT_LOGE("atop rejected: errorCode=%s errorMsg=%s",
                response->error_code, response->error_msg);
 
      /* Every rejection is the same verdict: the cloud answered and said no.
@@ -508,14 +508,14 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
       /* url param buffer make */
       char *path_buffer = pal->malloc(MAX_URL_LENGTH);
       if (NULL == path_buffer) {
-          log_error("path_buffer malloc fail");
+          IOT_LOGE("path_buffer malloc fail");
           return OPRT_MALLOC_FAILED;
       }
 
       /* attach path prefix */
       int path_buffer_len = snprintf(path_buffer, MAX_URL_LENGTH, "%s?", (char *)request->path);
       if (path_buffer_len < 0 || path_buffer_len >= MAX_URL_LENGTH) {
-          log_error("path_buffer snprintf fail");
+          IOT_LOGE("path_buffer snprintf fail");
           pal->free(path_buffer);
           return OPRT_COMMUNICATION_ERROR;
       }
@@ -530,40 +530,40 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
       rt = atop_url_params_encode(pal, (char *)request->key, params, idx, path_buffer + path_buffer_len, path_buffer_remain,
                                   &encode_len);
       if (rt != OPRT_OK) {
-          log_error("url param encode error:%d", rt);
+          IOT_LOGE("url param encode error:%d", rt);
           pal->free(path_buffer);
           return rt;
       }
       path_buffer_len += encode_len;
-      log_debug("request url len:%d: %s", path_buffer_len, path_buffer);
+      IOT_LOGD("request url len:%d: %s", path_buffer_len, path_buffer);
 
       /* POST data buffer */
       size_t body_length = 0;
       size_t raw_len = request->datalen + AES_GCM128_NONCE_LEN + AES_GCM128_TAG_LEN;
       if (raw_len < request->datalen || raw_len > SIZE_MAX / 2) {
-          log_error("request data too large");
+          IOT_LOGE("request data too large");
           pal->free(path_buffer);
           return OPRT_INVALID_PARAMETER;
       }
       size_t body_buffer_len = POST_DATA_PREFIX + raw_len * 2 + 1;
       uint8_t *body_buffer = pal->malloc(body_buffer_len);
       if (NULL == body_buffer) {
-          log_error("body_buffer malloc fail");
+          IOT_LOGE("body_buffer malloc fail");
           pal->free(path_buffer);
           return OPRT_MALLOC_FAILED;
       }
 
       /* POST data encode */
-      log_debug("atop_request_data_encode");
+      IOT_LOGD("atop_request_data_encode");
       rt = atop_request_data_encode(pal, (char *)request->key, request->data, request->datalen, body_buffer, body_buffer_len,
                                     &body_length);
       if (rt != OPRT_OK) {
-          log_error("atop_post_data_encrypt error:%d", rt);
+          IOT_LOGE("atop_post_data_encrypt error:%d", rt);
           pal->free(path_buffer);
           pal->free(body_buffer);
           return rt;
       }
-      log_debug("out post data len:%d, data:%s", (int)body_length, body_buffer);
+      IOT_LOGD("out post data len:%d, data:%s", (int)body_length, body_buffer);
 
       /* HTTP headers */
       http_client_header_t headers[] = {
@@ -575,12 +575,12 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
       http_client_response_t http_response = {0};
 
       /* HTTP Request send */
-      log_debug("http request send!");
+      IOT_LOGD("http request send!");
 
       // Use server address from request, or default to Tuya cloud server
       const char *server_host = request->host ? request->host : IOT_DEFAULT_HOST;
       uint16_t server_port = (request->port > 0) ? request->port : IOT_DEFAULT_PORT;
-      log_info("Connecting to server: %s:%d", server_host, server_port);
+      IOT_LOGI("Connecting to server: %s:%d", server_host, server_port);
 
       http_status = http_client_request(&(const http_client_request_t){.cacert = request->cacert,
                                                                        .cert_bundle_attach = request->cert_bundle_attach,
@@ -601,7 +601,7 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
       pal->free(body_buffer);
 
       if (HTTP_CLIENT_SUCCESS != http_status) {
-          log_error("http_request_send error:%d", http_status);
+          IOT_LOGE("http_request_send error:%d", http_status);
           return (http_status == HTTP_CLIENT_TLS_ERROR)
                      ? OPRT_TLS_HANDSHAKE_FAILED
                      : OPRT_COMMUNICATION_ERROR;
@@ -610,7 +610,7 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
     size_t result_buffer_length = 0;
       uint8_t *result_buffer = pal->malloc(http_response.body_length + 1);
       if (NULL == result_buffer) {
-          log_error("result_buffer malloc fail");
+          IOT_LOGE("result_buffer malloc fail");
           http_client_free(pal, &http_response);
           return OPRT_MALLOC_FAILED;
       }
@@ -623,7 +623,7 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
       if (OPRT_OK == rt) {
           rt = atop_response_result_parse_cjson(result_buffer, result_buffer_length, response);
       } else {
-          log_debug("atop_response_decode error:%d, try parse the plaintext data.", rt);
+          IOT_LOGD("atop_response_decode error:%d, try parse the plaintext data.", rt);
           rt = atop_response_result_parse_cjson(http_response.body, http_response.body_length, response);
       }
 

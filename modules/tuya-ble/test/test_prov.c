@@ -1,6 +1,7 @@
 #include "tuya_ble_prov.h"
 #include "iot_client.h"
 #include "log.h"
+#include "test_log.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -214,7 +215,9 @@ int test_wire(void);
 int main(void)
 {
     EXPECT_TRUE(iot_init_default() == 0);
-    log_set_level(LOG_ERROR);
+    /* No runtime log level anymore -- keep this suite quiet by setting
+     * the compile-time sink's mode. */
+    test_log_set_mode(TEST_LOG_QUIET);
     EXPECT_TRUE(test_init_rejects_invalid_args() == 0);
     EXPECT_TRUE(test_wifi_list_capability_advertisement() == 0);
     EXPECT_TRUE(test_init_builds_adv_and_rsp_data() == 0);

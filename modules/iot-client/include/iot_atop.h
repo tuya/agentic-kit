@@ -49,7 +49,7 @@
  * int rc = iot_atop_call(client, &req, &resp);
  * if (rc == OPRT_ATOP_BUSINESS_ERROR) {
  *     // reached the cloud, cloud said no -- resp.error_code says why
- *     log_error("rejected: %s (%s)", resp.error_code, resp.error_msg);
+ *     log_tag_error("app", "rejected: %s (%s)", resp.error_code, resp.error_msg);
  * } else if (rc == OPRT_OK) {
  *     // resp.result is the "result" field as JSON, or NULL if it was null
  *     my_parse(resp.result);

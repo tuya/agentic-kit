@@ -276,10 +276,12 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     add_executable(tai_unit_tests
         ${AI_TCP_SOURCES}
         "${AI_TCP_TESTS_DIR}/test_core.c"
+        "${AI_TCP_TESTS_DIR}/test_log.c"
     )
     target_include_directories(tai_unit_tests PRIVATE
         "${AI_TCP_DIR}/include"
         "${AI_TCP_DIR}/src"
+        "${AI_TCP_TESTS_DIR}/log_config"
         "${PAL_DIR}"
     )
     target_link_libraries(tai_unit_tests PRIVATE
@@ -288,15 +290,78 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     )
     add_test(NAME tai_unit_tests COMMAND tai_unit_tests)
 
+    # Compile the same unit suite with the SDK-wide log ceiling fully closed.
+    # Its packet-log regression verifies both no dispatch and no argument
+    # evaluation at the call site.
+    add_executable(tai_log_level_zero_tests
+        ${AI_TCP_SOURCES}
+        "${AI_TCP_TESTS_DIR}/test_core.c"
+        "${AI_TCP_TESTS_DIR}/test_log.c"
+    )
+    target_include_directories(tai_log_level_zero_tests PRIVATE
+        "${AI_TCP_DIR}/include"
+        "${AI_TCP_DIR}/src"
+        "${AI_TCP_TESTS_DIR}/log_config"
+        "${PAL_DIR}"
+    )
+    target_compile_definitions(tai_log_level_zero_tests PRIVATE
+        AGENTIC_KIT_LOG_LEVEL=0
+    )
+    target_link_libraries(tai_log_level_zero_tests PRIVATE
+        agentic_kit_pal
+        Threads::Threads
+    )
+    add_test(NAME tai_log_level_zero_tests COMMAND tai_log_level_zero_tests)
+
+    # Same suite with ONLY the rtc-tcp-client module ceiling closed
+    # (-DAGENTIC_KIT_TAI_LOG_LEVEL=0) while the SDK-wide ceiling stays at
+    # its default: proves the per-module knob lowers independently -- the
+    # module assertions take the compiled-out branches while test_core.c's
+    # direct-facade probe still dispatches.
+    add_executable(tai_log_module_zero_tests
+        ${AI_TCP_SOURCES}
+        "${AI_TCP_TESTS_DIR}/test_core.c"
+        "${AI_TCP_TESTS_DIR}/test_log.c"
+    )
+    target_include_directories(tai_log_module_zero_tests PRIVATE
+        "${AI_TCP_DIR}/include"
+        "${AI_TCP_DIR}/src"
+        "${AI_TCP_TESTS_DIR}/log_config"
+        "${PAL_DIR}"
+    )
+    target_compile_definitions(tai_log_module_zero_tests PRIVATE
+        AGENTIC_KIT_TAI_LOG_LEVEL=0
+    )
+    target_link_libraries(tai_log_module_zero_tests PRIVATE
+        agentic_kit_pal
+        Threads::Threads
+    )
+    add_test(NAME tai_log_module_zero_tests COMMAND tai_log_module_zero_tests)
+
+    # Prove that packet-log level selection is purely compile-time across the
+    # ceiling/sampling modes. The script preprocesses and compiles tai_pkt_log.c
+    # in nineteen configurations -- the SDK-wide ceiling and the rtc-tcp-client-only
+    # ceiling each swept over levels 0/2/3/4 x sampling 0/50, plus module-above-global
+    # clamp probes -- then inspects the expanded sinks.
+    add_test(NAME tai_pkt_log_compile_matrix
+        COMMAND "${CMAKE_COMMAND}"
+            "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}"
+            "-DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/tai-pkt-log-compile-matrix"
+            "-DC_COMPILER=${CMAKE_C_COMPILER}"
+            -P "${AI_TCP_TESTS_DIR}/test_pkt_log_compile_matrix.cmake"
+    )
+
     add_executable(tai_integration_tests
         ${AI_TCP_SOURCES}
         "${AI_TCP_TESTS_DIR}/tai_pal_loopback.c"
         "${AI_TCP_TESTS_DIR}/test_integration.c"
+        "${AI_TCP_TESTS_DIR}/test_log.c"
     )
     target_include_directories(tai_integration_tests PRIVATE
         "${AI_TCP_DIR}/include"
         "${AI_TCP_DIR}/src"
         "${AI_TCP_TESTS_DIR}"
+        "${AI_TCP_TESTS_DIR}/log_config"
         "${PAL_DIR}"
     )
     target_link_libraries(tai_integration_tests PRIVATE
@@ -305,9 +370,52 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     )
     add_test(NAME tai_integration_tests COMMAND tai_integration_tests)
 
+    # Test twin of tuya_iot_client: same sources, but the log dispatch is
+    # remapped into the test sink (log_config/agentic_kit_config.h on its
+    # PUBLIC include path), so library-TU logs are capturable/quietable.
+    # The vendored coreHTTP/coreMQTT sources compile in too: their logs are
+    # routed into the facade by common/core_http_config.h and
+    # common/core_mqtt_config.h, so they are part of the SDK's logging
+    # surface -- outside the remap their lines would bypass the sink (and
+    # a runtime handler no longer exists to catch them library-agnostically).
+    # The plain tuya_iot_client and the core_http/core_mqtt targets stay
+    # remap-free for the examples.
+    # Keep sources/includes/links in sync with tuya_iot_client above and
+    # the core_http/core_mqtt targets above.
+    add_library(tuya_iot_client_testlog STATIC
+        ${IOT_CLIENT_SOURCES}
+        "${corehttp_source_dir}/source/core_http_client.c"
+        "${corehttp_source_dir}/source/dependency/3rdparty/llhttp/src/api.c"
+        "${corehttp_source_dir}/source/dependency/3rdparty/llhttp/src/http.c"
+        "${corehttp_source_dir}/source/dependency/3rdparty/llhttp/src/llhttp.c"
+        "${coremqtt_source_dir}/source/core_mqtt.c"
+        "${coremqtt_source_dir}/source/core_mqtt_serializer.c"
+        "${coremqtt_source_dir}/source/core_mqtt_state.c"
+        "${IOT_CLIENT_TESTS_DIR}/test_log.c"
+    )
+    target_include_directories(tuya_iot_client_testlog PUBLIC
+        "${IOT_CLIENT_DIR}/include"
+        "${IOT_CLIENT_DIR}/src"
+        "${IOT_CLIENT_TESTS_DIR}/log_config"
+        "${corehttp_source_dir}/source/include"
+        "${corehttp_source_dir}/source/interface"
+        "${corehttp_source_dir}/source/dependency/3rdparty/llhttp/include"
+        "${coremqtt_source_dir}/source/include"
+        "${coremqtt_source_dir}/source/interface"
+        "${cjson_source_dir}"
+        "${PAL_DIR}"
+        "${COMMON_DIR}"
+    )
+    target_link_libraries(tuya_iot_client_testlog PUBLIC
+        ${AGENTIC_KIT_CJSON_TARGET}
+        agentic_kit_pal
+        agentic_kit_common          # provides mbedTLS transitively (shared TLS lives here)
+        Threads::Threads
+    )
+
     function(agentic_kit_add_iot_test target source)
         add_executable(${target} "${source}")
-        target_link_libraries(${target} PRIVATE tuya_iot_client)
+        target_link_libraries(${target} PRIVATE tuya_iot_client_testlog)
         target_compile_definitions(${target} PRIVATE
             PYTHON3_EXEC="${Python3_EXECUTABLE}"
             TEST_CONFIG_DIR="${IOT_CLIENT_TESTS_DIR}/config"
@@ -334,12 +442,24 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     agentic_kit_add_iot_test(iot_ota_test "${IOT_CLIENT_TESTS_DIR}/iot_ota_test.c")
     agentic_kit_add_iot_test(iot_ota_verify_test "${IOT_CLIENT_TESTS_DIR}/iot_ota_verify_test.c")
 
+    # The ble sources compile into the executable (not the tuya_ble
+    # library) so they pick up the test sink's log remap from
+    # tuya_iot_client_testlog's include path -- that is what lets
+    # test_wire assert on "[ble] [TRSMITR]" warns.
     add_executable(tuya_ble_test
+        "${TUYA_BLE_DIR}/src/tuya_ble_bigdata.c"
+        "${TUYA_BLE_DIR}/src/tuya_ble_prov.c"
+        "${TUYA_BLE_DIR}/src/tuya_ble_trsmitr.c"
         "${TUYA_BLE_TESTS_DIR}/test_wire.c"
         "${TUYA_BLE_TESTS_DIR}/test_prov.c"
         "${TUYA_BLE_TESTS_DIR}/tuya_ble_hal_host.c"
     )
-    target_link_libraries(tuya_ble_test PRIVATE tuya_ble tuya_iot_client)
+    target_include_directories(tuya_ble_test PRIVATE
+        "${TUYA_BLE_DIR}/include"
+        "${IOT_CLIENT_TESTS_DIR}"        # test_log.h -- the shared test sink
+        "${cjson_source_dir}"
+    )
+    target_link_libraries(tuya_ble_test PRIVATE tuya_iot_client_testlog)
     add_test(NAME tuya_ble_test COMMAND tuya_ble_test)
 endif()
 
@@ -349,5 +469,3 @@ endif()
 if(AGENTIC_KIT_BUILD_EXAMPLES)
     add_subdirectory(examples/posix)
 endif()
-
-

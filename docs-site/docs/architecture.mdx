@@ -59,6 +59,7 @@ Agentic-kit 是 AI 智能设备的端侧 SDK，负责设备与涂鸦云平台之
   <tbody>
     <tr><td><strong>共享 TLS</strong></td><td><code>common/tls.c</code></td><td>基于 mbedTLS 的 TLS-over-TCP 传输层，由 IoT（MQTT / HTTP）与 RTC（rtc-tcp-client）两栈共用</td></tr>
     <tr><td><strong>共享 RNG</strong></td><td><code>common/rng.c</code></td><td>进程级唯一的 CTR-DRBG 随机数发生器，在启动时一次性播种，供全 SDK 复用</td></tr>
+    <tr><td><strong>日志门面</strong></td><td><code>common/log.h</code>、<code>common/log.c</code></td><td>全 SDK 编译期日志级别与分发（<code>AGENTIC_KIT_LOG_LEVEL</code> / <code>AGENTIC_KIT_LOG</code>），见《编译期旋钮》</td></tr>
   </tbody>
 </table>
 

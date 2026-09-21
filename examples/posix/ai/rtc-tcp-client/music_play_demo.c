@@ -505,7 +505,8 @@ int main(int argc, char *argv[])
     tai_ctx_t *ctx = tai_ctx_init(ctx_buf, &tai_cfg);
     if (!ctx) { fprintf(stderr, "tai_ctx_init failed\n"); pal->free(ctx_buf); return 1; }
 
-    tai_set_log_level(TAI_LOG_WARN);
+    /* Log volume is decided at compile time now; build with
+     * -DAGENTIC_KIT_LOG_LEVEL=2 to restore the warn-only volume. */
 
     /* ---- 5-7. Connect, send, await response — with app-driven reconnect -- */
     int done = 0;

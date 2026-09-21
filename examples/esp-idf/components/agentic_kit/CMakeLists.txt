@@ -71,14 +71,20 @@ idf_component_register(
 # No MQTT_DO_NOT_USE_CUSTOM_CONFIG: coreMQTT must pick up common/core_mqtt_config.h
 # here too, or a refused CONNECT logs only a bare MQTTServerRefused on exactly the
 # target this diagnostic exists for. ${AK_DIR}/common is already in INCLUDE_DIRS
-# above, so common/log.h (the override pickup) resolves with
+# above, so common/log.h (the override pickup + log-ceiling default) resolves with
 # no further wiring; knob defaults resolve the same way from each module's include/
 # dir and ${AK_DIR}/pal listed above.
 #
-# Per-product knob overrides (optional): create agentic_kit_config.h holding only
-# the #defines you want to change, put it anywhere in your project, and point this
-# component at its directory (must reach EVERY target that compiles SDK sources):
-# target_include_directories(${COMPONENT_LIB} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../kit_opts")
+# Per-product knob overrides: kit_opts/agentic_kit_config.h next door is
+# picked up by common/log.h's override search via the include path below
+# (PRIVATE is enough: only this component's TUs compile SDK sources, and
+# the app's own TUs are covered by the component's public INCLUDE_DIRS
+# reaching them -- the header is only consumed through common/log.h).
+# It currently holds one override: AGENTIC_KIT_LOG, remapping the SDK's
+# log dispatch into ESP-IDF logging (esp_log.h), macro-to-macro.
+target_include_directories(${COMPONENT_LIB} PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/kit_opts"
+)
 
 target_compile_options(${COMPONENT_LIB} PRIVATE
     -Wno-error=format

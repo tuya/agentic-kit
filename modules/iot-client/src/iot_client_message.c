@@ -17,7 +17,7 @@ static void mqtt_message_handler(const char *topic, size_t topic_len,
 
     uint8_t *decrypted = (uint8_t *)client->pal->malloc(payload_len);
     if (!decrypted) {
-        log_error("Failed to allocate buffer for MQTT message decryption");
+        IOT_LOGE("Failed to allocate buffer for MQTT message decryption");
         return;
     }
 
@@ -39,7 +39,7 @@ static void mqtt_message_handler(const char *topic, size_t topic_len,
         }
     } else {
         /* Decryption failed: never feed raw ciphertext to the DP parser. */
-        log_warn("pv23_decrypt failed (ret=%d), forwarding raw payload", ret);
+        IOT_LOGW("pv23_decrypt failed (ret=%d), forwarding raw payload", ret);
         if (client->message_callback) {
             client->message_callback(topic, topic_len, payload, payload_len);
         }
@@ -76,7 +76,7 @@ bool iot_client_message_handle_reset(iot_client_t *client,
         cJSON *jgw = cJSON_GetObjectItem(data, "gwId");
         if (jgw && cJSON_IsString(jgw) && client->devid[0] != '\0') {
             if (strcmp(jgw->valuestring, client->devid) != 0) {
-                log_warn("reset: gwId mismatch (got '%s', expected '%s') — consumed, not ours",
+                IOT_LOGW("reset: gwId mismatch (got '%s', expected '%s') — consumed, not ours",
                          jgw->valuestring, client->devid);
                 cJSON_Delete(root);
                 return true;
@@ -94,7 +94,7 @@ bool iot_client_message_handle_reset(iot_client_t *client,
         type = IOT_RESET_REMOTE_FACTORY;
     }
 
-    log_warn("reset: device-remove notice received (type=%s)",
+    IOT_LOGW("reset: device-remove notice received (type=%s)",
              type == IOT_RESET_REMOTE_FACTORY ? "factory" : "unbind");
 
     client->reset_callback(type, client->reset_user_data);
@@ -134,7 +134,7 @@ bool iot_client_message_handle_ota_confirm(iot_client_t *client,
         channel = jchannel->valueint;
     }
 
-    log_info("ota confirm: app-confirmed upgrade notice received (channel=%d)", channel);
+    IOT_LOGI("ota confirm: app-confirmed upgrade notice received (channel=%d)", channel);
     client->ota_confirm_callback(channel, client->ota_confirm_user_data);
 
     cJSON_Delete(root);
@@ -150,14 +150,14 @@ static int iot_client_message_try_connect(iot_client_t *client)
     int sn_ret = snprintf(subscribe_topic, sizeof(subscribe_topic),
              "smart/device/in/%s", client->devid);
     if (sn_ret < 0 || (size_t)sn_ret >= (int)sizeof(subscribe_topic)) {
-        log_error("Failed to build subscribe topic: %d", sn_ret);
+        IOT_LOGE("Failed to build subscribe topic: %d", sn_ret);
         return OPRT_COMMUNICATION_ERROR;
     }
 
     char password[17] = {0};
     int md5_ret = iot_md5_password(client->secret_key, password);
     if (md5_ret != 0) {
-        log_error("iot_md5_password failed: %d", md5_ret);
+        IOT_LOGE("iot_md5_password failed: %d", md5_ret);
         return OPRT_COMMUNICATION_ERROR;
     }
 
@@ -177,13 +177,13 @@ static int iot_client_message_try_connect(iot_client_t *client)
 
     client->mqtt = mqtt_client_create_with_config(&mqtt_cfg);
     if (!client->mqtt) {
-        log_error("Failed to create MQTT client");
+        IOT_LOGE("Failed to create MQTT client");
         return OPRT_COMMUNICATION_ERROR;
     }
 
     int ret = mqtt_client_connect(client->mqtt);
     if (ret != 0) {
-        log_error("Failed to connect to MQTT broker: %d", ret);
+        IOT_LOGE("Failed to connect to MQTT broker: %d", ret);
         mqtt_client_destroy(client->mqtt);
         client->mqtt = NULL;
         return (ret == OPRT_TLS_HANDSHAKE_FAILED) ? OPRT_TLS_HANDSHAKE_FAILED
@@ -191,13 +191,13 @@ static int iot_client_message_try_connect(iot_client_t *client)
     }
 
     if (mqtt_client_subscribe(client->mqtt) != 0) {
-        log_error("Failed to subscribe to %s", subscribe_topic);
+        IOT_LOGE("Failed to subscribe to %s", subscribe_topic);
         mqtt_client_destroy(client->mqtt);
         client->mqtt = NULL;
         return OPRT_COMMUNICATION_ERROR;
     }
 
-    log_info("MQTT connected and subscribed to %s", subscribe_topic);
+    IOT_LOGI("MQTT connected and subscribed to %s", subscribe_topic);
     return OPRT_OK;
 }
 
@@ -215,7 +215,7 @@ int iot_client_message_connect(iot_client_t *client)
      * link up: an app that also left mqtt_auto_connect true calls it on an
      * already-connected client. To force a fresh link, disconnect first. */
     if (client->mqtt) {
-        log_warn("iot_client_message_connect: already connected, ignoring "
+        IOT_LOGW("iot_client_message_connect: already connected, ignoring "
                  "(call iot_client_disconnect() first to reconnect)");
         return OPRT_OK;
     }
@@ -254,7 +254,7 @@ int iot_client_message_publish(iot_client_t *client,
     size_t enc_buf_len = data_len + PV23_OVERHEAD;
     uint8_t *encrypted = (uint8_t *)client->pal->malloc(enc_buf_len);
     if (!encrypted) {
-        log_error("Failed to allocate buffer for message encryption");
+        IOT_LOGE("Failed to allocate buffer for message encryption");
         return OPRT_MALLOC_FAILED;
     }
 
@@ -263,7 +263,7 @@ int iot_client_message_publish(iot_client_t *client,
                            (const uint8_t *)client->local_key,
                            encrypted, &encrypted_len);
     if (ret != 0) {
-        log_error("pv23_encrypt failed: %d", ret);
+        IOT_LOGE("pv23_encrypt failed: %d", ret);
         client->pal->free(encrypted);
         return OPRT_COMMUNICATION_ERROR;
     }
@@ -276,7 +276,7 @@ int iot_client_message_publish(iot_client_t *client,
     int sn = snprintf(pub_topic, sizeof(pub_topic),
                       "smart/device/out/%s", client->devid);
     if (sn < 0 || (size_t)sn >= sizeof(pub_topic)) {
-        log_error("Failed to build publish topic: %d", sn);
+        IOT_LOGE("Failed to build publish topic: %d", sn);
         client->pal->free(encrypted);
         return OPRT_COMMUNICATION_ERROR;
     }
@@ -284,11 +284,11 @@ int iot_client_message_publish(iot_client_t *client,
     ret = mqtt_client_publish(client->mqtt, pub_topic, encrypted, encrypted_len);
     client->pal->free(encrypted);
     if (ret != 0) {
-        log_error("Failed to publish to %s", pub_topic);
+        IOT_LOGE("Failed to publish to %s", pub_topic);
         return OPRT_COMMUNICATION_ERROR;
     }
 
-    log_debug("Published encrypted message to %s (%u bytes)",
+    IOT_LOGD("Published encrypted message to %s (%u bytes)",
               pub_topic, (unsigned)encrypted_len);
     return OPRT_OK;
 }

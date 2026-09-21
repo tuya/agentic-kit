@@ -5,8 +5,9 @@
  *
  * pal_freertos.c includes this file directly. It pulls common/log.h FIRST:
  * that header is where integrator overrides (agentic_kit_config.h on the
- * include path, -D, AGENTIC_KIT_USER_CONFIG) are applied -- so overrides
- * win over every default below. Not a public API header.
+ * include path, -D, AGENTIC_KIT_USER_CONFIG) are applied and the SDK-wide
+ * log ceiling defaults -- so overrides win over every default below. Not a
+ * public API header.
  */
 
 #ifndef AGENTIC_KIT_PAL_CONFIG_DEFAULTS_H

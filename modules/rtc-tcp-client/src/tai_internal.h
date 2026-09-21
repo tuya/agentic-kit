@@ -25,48 +25,47 @@
 /* =========================================================================
  * Logging macros — routed through the global log facade.
  *
- * TAI_LOG_LEVEL (compile-time) is the maximum level compiled in.  Messages
- * above this level are removed at build time with zero runtime cost.
+ * Two ceilings, both compile-time. The SDK-wide AGENTIC_KIT_LOG_LEVEL
+ * (gated once in common/log.h) bounds everything; the per-module
+ * AGENTIC_KIT_TAI_LOG_LEVEL (defaults to it; tai_config_defaults.h)
+ * optionally lowers just this module further and can never raise a line
+ * above the SDK-wide ceiling. Messages above their ceiling are removed
+ * at build time with zero runtime cost.
  *   0 = none, 1 = error, 2 = +warn, 3 = +info, 4 = +debug (default)
  *
- * Runtime filtering happens inside log_emit() via log_set_level().
- * The tai_set_log_level()/tai_get_log_level() inlines in tuya_ai.h remain
- * available as thin wrappers for backwards compatibility.
+ * There is no runtime level. To quiet a build, compile with a lower
+ * ceiling; to change where lines go, define AGENTIC_KIT_LOG and take over
+ * the dispatch itself (see log.h).
  *
  * The leading `pal` argument is preserved for source-compatibility with
  * existing call sites; it is unused at the dispatch layer.  `tag` must be
  * a string literal — it is concatenated into the format string so the
  * log facade itself stays tag-agnostic.
  * ========================================================================= */
-#ifndef TAI_LOG_LEVEL
-#  define TAI_LOG_LEVEL 4
-#endif
 
-#define TAI_LOG_(pal, lvl, tag, fmt, ...) \
-    do { (void)(pal); log_emit((lvl), "[" tag "] " fmt, ##__VA_ARGS__); } while (0)
-
-#if TAI_LOG_LEVEL >= 1
-#  define TAI_LOGE(pal, tag, fmt, ...) TAI_LOG_(pal, LOG_ERROR, tag, fmt, ##__VA_ARGS__)
+#if AGENTIC_KIT_TAI_LOG_LEVEL >= 1
+#define TAI_LOGE(pal, tag, fmt, ...) \
+    do { (void)(pal); log_tag_error(tag, fmt, ##__VA_ARGS__); } while (0)
 #else
-#  define TAI_LOGE(pal, tag, ...) ((void)(pal))
+#define TAI_LOGE(...) ((void)0)
 #endif
-
-#if TAI_LOG_LEVEL >= 2
-#  define TAI_LOGW(pal, tag, fmt, ...) TAI_LOG_(pal, LOG_WARN, tag, fmt, ##__VA_ARGS__)
+#if AGENTIC_KIT_TAI_LOG_LEVEL >= 2
+#define TAI_LOGW(pal, tag, fmt, ...) \
+    do { (void)(pal); log_tag_warn(tag, fmt, ##__VA_ARGS__); } while (0)
 #else
-#  define TAI_LOGW(pal, tag, ...) ((void)(pal))
+#define TAI_LOGW(...) ((void)0)
 #endif
-
-#if TAI_LOG_LEVEL >= 3
-#  define TAI_LOGI(pal, tag, fmt, ...) TAI_LOG_(pal, LOG_INFO, tag, fmt, ##__VA_ARGS__)
+#if AGENTIC_KIT_TAI_LOG_LEVEL >= 3
+#define TAI_LOGI(pal, tag, fmt, ...) \
+    do { (void)(pal); log_tag_info(tag, fmt, ##__VA_ARGS__); } while (0)
 #else
-#  define TAI_LOGI(pal, tag, ...) ((void)(pal))
+#define TAI_LOGI(...) ((void)0)
 #endif
-
-#if TAI_LOG_LEVEL >= 4
-#  define TAI_LOGD(pal, tag, fmt, ...) TAI_LOG_(pal, LOG_DEBUG, tag, fmt, ##__VA_ARGS__)
+#if AGENTIC_KIT_TAI_LOG_LEVEL >= 4
+#define TAI_LOGD(pal, tag, fmt, ...) \
+    do { (void)(pal); log_tag_debug(tag, fmt, ##__VA_ARGS__); } while (0)
 #else
-#  define TAI_LOGD(pal, tag, ...) ((void)(pal))
+#define TAI_LOGD(...) ((void)0)
 #endif
 
 /* =========================================================================
@@ -85,6 +84,7 @@
  * connection is torn down by the liveness timeout. There is also no batching —
  * the worker processes at most one max-size frame per recv pass. */
 #define TAI_RX_BUF_SIZE   (AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD + 37U)
+
 
 /* =========================================================================
  * Attribute type codes  (Appendix A)
@@ -447,11 +447,18 @@ int tai_crypto_derive_keys(uint8_t proto_ver,
 /*
  * tai_pkt_log.c
  */
+#if AGENTIC_KIT_TAI_LOG_LEVEL >= 3
 void tai_log_packet(uint8_t proto_ver,
                     int is_send,
                     uint8_t pkt_type,
                     const tai_attr_t *attrs, int attr_count,
                     const uint8_t *payload, size_t payload_len);
+#else
+/* Packet diagnostics are INFO/DEBUG only. Remove the call at its boundary so
+ * a lower SDK-wide ceiling also removes argument evaluation and the formatter
+ * implementation/string table from the object file. */
+#define tai_log_packet(...) ((void)0)
+#endif
 
 /*
  * tai_protocol.c

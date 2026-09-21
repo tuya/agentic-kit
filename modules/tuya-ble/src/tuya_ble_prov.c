@@ -304,6 +304,10 @@ int tuya_ble_prov_send_frame(tuya_ble_prov_state_t *state, uint16_t cmd,
 
 static void handle_dev_info_req(tuya_ble_prov_state_t *state, const uint8_t *data, uint16_t data_len)
 {
+    /* data/data_len feed only the protocol trace; keep -Wextra quiet when
+     * the module ceiling compiles it out. */
+    (void)data;
+    (void)data_len;
     TUYA_BLE_HAL_LOGI("[PROTO] FRM_QRY_DEV_INFO_REQ, data_len=%d (pkt_len=%u)",
                       data_len, state->peer_pkt_len);
     TUYA_BLE_HAL_HEXDUMP(data, data_len > 32 ? 32 : data_len);

@@ -72,7 +72,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 10:15:13 [E] [iot] MQTT_Connect failed: MQTTServerRefused (6)
 ```
 
-前三行来自 coreMQTT（`[mqtt]`），最后一行来自 SDK（`[iot]`）。时间戳前缀由默认日志处理器加上；若应用用 `log_set_handler()` 换了处理器，前缀形式取决于该实现。
+前三行来自 coreMQTT（`[mqtt]`），最后一行来自 SDK（`[iot]`）。时间戳前缀由默认输出加上；若应用定义 `AGENTIC_KIT_LOG` 接管了分发，输出形式取决于该宏的展开。
 
 | CONNACK code | 文案 | 常见原因与处理 |
 |----|------|------|
@@ -124,7 +124,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 
 ### Log Level（`log_level_t`） {#log-levellog_level_t}
 
-日志通过 `common/log.h` 的全局日志门面控制，使用 `log_set_level()` 设置运行时级别，使用 `log_set_handler()` 自定义输出。
+日志通过 `common/log.h` 的全局日志门面控制：日志量由编译期的 `AGENTIC_KIT_LOG_LEVEL` 全局决定，`AGENTIC_KIT_IOT_LOG_LEVEL` 可再单独压低本模块（只降不升，默认等于全局值；无运行时级别）；日志去哪儿同样是编译期决定——定义 `AGENTIC_KIT_LOG` 把每行分发进你自己的宏，在其中输出或按级别丢弃。
 
 注：`log_level_t` 并非枚举，而是 `typedef int`（以便 `LOG_*` 可用于预处理器 `#if` 判断），下表中的名称均为宏定义。
 
@@ -495,11 +495,10 @@ int iot_get_ca_certificate(iot_client_t *client, const char *host, uint16_t port
 IoT Client 使用 `common/log.h` 提供的全局日志门面，不再提供单独的日志回调设置 API。
 
 ```c
-#include "log.h"
+// 日志量在编译期由 -DAGENTIC_KIT_LOG_LEVEL=N 决定（-DAGENTIC_KIT_IOT_LOG_LEVEL=N 只压低本模块），无运行时级别
 
-// 设置运行时日志级别
-log_set_level(LOG_INFO);
-
-// 自定义日志输出处理函数
-log_set_handler(my_log_handler);
+// 日志去向也在编译期决定：在你的 agentic_kit_config.h 里
+// 把分发 remap 进自己的宏（在其中输出或按级别丢弃均可）
+#define AGENTIC_KIT_LOG(level, tag, fmt, ...) \
+    my_log(level, tag, fmt, ##__VA_ARGS__)
 ```

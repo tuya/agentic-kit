@@ -144,7 +144,7 @@ tls_t *tls_connect(const tls_config_t *cfg)
             pal->free(pem);
         }
         if (pret != 0) {
-            log_emit(LOG_ERROR, "[tls] failed to parse CA certificate: -0x%04X",
+            log_tag_error("tls", "failed to parse CA certificate: -0x%04X",
                      (unsigned)-pret);
             goto fail;
         }
@@ -159,13 +159,13 @@ tls_t *tls_connect(const tls_config_t *cfg)
 
     t->tcp_handle = pal->tcp_connect(cfg->host, cfg->port, est_to);
     if (!t->tcp_handle) {
-        log_emit(LOG_ERROR, "[tls] TCP connect failed to %s:%u",
+        log_tag_error("tls", "TCP connect failed to %s:%u",
                  cfg->host, (unsigned)cfg->port);
         goto fail;
     }
     if (pal->time_ms() >= deadline) {
-        log_emit(LOG_ERROR,
-                 "[tls] connect to %s:%u exhausted %ums budget during TCP connect",
+        log_tag_error("tls",
+                 "connect to %s:%u exhausted %ums budget during TCP connect",
                  cfg->host, (unsigned)cfg->port, (unsigned)est_to);
         goto fail;
     }
@@ -201,8 +201,8 @@ tls_t *tls_connect(const tls_config_t *cfg)
     } else {
         mbedtls_ssl_conf_authmode(&t->conf, tls_map_verify(cfg->verify));
         if (cfg->verify == TLS_VERIFY_NONE)
-            log_emit(LOG_WARN,
-                     "[tls] peer verification disabled (no CA certificate)");
+            log_tag_warn("tls",
+                     "peer verification disabled (no CA certificate)");
     }
 
     if (mbedtls_ssl_setup(&t->ssl, &t->conf) != 0) goto fail;
@@ -227,7 +227,7 @@ tls_t *tls_connect(const tls_config_t *cfg)
 
         uint64_t now = pal->time_ms();
         if (now >= deadline) {
-            log_emit(LOG_ERROR, "[tls] connect to %s:%u timed out after %ums (handshake)",
+            log_tag_error("tls", "connect to %s:%u timed out after %ums (handshake)",
                      cfg->host, (unsigned)cfg->port, (unsigned)est_to);
             goto fail;
         }
@@ -238,13 +238,13 @@ tls_t *tls_connect(const tls_config_t *cfg)
         /* <0 is a socket error: fail fast instead of re-polling a dead fd until
          * the deadline (which would burn CPU on a tight retry loop). */
         if (pal->tcp_poll(t->tcp_handle, ev, poll_ms) < 0) {
-            log_emit(LOG_ERROR, "[tls] handshake poll error on %s:%u",
+            log_tag_error("tls", "handshake poll error on %s:%u",
                      cfg->host, (unsigned)cfg->port);
             goto fail;
         }
     }
     if (ret != 0) {
-        log_emit(LOG_ERROR, "[tls] handshake failed to %s:%u: -0x%04X",
+        log_tag_error("tls", "handshake failed to %s:%u: -0x%04X",
                  cfg->host, (unsigned)cfg->port, (unsigned)-ret);
         goto fail;
     }
@@ -261,16 +261,16 @@ tls_t *tls_connect(const tls_config_t *cfg)
             int vn = mbedtls_x509_crt_verify_info(vrfy_buf, sizeof(vrfy_buf),
                                                   "  ! ", flags);
             if (vn > 0)
-                log_emit(LOG_WARN,
-                         "[tls] peer certificate not verified (0x%08X):\n%s",
+                log_tag_warn("tls",
+                         "peer certificate not verified (0x%08X):\n%s",
                          (unsigned)flags, vrfy_buf);
             else
-                log_emit(LOG_WARN, "[tls] peer certificate not verified (0x%08X)",
+                log_tag_warn("tls", "peer certificate not verified (0x%08X)",
                          (unsigned)flags);
         }
     }
 
-    log_emit(LOG_INFO, "[tls] connected to %s:%u (%s, %s)",
+    log_tag_info("tls", "connected to %s:%u (%s, %s)",
              cfg->host, (unsigned)cfg->port,
              mbedtls_ssl_get_version(&t->ssl),
              mbedtls_ssl_get_ciphersuite(&t->ssl));
@@ -307,8 +307,8 @@ int tls_write(tls_t *t, const uint8_t *buf, size_t len, uint32_t timeout_ms)
                 /* Deadline hit while still draining -- distinguish this from a
                  * hard mbedTLS error below so a slow/backed-up link is not
                  * misread as a broken connection. */
-                log_emit(LOG_ERROR,
-                         "[tls] write timed out after %ums (%u/%u bytes sent)",
+                log_tag_error("tls",
+                         "write timed out after %ums (%u/%u bytes sent)",
                          (unsigned)timeout_ms, (unsigned)written, (unsigned)len);
                 return TLS_ERR_NET;
             }
@@ -318,7 +318,7 @@ int tls_write(tls_t *t, const uint8_t *buf, size_t len, uint32_t timeout_ms)
             continue;
         }
         /* Fatal write error -- log the raw mbedTLS cause before collapsing. */
-        log_emit(LOG_ERROR, "[tls] write failed: -0x%04X", (unsigned)-n);
+        log_tag_error("tls", "write failed: -0x%04X", (unsigned)-n);
         return TLS_ERR_NET;
     }
     return TLS_OK;
@@ -352,7 +352,7 @@ int tls_read(tls_t *t, uint8_t *buf, size_t len, uint32_t timeout_ms)
              * underlying socket error). `n` is the raw mbedTLS cause -- log it
              * before collapsing to TLS_ERR_NET, which otherwise hides which
              * fault occurred from callers that only see -3. */
-            log_emit(LOG_ERROR, "[tls] read failed: -0x%04X", (unsigned)-n);
+            log_tag_error("tls", "read failed: -0x%04X", (unsigned)-n);
             return TLS_ERR_NET;
         }
 
