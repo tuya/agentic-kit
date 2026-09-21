@@ -467,6 +467,11 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
         agentic_kit_pal
         Threads::Threads
     )
+    target_compile_definitions(iot_tai_control_test PRIVATE
+        PYTHON3_EXEC="${Python3_EXECUTABLE}"
+        TEST_CONFIG_DIR="${IOT_CLIENT_TESTS_DIR}/config"
+        MESSAGE_MOCK_PATH="${IOT_CLIENT_TESTS_DIR}/mock/message_mock.py"
+    )
     add_test(NAME iot_tai_control_test COMMAND iot_tai_control_test)
 
     # The ble sources compile into the executable (not the tuya_ble

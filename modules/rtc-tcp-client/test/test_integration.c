@@ -109,6 +109,8 @@ typedef struct {
 } test_state_t;
 
 static test_state_t g_st;
+static pthread_t g_connect_thread;
+static pthread_t g_text_callback_thread;
 
 static void st_reset(void)
 {
@@ -146,6 +148,7 @@ static void on_text(tai_ctx_t *ctx, const tai_text_msg_t *msg, void *ud)
 {
     (void)ctx; (void)ud;
     pthread_mutex_lock(&g_st.mtx);
+    g_text_callback_thread = pthread_self();
     g_st.text_calls++;
     g_st.last_text_flag = msg->stream_flag;
     if (msg->event_id) {
@@ -1943,6 +1946,23 @@ static void test_confirmed_connect(void)
         tai_ctx_t *ctx = setup_ctx(ctx_mem);
         CHECK(ctx != NULL);
         CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+        tai_disconnect(ctx);
+        tai_ctx_deinit(ctx);
+    }
+
+    /* Coalesced ack + application data: tai_connect consumes only the ack and
+     * leaves Text buffered for the receive worker. The callback must not run on
+     * the connecting thread even when both Frames arrived in one recv. */
+    {
+        tai_ctx_t *ctx = setup_ctx(ctx_mem);
+        CHECK(ctx != NULL);
+        g_connect_thread = pthread_self();
+        memset(&g_text_callback_thread, 0, sizeof(g_text_callback_thread));
+        tai_loopback_set_handshake_mode(TAI_LB_HS_ACK_WITH_TEXT);
+        CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+        CHECK(WAIT_FOR(g_st.text_calls == 1, 1000));
+        CHECK(strcmp(g_st.text_buf, "coalesced") == 0);
+        CHECK(!pthread_equal(g_connect_thread, g_text_callback_thread));
         tai_disconnect(ctx);
         tai_ctx_deinit(ctx);
     }

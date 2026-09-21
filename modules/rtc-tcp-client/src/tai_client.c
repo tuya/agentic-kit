@@ -1257,7 +1257,7 @@ static void *worker_thread(void *arg)
     TAI_LOGD(ctx->pal, TAG, "worker: started");
 
     int paused = 0;
-    int resume_buffered = 0;
+    int resume_buffered = ctx->rx_len > 0;
     uint64_t last_resume_ms = 0;
 
     /* The worker owns the disconnect decision: lower layers RETURN a fatal
