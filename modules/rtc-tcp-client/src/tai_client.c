@@ -829,6 +829,11 @@ static int tai_process_rx(tai_ctx_t *ctx, int *paused)
         /* Consume frame from rx_buf */
         memmove(ctx->rx_buf, ctx->rx_buf + needed, ctx->rx_len - needed);
         ctx->rx_len -= needed;
+
+        /* During tai_connect(), stop immediately after the acknowledgement.
+         * Coalesced media stays buffered for the worker, preserving the public
+         * contract that application receive callbacks run on that thread. */
+        if (ctx->connecting && ctx->session_ack >= 0) break;
     }
 
     return TAI_OK;

@@ -36,17 +36,25 @@ typedef struct {
     int playback_running;
     size_t queued_audio;
     int drop_until_new_event;
+    char current_event_id[64];
     char stale_event_id[64];
 } demo_state_t;
 
 static void set_stale_event(demo_state_t *state, const char *event_id)
 {
     pthread_mutex_lock(&state->mutex);
-    state->queued_audio = 0;
     if (event_id && event_id[0]) {
+        /* A delayed duplicate for an older Event must not flush current audio. */
+        if (state->current_event_id[0] &&
+            strcmp(state->current_event_id, event_id) != 0) {
+            pthread_mutex_unlock(&state->mutex);
+            return;
+        }
+        state->queued_audio = 0;
         snprintf(state->stale_event_id, sizeof(state->stale_event_id),
                  "%s", event_id);
     } else {
+        state->queued_audio = 0;
         state->drop_until_new_event = 1;
         state->stale_event_id[0] = '\0';
     }
@@ -118,9 +126,19 @@ static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *user_data
 {
     (void)ctx;
     demo_state_t *state = (demo_state_t *)user_data;
-    if (msg->event_type == TAI_EVT_CHAT_BREAK) {
+    if (msg->event_type == TAI_EVT_START && msg->event_id && msg->event_id[0]) {
+        pthread_mutex_lock(&state->mutex);
+        snprintf(state->current_event_id, sizeof(state->current_event_id),
+                 "%s", msg->event_id);
+        if (state->stale_event_id[0] &&
+            strcmp(state->stale_event_id, msg->event_id) != 0) {
+            state->stale_event_id[0] = '\0';
+        }
+        state->drop_until_new_event = 0;
+        pthread_mutex_unlock(&state->mutex);
+    } else if (msg->event_type == TAI_EVT_CHAT_BREAK) {
         set_stale_event(state, msg->event_id);
-        printf("\n[TAI Event] ChatBreak event=%s; playback flushed\n",
+        printf("\n[TAI Event] ChatBreak event=%s\n",
                msg->event_id && msg->event_id[0] ? msg->event_id : "(unscoped)");
     } else if (msg->event_type == TAI_EVT_END) {
         pthread_mutex_lock(&state->mutex);

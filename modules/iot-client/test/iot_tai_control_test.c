@@ -38,6 +38,7 @@ typedef struct {
     int accepted_new_audio;
     int chat_breaks;
     int mqtt_interrupts;
+    char current_event_id[64];
     char stale_event_id[64];
 } app_state_t;
 
@@ -92,17 +93,23 @@ static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg,
     (void)ctx;
     app_state_t *s = (app_state_t *)user_data;
     pthread_mutex_lock(&s->mutex);
-    if (msg->event_type == TAI_EVT_CHAT_BREAK) {
-        s->chat_breaks++;
-        s->queued_audio = 0;
-        if (msg->event_id && msg->event_id[0]) {
-            snprintf(s->stale_event_id, sizeof(s->stale_event_id),
-                     "%s", msg->event_id);
+    if (msg->event_type == TAI_EVT_START && msg->event_id && msg->event_id[0]) {
+        snprintf(s->current_event_id, sizeof(s->current_event_id),
+                 "%s", msg->event_id);
+        if (s->stale_event_id[0] &&
+            strcmp(s->stale_event_id, msg->event_id) != 0) {
+            s->stale_event_id[0] = '\0';
         }
-    } else if (msg->event_type == TAI_EVT_START &&
-               s->stale_event_id[0] && msg->event_id && msg->event_id[0] &&
-               strcmp(s->stale_event_id, msg->event_id) != 0) {
-        s->stale_event_id[0] = '\0';
+    } else if (msg->event_type == TAI_EVT_CHAT_BREAK) {
+        s->chat_breaks++;
+        if (!msg->event_id || !msg->event_id[0] || !s->current_event_id[0] ||
+            strcmp(s->current_event_id, msg->event_id) == 0) {
+            s->queued_audio = 0;
+            if (msg->event_id && msg->event_id[0]) {
+                snprintf(s->stale_event_id, sizeof(s->stale_event_id),
+                         "%s", msg->event_id);
+            }
+        }
     }
     pthread_mutex_unlock(&s->mutex);
 }
@@ -125,8 +132,12 @@ static void on_ai_control(const char *type, const char *json_data,
 
     pthread_mutex_lock(&s->mutex);
     s->mqtt_interrupts++;
-    s->queued_audio = 0;
-    snprintf(s->stale_event_id, sizeof(s->stale_event_id), "%s", "old-event");
+    if (!s->current_event_id[0] ||
+        strcmp(s->current_event_id, "old-event") == 0) {
+        s->queued_audio = 0;
+        snprintf(s->stale_event_id, sizeof(s->stale_event_id),
+                 "%s", "old-event");
+    }
     pthread_mutex_unlock(&s->mutex);
 }
 
@@ -251,6 +262,13 @@ int main(void)
     CHECK(state.accepted_new_audio == 1);
     CHECK(state.chat_breaks == 1);
     CHECK(state.queued_audio == 1);
+
+    /* Delayed duplicate for the old Event must not flush the new playback. */
+    CHECK(iot_ai_ctrl_dispatch(&iot, (const uint8_t *)control,
+                               sizeof(control) - 1));
+    CHECK(state.mqtt_interrupts == 2);
+    CHECK(state.queued_audio == 1);
+    CHECK(state.accepted_new_audio == 1);
 
     tai_disconnect(ctx);
     tai_ctx_deinit(ctx);
