@@ -309,8 +309,9 @@ ordinary changes.
   The destination is a compile-time fact too: define `AGENTIC_KIT_LOG` and every line dispatches
   into your own macro (a function target can reuse the default output via `log_emit_valist()`).
   `log_emit()` remains the default sink, but module code never calls it directly -- a raw call
-  would bypass the ceiling. The one site with a runtime-chosen level, the
-  media sampler in tai_pkt_log.c, dispatches over the gated macros by its two possible levels.
+  would bypass the ceiling. Even the media sampler in tai_pkt_log.c picks its INFO/DEBUG sink at
+  compile time -- a sampling build has exactly one level, and no runtime level comparison exists
+  anywhere in the SDK.
   The old per-module `TAI_LOG_LEVEL` gate became the namespaced `AGENTIC_KIT_TAI_LOG_LEVEL`.
 - **`mqtt_tls_config_t.verify_peer` is dead** — assigned in one place, read nowhere. Peer
   verification is decided solely by whether `cacert` or `cert_bundle_attach` is non-NULL;
