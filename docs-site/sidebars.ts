@@ -42,6 +42,7 @@ const sidebars: SidebarsConfig = {
           label: '云端配置',
           items: [
             'guides/create-cloud-project',
+            'guides/dp-basics',
             'guides/create-agent',
             'guides/create-workflow',
           ],

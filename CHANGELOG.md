@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - tuya-ble — asynchronous nearby-WiFi lists over big-data, fixed CFG-status query replies, and an ESP-IDF scan provider (#35).
   - Configure `wifi_scan_request`; complete scans with their original token via `tuya_ble_bigdata_wifi_list_complete()` on the BLE owner context.
   - A scan provider enables WiFi-list/status capability discovery, not a complete PSK3.0 activation exchange.
+- docs-site — new bilingual guide "DP (Data Point): Definition, Creation, and Usage" under User Guides → Cloud Configuration (#41).
+  - Covers the official three-level DP definition, the four elements (DPID/DPCode/type/constraints), the six data types, rw/ro/wr transfer modes, `dps` and cloud command-set message formats, cloud rate limits, platform-side DP creation, and DP usage in agentic-kit (schema intake, type mapping, core `iot_dp_*` APIs, a typical code flow), with official and on-site references.
 
 ### Changed
 
