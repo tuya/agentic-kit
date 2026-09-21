@@ -444,6 +444,31 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     agentic_kit_add_iot_test(iot_ota_test "${IOT_CLIENT_TESTS_DIR}/iot_ota_test.c")
     agentic_kit_add_iot_test(iot_ota_verify_test "${IOT_CLIENT_TESTS_DIR}/iot_ota_verify_test.c")
 
+    add_executable(iot_tai_control_test
+        ${AI_TCP_SOURCES}
+        "${AI_TCP_TESTS_DIR}/tai_pal_loopback.c"
+        "${IOT_CLIENT_TESTS_DIR}/iot_tai_control_test.c"
+        "${IOT_CLIENT_TESTS_DIR}/test_log.c"
+    )
+    target_include_directories(iot_tai_control_test PRIVATE
+        "${AI_TCP_DIR}/include"
+        "${AI_TCP_DIR}/src"
+        "${AI_TCP_TESTS_DIR}"
+        "${IOT_CLIENT_DIR}/include"
+        "${IOT_CLIENT_DIR}/src"
+        "${IOT_CLIENT_TESTS_DIR}"
+        "${IOT_CLIENT_TESTS_DIR}/log_config"
+        "${cjson_source_dir}"
+        "${PAL_DIR}"
+        "${COMMON_DIR}"
+    )
+    target_link_libraries(iot_tai_control_test PRIVATE
+        tuya_iot_client_testlog
+        agentic_kit_pal
+        Threads::Threads
+    )
+    add_test(NAME iot_tai_control_test COMMAND iot_tai_control_test)
+
     # The ble sources compile into the executable (not the tuya_ble
     # library) so they pick up the test sink's log remap from
     # tuya_iot_client_testlog's include path -- that is what lets
