@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- iot-client — MQTT protocol-9000 AI control channel for server-initiated `asrInterrupt` notices, delivered via `ai_ctrl_callback_t` independently of the RTC TCP Connection.
+- rtc-tcp-client — `on_flow_control` admission hook for TCP receive backpressure; pauses all inbound Frames when the application's audio queue is full, including codec-frame callbacks mid-Packet.
+
+### Changed
+
+- **BREAKING** pal — `pal_t` gains a mandatory `sleep_ms` member; custom PALs must supply it and all consumers must rebuild.
+- rtc-tcp-client — audio Packets paused mid-body now retain a pending-delivery cursor instead of silently dropping codec frames; reopening admission resumes from the first unadmitted byte.
 
 - docs-site — English edition of the full documentation site, published at `/en/` with Simplified Chinese retained at `/`.
   - All 29 docs are mirrored under `docs-site/i18n/en/`, with a locale selector in both the landing-page navbar and the custom docs topbar, localized navbar/footer/sidebar catalogs, and English SVG schematics under `current/images/`.

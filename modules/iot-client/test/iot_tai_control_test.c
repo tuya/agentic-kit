@@ -109,8 +109,10 @@ typedef struct {
     int audio_callbacks;
     int accepted_old_audio;
     int accepted_new_audio;
+    int accepted_early_audio;
     int chat_breaks;
     int mqtt_interrupts;
+    int interrupted_before_tcp_drain;
     pthread_t mqtt_callback_thread;
     char current_event_id[64];
     char stale_event_id[64];
@@ -202,6 +204,16 @@ static void stop_mqtt_mock(void)
         found;                                                            \
     })
 
+static int state_check(int expression)
+{
+    pthread_mutex_lock(&state.mutex);
+    int result = expression;
+    pthread_mutex_unlock(&state.mutex);
+    return result;
+}
+
+#define STATE_CHECK(expr) CHECK(state_check(expr))
+
 static int flow_control(tai_ctx_t *ctx, void *user_data)
 {
     (void)ctx;
@@ -231,6 +243,8 @@ static void on_audio(tai_ctx_t *ctx, const tai_audio_msg_t *msg,
             s->accepted_old_audio++;
         } else if (msg->event_id && strcmp(msg->event_id, "new-event") == 0) {
             s->accepted_new_audio++;
+        } else if (msg->event_id && strcmp(msg->event_id, "early-event") == 0) {
+            s->accepted_early_audio++;
         }
     }
     pthread_mutex_unlock(&s->mutex);
@@ -292,6 +306,8 @@ static void on_ai_control(const char *type, const char *json_data,
     pthread_mutex_lock(&s->mutex);
     s->mqtt_callback_thread = pthread_self();
     s->mqtt_interrupts++;
+    if (s->mqtt_interrupts == 2 && s->chat_breaks == 0)
+        s->interrupted_before_tcp_drain = 1;
     if (!s->current_event_id[0] ||
         strcmp(s->current_event_id, event_id) == 0) {
         s->queued_audio = 0;
@@ -386,7 +402,7 @@ int main(void)
              "mqtts://127.0.0.1:%u", WRONG_KEY_PORT);
     CHECK(iot_client_message_connect(&wrong_key_iot) == OPRT_OK);
     CHECK(iot_client_message_process(&wrong_key_iot, 50) == OPRT_OK);
-    CHECK(state.mqtt_interrupts == 0);
+    STATE_CHECK(state.mqtt_interrupts == 0);
     iot_client_message_disconnect(&wrong_key_iot);
 
     tai_loopback_reset();
@@ -422,24 +438,27 @@ int main(void)
         "\"data\":{\"eventId\":\"early-event\"}}}}";
     CHECK(iot_client_message_publish(&iot, (const uint8_t *)early_control,
                                      sizeof(early_control) - 1) == OPRT_OK);
-    for (int attempt = 0; attempt < 50 && state.mqtt_interrupts == 0; attempt++) {
+    for (int attempt = 0; attempt < 50 && !WAIT_FOR(state.mqtt_interrupts >= 1, 5); attempt++) {
         CHECK(iot_client_message_process(&iot, 50) == OPRT_OK);
     }
-    CHECK(state.mqtt_interrupts == 1);
-    CHECK(state.queued_audio == 0);
-    /* MQTT-before-audio ordering: stale early-event state is discarded when the
-     * next audio packet identifies a different Event. */
-    CHECK(server_push_audio(ctx, "old-event", 0x01, sequence++) > 0);
-    CHECK(WAIT_FOR(state.accepted_old_audio == 1, 1000));
-    CHECK(state.queued_audio == 1);
-
-    state.queued_audio = 0;
-    state.accepted_old_audio = 0;
-    state.audio_callbacks = 0;
+    STATE_CHECK(state.mqtt_interrupts == 1);
+    STATE_CHECK(state.queued_audio == 0);
+    /* MQTT-before-audio ordering: early-event is cancelled before its START;
+     * its later audio must drain without entering playback. */
+    CHECK(server_push_event(ctx, TAI_EVT_START, "early-event", sequence++) > 0);
+    CHECK(server_push_audio(ctx, "early-event", 0x01, sequence++) > 0);
     CHECK(server_push_event(ctx, TAI_EVT_END, "early-event", sequence++) > 0);
     CHECK(server_push_event(ctx, TAI_EVT_START, "old-event", sequence++) > 0);
-    CHECK(server_push_audio(ctx, "old-event", 0x11, sequence++) > 0);
+    CHECK(server_push_audio(ctx, "old-event", 0x02, sequence++) > 0);
     CHECK(WAIT_FOR(state.accepted_old_audio == 1, 1000));
+    STATE_CHECK(state.accepted_early_audio == 0);
+    STATE_CHECK(state.queued_audio == 1);
+
+    pthread_mutex_lock(&state.mutex);
+    state.queued_audio = 0;
+    pthread_mutex_unlock(&state.mutex);
+    CHECK(server_push_audio(ctx, "old-event", 0x11, sequence++) > 0);
+    CHECK(WAIT_FOR(state.accepted_old_audio == 2, 1000));
 
     CHECK(server_push_audio(ctx, "old-event", 0x22, sequence++) > 0);
     CHECK(server_push_event(ctx, TAI_EVT_CHAT_BREAK,
@@ -451,8 +470,8 @@ int main(void)
     CHECK(server_push_event(ctx, TAI_EVT_CHAT_BREAK,
                             "old-event", sequence++) > 0);
     sleep_ms(100);
-    CHECK(state.audio_callbacks == 1);
-    CHECK(state.chat_breaks == 0);
+    STATE_CHECK(state.audio_callbacks == 3);
+    STATE_CHECK(state.chat_breaks == 0);
 
     static const char control[] =
         "{\"protocol\":9000,\"data\":{\"data\":{"
@@ -461,52 +480,59 @@ int main(void)
     pthread_t mqtt_owner = pthread_self();
     CHECK(iot_client_message_publish(&iot, (const uint8_t *)control,
                                      sizeof(control) - 1) == OPRT_OK);
-    for (int attempt = 0; attempt < 50 && state.mqtt_interrupts < 2; attempt++) {
+    for (int attempt = 0; attempt < 50 && !WAIT_FOR(state.mqtt_interrupts >= 2, 5); attempt++) {
         CHECK(iot_client_message_process(&iot, 50) == OPRT_OK);
     }
-    CHECK(state.mqtt_interrupts == 2);
-    CHECK(pthread_equal(mqtt_owner, state.mqtt_callback_thread));
-    CHECK(state.chat_breaks == 0);
+    STATE_CHECK(state.mqtt_interrupts == 2);
+    pthread_mutex_lock(&state.mutex);
+    int same_thread = pthread_equal(mqtt_owner, state.mqtt_callback_thread);
+    pthread_mutex_unlock(&state.mutex);
+    CHECK(same_thread);
+    STATE_CHECK(state.interrupted_before_tcp_drain == 1);
 
     CHECK(WAIT_FOR(state.accepted_new_audio == 1, 2000));
-    CHECK(state.audio_callbacks == 3);
-    CHECK(state.accepted_old_audio == 1);
-    CHECK(state.accepted_new_audio == 1);
-    CHECK(state.chat_breaks == 1);
-    CHECK(state.queued_audio == 1);
+    STATE_CHECK(state.audio_callbacks == 5);
+    STATE_CHECK(state.accepted_old_audio == 2);
+    STATE_CHECK(state.accepted_new_audio == 1);
+    STATE_CHECK(state.chat_breaks == 1);
+    STATE_CHECK(state.queued_audio == 1);
 
     /* Release pressure by consuming new audio; the queued duplicate is ignored. */
+    pthread_mutex_lock(&state.mutex);
     state.queued_audio = 0;
+    pthread_mutex_unlock(&state.mutex);
     CHECK(WAIT_FOR(state.chat_breaks == 2, 2000));
-    CHECK(state.queued_audio == 0);
-    CHECK(state.accepted_new_audio == 1);
+    STATE_CHECK(state.queued_audio == 0);
+    STATE_CHECK(state.accepted_new_audio == 1);
 
     /* Delayed duplicate on MQTT must also not flush the new playback. */
+    pthread_mutex_lock(&state.mutex);
     state.queued_audio = 1;
+    pthread_mutex_unlock(&state.mutex);
     CHECK(iot_client_message_publish(&iot, (const uint8_t *)control,
                                      sizeof(control) - 1) == OPRT_OK);
-    for (int attempt = 0; attempt < 50 && state.mqtt_interrupts < 3; attempt++) {
+    for (int attempt = 0; attempt < 50 && !WAIT_FOR(state.mqtt_interrupts >= 3, 5); attempt++) {
         CHECK(iot_client_message_process(&iot, 50) == OPRT_OK);
     }
-    CHECK(state.mqtt_interrupts == 3);
-    CHECK(state.queued_audio == 1);
-    CHECK(state.accepted_new_audio == 1);
+    STATE_CHECK(state.mqtt_interrupts == 3);
+    STATE_CHECK(state.queued_audio == 1);
+    STATE_CHECK(state.accepted_new_audio == 1);
 
     /* MQTT loss removes only the independent control path. TAI stays paused on
      * the full playback queue; reconnect restores authenticated delivery. */
     iot_client_message_disconnect(&iot);
     CHECK(iot_client_message_publish(&iot, (const uint8_t *)control,
                                      sizeof(control) - 1) == OPRT_UNINITIALIZED);
-    CHECK(state.queued_audio == 1);
+    STATE_CHECK(state.queued_audio == 1);
     CHECK(iot_client_message_connect(&iot) == OPRT_OK);
     CHECK(iot_client_message_process(&iot, 50) == OPRT_OK);
     CHECK(iot_client_message_publish(&iot, (const uint8_t *)control,
                                      sizeof(control) - 1) == OPRT_OK);
-    for (int attempt = 0; attempt < 50 && state.mqtt_interrupts < 4; attempt++) {
+    for (int attempt = 0; attempt < 50 && !WAIT_FOR(state.mqtt_interrupts >= 4, 5); attempt++) {
         CHECK(iot_client_message_process(&iot, 50) == OPRT_OK);
     }
-    CHECK(state.mqtt_interrupts == 4);
-    CHECK(state.queued_audio == 1);
+    STATE_CHECK(state.mqtt_interrupts == 4);
+    STATE_CHECK(state.queued_audio == 1);
 
     /* Shutdown while receive admission is still closed must not hang. */
     tai_disconnect(ctx);

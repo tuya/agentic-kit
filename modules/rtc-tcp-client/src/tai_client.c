@@ -640,6 +640,12 @@ void tai_disconnect(tai_ctx_t *ctx)
     ctx->rx_len     = 0;
     ctx->frag_len   = 0;
     ctx->frag_state = 0;
+    ctx->rx_pending_valid   = 0;  /* teardown drops a paused Packet remainder */
+    ctx->rx_pending_discard = 0;
+    ctx->rx_pending_offset  = 0;
+    ctx->rx_pending_len     = 0;
+    ctx->rx_pending_body    = NULL;
+    ctx->rx_pending_event_id[0] = '\0';
     ctx->connecting = 0;          /* clear in case a connect aborted mid-handshake */
     ctx->disconnect_emitted = 0;  /* re-arm the single-point on_disconnect      */
     ctx->rx_event_id[0] = '\0';   /* clear latched turn id so a reconnect starts clean */
@@ -736,6 +742,44 @@ static int tai_process_rx(tai_ctx_t *ctx, int *paused)
             break;
         }
 
+        /* A codec-frame callback may have filled the app queue mid-Packet.
+         * Re-dispatching the Frame here would replay accepted bytes; drain only
+         * its explicit pending remainder instead. Once it drains, slide the
+         * pinned Frame out from rx_buf so the next loop starts at the Frame
+         * behind it. */
+        if (ctx->rx_pending_valid) {
+            ctx->rx_pending_valid = tai_proto_drain_pending_audio(
+                ctx, ctx->rx_pending_from_frag);
+            if (ctx->rx_pending_valid) {
+                if (paused) *paused = 1;
+                break;
+            }
+            if (ctx->rx_pending_body_off && !ctx->rx_pending_from_frag) {
+                /* body_off−1 = byte offset of the body's first byte; +body_len
+                 * reaches the end of the app payload; +sig_len reaches the end
+                 * of the wire Frame. Verify against the Frame's own length
+                 * field: they must agree, so a mismatch means the pending
+                 * metadata was captured for the wrong storage. */
+                size_t pending_end = ctx->rx_pending_body_off - 1 +
+                                     ctx->rx_pending_len + ctx->sig_len;
+                size_t wire_len = tai_frame_total_size(ctx->rx_buf, ctx->rx_len);
+                if (pending_end != wire_len) {
+                    TAI_LOGE(ctx->pal, TAG,
+                             "pending audio slide mismatch: end=%zu wire=%zu",
+                             pending_end, wire_len);
+                    return TAI_PROTO_ERR_FRAME_DECODE;
+                }
+                if (pending_end <= ctx->rx_len) {
+                    memmove(ctx->rx_buf, ctx->rx_buf + pending_end,
+                            ctx->rx_len - pending_end);
+                    ctx->rx_len -= pending_end;
+                }
+                ctx->rx_pending_body = NULL;
+                ctx->rx_pending_body_off = 0;
+            }
+            continue;
+        }
+
         /* Detect version from first byte */
         int ver = tai_frame_detect_version(ctx->rx_buf[0]);
         if (ver < 0) {
@@ -821,9 +865,20 @@ static int tai_process_rx(tai_ctx_t *ctx, int *paused)
         }
 
         if (complete && app_bytes && app_len > 0) {
+            ctx->rx_dispatch_from_frag = (frag_flag == TAI_FRAG_LAST);
             int fatal = process_app_packet(ctx, app_bytes, app_len);
+            ctx->rx_dispatch_from_frag = 0;
             if (fatal != TAI_OK)
                 return fatal;   /* PROTOCOL detail or TAI_RX_PEER_CLOSE|code */
+        }
+
+        /* A mid-Packet pause pins this Frame's front; the paused body pointer
+         * therefore remains valid until the remainder drains. Once it drains,
+         * the pending-drain path above already slid the Frame, so this code
+         * runs only for the no-pending fast path. */
+        if (ctx->rx_pending_valid) {
+            if (paused) *paused = 1;
+            break;
         }
 
         /* Consume frame from rx_buf */
@@ -1330,9 +1385,14 @@ static void *worker_thread(void *arg)
         }
 
         uint64_t drain_start = ctx->pal->time_ms();
-        /* Only a parser pause leaves complete work behind. Partial input must
-         * return to a bounded blocking receive rather than spin. */
-        int n = resume_buffered ? (int)ctx->rx_len : tai_recv_data(ctx, wait_ms);
+        /* A pending codec-frame remainder is not extra inbound bytes. Enter the
+         * drain directly so reopening admission resumes it without requiring a
+         * new receive; a pending rx_buf remainder also keeps the Frame pinned,
+         * making rx_len a valid resume marker. Partial input returns to a
+         * bounded blocking receive rather than spinning. */
+        int n = ctx->rx_pending_valid ? 1
+               : resume_buffered      ? (int)ctx->rx_len
+                                      : tai_recv_data(ctx, wait_ms);
         resume_buffered = 0;
         while (n > 0 && ctx->running) {
             int fatal = tai_process_rx(ctx, &paused);

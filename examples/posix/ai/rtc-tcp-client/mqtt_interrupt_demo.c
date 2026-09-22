@@ -14,7 +14,7 @@
 
 #include "demo_json.h"
 #include "iot_client.h"
-#include "tuya_ai.h"
+#include "tai_internal.h"
 
 extern const pal_t *tai_pal_posix(void);
 
@@ -22,6 +22,7 @@ extern const pal_t *tai_pal_posix(void);
 #define DEFAULT_SECRET_KEY "[SPT;N:b@)wPzK/)"
 #define DEFAULT_LOCAL_KEY  "#d[<4y*N.vE]RAAG"
 #define PLAYBACK_CAPACITY  4
+#define MAX_EVENT_ID       64
 
 #define WAIT_STEP_MS 50U
 #define WAIT_LIMIT_MS 60000U
@@ -35,28 +36,64 @@ typedef struct {
     int done;
     int playback_running;
     size_t queued_audio;
-    int drop_until_new_event;
-    char current_event_id[64];
-    char stale_event_id[64];
+    int drop_unscoped_audio;
+    char current_event_id[MAX_EVENT_ID];
+    char recent_event_ids[4][MAX_EVENT_ID];
+    size_t recent_count;
 } demo_state_t;
+
+static int event_id_seen(const demo_state_t *state, const char *event_id)
+{
+    for (size_t i = 0; i < state->recent_count; i++) {
+        if (strcmp(state->recent_event_ids[i], event_id) == 0) return 1;
+    }
+    return 0;
+}
+
+/* An event id remains unusable after playback for it has been interrupted.
+ * Once it disappears from the bounded current/recent record, a new TCP Event
+ * with that same id is ambiguous and must not silently clear newer playback. */
+static int mark_event_stale(demo_state_t *state, const char *event_id)
+{
+    if (!event_id_seen(state, event_id)) {
+        if (state->recent_count == 4) {
+            memmove(state->recent_event_ids, state->recent_event_ids + 1,
+                    3 * sizeof(state->recent_event_ids[0]));
+            state->recent_count = 3;
+        }
+        snprintf(state->recent_event_ids[state->recent_count++],
+                 sizeof(state->recent_event_ids[0]), "%s", event_id);
+    }
+    return 1;
+}
+
+static void forget_uninterrupted_event(demo_state_t *state, const char *event_id)
+{
+    for (size_t i = 0; i < state->recent_count; i++) {
+        if (strcmp(state->recent_event_ids[i], event_id) != 0) continue;
+        memmove(state->recent_event_ids + i, state->recent_event_ids + i + 1,
+                (state->recent_count - i - 1) * sizeof(state->recent_event_ids[0]));
+        state->recent_count--;
+        return;
+    }
+}
 
 static void set_stale_event(demo_state_t *state, const char *event_id)
 {
     pthread_mutex_lock(&state->mutex);
+    state->queued_audio = 0;
     if (event_id && event_id[0]) {
-        /* A delayed duplicate for an older Event must not flush current audio. */
-        if (state->current_event_id[0] &&
-            strcmp(state->current_event_id, event_id) != 0) {
-            pthread_mutex_unlock(&state->mutex);
-            return;
-        }
-        state->queued_audio = 0;
-        snprintf(state->stale_event_id, sizeof(state->stale_event_id),
-                 "%s", event_id);
+        mark_event_stale(state, event_id);
+        /* If pressure paused this Event inside a Packet, flush only its retained
+         * remainder; the worker then drains later wire Frames without letting
+         * already accepted bytes replay or stale callbacks refill playback. */
+        if (state->tai) tai_discard_pending_audio(state->tai);
     } else {
-        state->queued_audio = 0;
-        state->drop_until_new_event = 1;
-        state->stale_event_id[0] = '\0';
+        /* Missing/ambiguous correlation is fail-closed: discard audio until
+         * the TCP side identifies the next Event. A repeated wire START inside
+         * one multi-frame Packet must not reopen playback. */
+        state->drop_unscoped_audio = 1;
+        if (state->tai) tai_discard_pending_audio(state->tai);
     }
     pthread_mutex_unlock(&state->mutex);
 }
@@ -67,7 +104,7 @@ static void on_ai_control(const char *type, const char *json_data,
     demo_state_t *state = (demo_state_t *)user_data;
     if (strcmp(type, "asrInterrupt") != 0) return;
 
-    char event_id[64] = {0};
+    char event_id[MAX_EVENT_ID] = {0};
     static const char key[] = "\"eventId\":\"";
     const char *id = NULL;
     for (size_t i = 0; i + sizeof(key) - 1 <= data_len; i++) {
@@ -106,19 +143,10 @@ static void on_audio(tai_ctx_t *ctx, const tai_audio_msg_t *msg, void *user_data
     (void)ctx;
     demo_state_t *state = (demo_state_t *)user_data;
     pthread_mutex_lock(&state->mutex);
-    if (state->drop_until_new_event && msg->stream_flag == TAI_STREAM_START) {
-        state->drop_until_new_event = 0;
-    }
-    if (state->stale_event_id[0] && msg->event_id && msg->event_id[0] &&
-        strcmp(state->stale_event_id, msg->event_id) != 0) {
-        state->stale_event_id[0] = '\0';
-    }
-    int stale = state->drop_until_new_event ||
-                (state->stale_event_id[0] && msg->event_id &&
-                 strcmp(state->stale_event_id, msg->event_id) == 0);
-    if (!stale && state->queued_audio < PLAYBACK_CAPACITY) {
-        state->queued_audio++;
-    }
+    int stale = state->drop_unscoped_audio ||
+                !msg->event_id || !msg->event_id[0] ||
+                event_id_seen(state, msg->event_id);
+    if (!stale) state->queued_audio++;
     pthread_mutex_unlock(&state->mutex);
 }
 
@@ -128,13 +156,11 @@ static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *user_data
     demo_state_t *state = (demo_state_t *)user_data;
     if (msg->event_type == TAI_EVT_START && msg->event_id && msg->event_id[0]) {
         pthread_mutex_lock(&state->mutex);
-        snprintf(state->current_event_id, sizeof(state->current_event_id),
-                 "%s", msg->event_id);
-        if (state->stale_event_id[0] &&
-            strcmp(state->stale_event_id, msg->event_id) != 0) {
-            state->stale_event_id[0] = '\0';
+        if (!event_id_seen(state, msg->event_id)) {
+            snprintf(state->current_event_id, sizeof(state->current_event_id),
+                     "%s", msg->event_id);
+            state->drop_unscoped_audio = 0;
         }
-        state->drop_until_new_event = 0;
         pthread_mutex_unlock(&state->mutex);
     } else if (msg->event_type == TAI_EVT_CHAT_BREAK) {
         set_stale_event(state, msg->event_id);
@@ -145,8 +171,9 @@ static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *user_data
         if (msg->event_id && state->current_event_id[0] &&
             strcmp(state->current_event_id, msg->event_id) == 0) {
             state->current_event_id[0] = '\0';
+            forget_uninterrupted_event(state, msg->event_id);
+            state->done = 1;
         }
-        state->done = 1;
         pthread_mutex_unlock(&state->mutex);
     }
 }
