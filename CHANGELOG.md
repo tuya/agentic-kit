@@ -10,12 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - iot-client — MQTT protocol-9000 AI control channel for server-initiated `asrInterrupt` notices, delivered via `ai_ctrl_callback_t` independently of the RTC TCP Connection.
+  - The notice payload carries `eventId` and the server time `time`; the time is the interruption cutoff.
 - rtc-tcp-client — `on_flow_control` admission hook for TCP receive backpressure; pauses all inbound Frames when the application's audio queue is full, including codec-frame callbacks mid-Packet.
+- rtc-tcp-client — `tai_event_msg_t` gains borrowed `user_data` / `user_data_len` (attr 111), so an interruption notice can be read without the SDK parsing JSON.
+  - `TAI_EVT_CHAT_BREAK` carries `{"breakAttributes":{"time":"<server-time>"}}`; compare that time with the `timestamp_ms` latched from audio START to discard an interrupted stream. A notice whose time is missing or unusable fails closed onto the in-flight stream rather than being ignored.
 
 ### Changed
 
 - **BREAKING** pal — `pal_t` gains a mandatory `sleep_ms` member; custom PALs must supply it and all consumers must rebuild.
 - rtc-tcp-client — audio Packets paused mid-body now retain a pending-delivery cursor instead of silently dropping codec frames; reopening admission resumes from the first unadmitted byte.
+  - The cursor is zero-copy and worker-owned: there is no application-side discard call, and no SDK receive state for the app to mutate.
+  - A pinned Packet whose recorded wire length cannot be consumed exactly once fails fast with `TAI_PROTO_ERR_FRAME_DECODE` instead of sliding the receive buffer out of range.
+  - A header-only START/ONE_SHOT now reaches `on_audio` with `len == 0`, so its server-side `timestamp_ms` can be latched for interruption filtering.
 
 - docs-site — English edition of the full documentation site, published at `/en/` with Simplified Chinese retained at `/`.
   - All 29 docs are mirrored under `docs-site/i18n/en/`, with a locale selector in both the landing-page navbar and the custom docs topbar, localized navbar/footer/sidebar catalogs, and English SVG schematics under `current/images/`.

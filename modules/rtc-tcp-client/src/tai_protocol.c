@@ -522,7 +522,8 @@ static void emit_text(tai_ctx_t *ctx, const char *text, size_t len,
 }
 
 static void emit_event(tai_ctx_t *ctx, uint16_t event_type,
-                       const uint8_t *data, size_t len)
+                       const uint8_t *data, size_t len,
+                       const tai_attr_t *user_data)
 {
     if (!ctx->on_event) return;
     tai_event_msg_t m = {0};
@@ -530,6 +531,10 @@ static void emit_event(tai_ctx_t *ctx, uint16_t event_type,
     m.data       = data;
     m.len        = len;
     m.event_id   = ctx->rx_event_id;
+    if (user_data) {
+        m.user_data     = user_data->value;
+        m.user_data_len = user_data->len;
+    }
     ctx->on_event(ctx, &m, ctx->user_data);
 }
 
@@ -604,113 +609,28 @@ static void parse_audio_params_once(tai_ctx_t *ctx,
     }
 }
 
-/* Split an audio body into CBR Opus frames of rx_audio_frame_size, emitting a
- * final short remainder. When flow control closes mid-body, metadata plus the
- * first unadmitted offset are retained and the caller pins this Packet's wire
- * storage. Reopening admission resumes from that offset; admitted bytes are
- * never replayed. fs==0 (PCM / unknown) delivers the body whole once admitted,
- * so an impossible-to-admit callback cannot spin the worker. */
-static void media_audio_body(tai_ctx_t *ctx, const uint8_t *body, size_t body_len,
-                             uint8_t stream_flag, uint16_t data_id,
-                             uint64_t ts_ms, int from_frag)
+/* Split CBR Opus into codec frames, including a final short remainder.
+ * A zero frame size (PCM / unknown) delivers the remaining body whole.
+ * Only the worker advances this zero-copy cursor; the caller pins storage
+ * and does not dispatch another Packet until the cursor is exhausted. */
+int tai_proto_drain_pending_audio(tai_ctx_t *ctx)
 {
-    if (!ctx->on_audio) return;
-
     uint16_t fs = ctx->rx_audio_frame_size;
-    size_t offset = 0;
-    while (offset < body_len) {
-        if (ctx->on_flow_control &&
-            !ctx->on_flow_control(ctx, ctx->user_data)) {
-            size_t n = strlen(ctx->rx_event_id);
-            if (n >= sizeof(ctx->rx_pending_event_id))
-                n = sizeof(ctx->rx_pending_event_id) - 1;
-
-            memcpy(ctx->rx_pending_event_id, ctx->rx_event_id, n);
-            ctx->rx_pending_event_id[n] = '\0';
-            ctx->rx_pending_valid      = 1;
-            ctx->rx_pending_flag       = stream_flag;
-            ctx->rx_pending_discard    = 0;
-            ctx->rx_pending_data_id    = data_id;
-            ctx->rx_pending_frame_ms   = fs;
-            ctx->rx_pending_audio_codec = ctx->rx_audio_codec;
-            ctx->rx_pending_audio_rate  = ctx->rx_audio_sample_rate;
-            ctx->rx_pending_frame_duration = ctx->rx_audio_frame_duration;
-            ctx->rx_pending_ts_ms      = ts_ms;
-            ctx->rx_pending_offset     = offset;
-            ctx->rx_pending_len        = body_len;
-            ctx->rx_pending_body       = body;
-            ctx->rx_pending_body_off   = from_frag
-                                       ? 0 : (size_t)(body - ctx->rx_buf) + 1;
-            ctx->rx_pending_from_frag  = (uint8_t)from_frag;
-            fprintf(stderr, "CAP off=%zu len=%zu event=%s\n",
-                    offset, body_len, ctx->rx_pending_event_id);
-            return;
-        }
-        size_t len = fs == 0 || body_len - offset < fs ? body_len - offset : fs;
-        emit_audio(ctx, body + offset, len, stream_flag, data_id, ts_ms);
-        offset += len;
-    }
-}
-
-int tai_proto_drain_pending_audio(tai_ctx_t *ctx, int from_frag)
-{
-    if (!ctx->rx_pending_valid) return 0;
-    if ((from_frag != 0) != (ctx->rx_pending_from_frag != 0)) {
-        TAI_LOGE(ctx->pal, TAG, "pending audio storage mismatch");
-        return 1;   /* keep the connection alive rather than resyncing blindly */
-    }
-
-    /* The caller pins the storage containing this Packet: the unslid rx_buf
-     * Frame for FRAG_NONE, or frag_buf until its next reassembly begins. */
-    const uint8_t *body = ctx->rx_pending_body;
-    if (!body) return 1;
-    if (ctx->rx_pending_offset > ctx->rx_pending_len) return 0;
-
-    while (ctx->rx_pending_offset < ctx->rx_pending_len) {
-        if (ctx->rx_pending_discard) {
-            ctx->rx_pending_valid   = 0;
-            ctx->rx_pending_discard = 0;
-            return 0;
-        }
+    while (ctx->rx_pending_len) {
         if (ctx->on_flow_control &&
             !ctx->on_flow_control(ctx, ctx->user_data)) {
             return 1;
         }
-
-        size_t remaining = ctx->rx_pending_len - ctx->rx_pending_offset;
-        size_t len = ctx->rx_pending_frame_ms == 0 ||
-                     remaining < ctx->rx_pending_frame_ms
-                   ? remaining : ctx->rx_pending_frame_ms;
-        char saved_event[sizeof(ctx->rx_event_id)];
-        uint8_t saved_codec = ctx->rx_audio_codec;
-        uint32_t saved_rate = ctx->rx_audio_sample_rate;
-        uint16_t saved_duration = ctx->rx_audio_frame_duration;
-        memcpy(saved_event, ctx->rx_event_id, sizeof(saved_event));
-        memcpy(ctx->rx_event_id, ctx->rx_pending_event_id,
-               sizeof(ctx->rx_event_id));
-        ctx->rx_audio_codec = ctx->rx_pending_audio_codec;
-        ctx->rx_audio_sample_rate = ctx->rx_pending_audio_rate;
-        ctx->rx_audio_frame_duration = ctx->rx_pending_frame_duration;
-
-        emit_audio(ctx, body + ctx->rx_pending_offset, len,
+        size_t len = fs == 0 || ctx->rx_pending_len < fs
+                   ? ctx->rx_pending_len : fs;
+        emit_audio(ctx, ctx->rx_pending_body, len,
                    ctx->rx_pending_flag, ctx->rx_pending_data_id,
                    ctx->rx_pending_ts_ms);
-        memcpy(ctx->rx_event_id, saved_event, sizeof(saved_event));
-        ctx->rx_audio_codec = saved_codec;
-        ctx->rx_audio_sample_rate = saved_rate;
-        ctx->rx_audio_frame_duration = saved_duration;
-        ctx->rx_pending_offset += len;
+        ctx->rx_pending_body += len;
+        ctx->rx_pending_len -= len;
     }
-
-    ctx->rx_pending_valid = 0;
     ctx->rx_pending_body = NULL;
     return 0;
-}
-
-void tai_discard_pending_audio(tai_ctx_t *ctx)
-{
-    if (!ctx) return;
-    if (ctx->rx_pending_valid) ctx->rx_pending_discard = 1;
 }
 
 /* AUDIO packet payload: [data_id:2][48-bit stream_flag|ts_ms][opus frames…]. */
@@ -739,8 +659,19 @@ static int media_audio(tai_ctx_t *ctx,
     parse_audio_params_once(ctx, attrs, attr_count);
 
     latch_event_id(ctx, attrs, attr_count);
-    media_audio_body(ctx, payload + 8, payload_len - 8, stream_flag, data_id,
-                     ts_ms, ctx->rx_dispatch_from_frag);
+    /* Header-only STARTs still establish the server-time playback boundary. */
+    if (payload_len == 8 &&
+        (stream_flag == TAI_STREAM_START || stream_flag == TAI_STREAM_ONE_SHOT)) {
+        emit_audio(ctx, payload + 8, 0, stream_flag, data_id, ts_ms);
+    }
+    if (ctx->on_audio) {
+        ctx->rx_pending_body    = payload + 8;
+        ctx->rx_pending_len     = payload_len - 8;
+        ctx->rx_pending_flag    = stream_flag;
+        ctx->rx_pending_data_id = data_id;
+        ctx->rx_pending_ts_ms   = ts_ms;
+        tai_proto_drain_pending_audio(ctx);
+    }
     return TAI_OK;
 }
 
@@ -852,7 +783,8 @@ int tai_proto_dispatch(tai_ctx_t *ctx,
         }
 
         latch_event_id(ctx, attrs, attr_count);
-        emit_event(ctx, evt_type, evt_data, evt_data_len);
+        emit_event(ctx, evt_type, evt_data, evt_data_len,
+                   tai_attr_find(attrs, attr_count, TAI_ATTR_USER_DATA));
         if (evt_type == TAI_EVT_END)
             ctx->rx_event_id[0] = '\0';   /* turn over: clear after firing END */
         break;

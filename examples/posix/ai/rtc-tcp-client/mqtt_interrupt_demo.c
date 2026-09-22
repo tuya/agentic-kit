@@ -3,15 +3,17 @@
  *
  * This demo uses a bounded synthetic playback queue. MQTT is pumped by one
  * application-owned thread while TAI's worker independently receives media.
- * An asrInterrupt flushes queued playback, marks that Event stale, and reopens
- * TAI receive admission so remaining stale media can be drained and discarded.
+ * Interruptions discard audio whose stream started at or before the server's
+ * cutoff time, reopening admission so retained stale media can be drained.
  */
 
+#include <inttypes.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "cJSON.h"
 #include "demo_json.h"
 #include "iot_client.h"
 #include "tuya_ai.h"
@@ -36,93 +38,91 @@ typedef struct {
     int done;
     int playback_running;
     size_t queued_audio;
-    int drop_unscoped_audio;
+    uint64_t audio_cutoff_ms;
+    uint64_t stream_start_ms;
+    uint64_t queued_start_ms[PLAYBACK_CAPACITY];
     char current_event_id[MAX_EVENT_ID];
-    char recent_event_ids[4][MAX_EVENT_ID];
-    size_t recent_count;
+    int current_event_has_audio;
 } demo_state_t;
 
-static int event_id_seen(const demo_state_t *state, const char *event_id)
-{
-    for (size_t i = 0; i < state->recent_count; i++) {
-        if (strcmp(state->recent_event_ids[i], event_id) == 0) return 1;
-    }
-    return 0;
-}
+#define MAX_AUDIO_TIME_MS ((UINT64_C(1) << 42) - 1)
 
-/* An event id remains unusable after playback for it has been interrupted.
- * Once it disappears from the bounded current/recent record, a new TCP Event
- * with that same id is ambiguous and must not silently clear newer playback. */
-static int mark_event_stale(demo_state_t *state, const char *event_id)
+static uint64_t interrupt_time(const char *data, size_t len, int chat_break)
 {
-    if (!event_id_seen(state, event_id)) {
-        if (state->recent_count == 4) {
-            memmove(state->recent_event_ids, state->recent_event_ids + 1,
-                    3 * sizeof(state->recent_event_ids[0]));
-            state->recent_count = 3;
+    if (!data || !len) return 0;
+    /* cJSON strings have no length: reject encoded NUL rather than silently
+     * treating a timestamp with a NUL suffix as a shorter decimal string. */
+    for (size_t i = 0; i < len; i++) {
+        if (data[i] == '\0') return 0;
+        if (data[i] == '\\' && i + 1 < len) {
+            if (len - i >= 6 && memcmp(data + i, "\\u0000", 6) == 0) return 0;
+            i++;
         }
-        snprintf(state->recent_event_ids[state->recent_count++],
-                 sizeof(state->recent_event_ids[0]), "%s", event_id);
     }
-    return 1;
+    const char *end = NULL;
+    cJSON *root = cJSON_ParseWithLengthOpts(data, len, &end, 0);
+    if (!root) return 0;
+    while (end < data + len &&
+           (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n')) end++;
+    cJSON *object = chat_break
+        ? cJSON_GetObjectItemCaseSensitive(root, "breakAttributes") : root;
+    cJSON *time = cJSON_GetObjectItemCaseSensitive(object, "time");
+    uint64_t result = 0;
+    if (end == data + len && cJSON_IsObject(object)) {
+        if (cJSON_IsString(time)) {
+            const char *p = time->valuestring;
+            for (; *p; p++) {
+                if (*p < '0' || *p > '9' ||
+                    result > (MAX_AUDIO_TIME_MS - (unsigned)(*p - '0')) / 10) {
+                    result = 0;
+                    break;
+                }
+                result = result * 10 + (unsigned)(*p - '0');
+            }
+        } else if (cJSON_IsNumber(time) && time->valuedouble > 0 &&
+                   time->valuedouble <= (double)MAX_AUDIO_TIME_MS) {
+            uint64_t value = (uint64_t)time->valuedouble;
+            if ((double)value == time->valuedouble) result = value;
+        }
+    }
+    cJSON_Delete(root);
+    return result;
 }
 
-static void forget_uninterrupted_event(demo_state_t *state, const char *event_id)
+static void interrupt_playback(demo_state_t *state, const char *data,
+                               size_t len, int chat_break)
 {
-    for (size_t i = 0; i < state->recent_count; i++) {
-        if (strcmp(state->recent_event_ids[i], event_id) != 0) continue;
-        memmove(state->recent_event_ids + i, state->recent_event_ids + i + 1,
-                (state->recent_count - i - 1) * sizeof(state->recent_event_ids[0]));
-        state->recent_count--;
-        return;
-    }
-}
-
-static void set_stale_event(demo_state_t *state, const char *event_id)
-{
+    uint64_t cutoff = interrupt_time(data, len, chat_break);
+    const char *source = chat_break ? "TAI ChatBreak" : "MQTT asrInterrupt";
     pthread_mutex_lock(&state->mutex);
-    state->queued_audio = 0;
-    if (event_id && event_id[0]) {
-        mark_event_stale(state, event_id);
-        /* Clearing playback reopens admission. The worker drains retained audio
-         * through on_audio(), which rejects this stale Event under the mutex. */
-    } else {
-        /* Missing/ambiguous correlation is fail-closed: discard audio until
-         * the TCP side identifies the next Event. A repeated wire START inside
-         * one multi-frame Packet must not reopen playback. */
-        state->drop_unscoped_audio = 1;
+    if (cutoff) {
+        if (cutoff > state->audio_cutoff_ms) state->audio_cutoff_ms = cutoff;
+    } else if (state->stream_start_ms > state->audio_cutoff_ms) {
+        /* Fail closed. An interruption we cannot place on the server timeline
+         * must not leave the reply playing over the user, so drop the stream
+         * currently in flight: its own START becomes the cutoff (a START equal
+         * to the cutoff is discarded), and later streams are still admitted. */
+        state->audio_cutoff_ms = state->stream_start_ms;
     }
+    size_t kept = 0;
+    for (size_t i = 0; i < state->queued_audio; i++) {
+        if (state->queued_start_ms[i] > state->audio_cutoff_ms)
+            state->queued_start_ms[kept++] = state->queued_start_ms[i];
+    }
+    state->queued_audio = kept;
     pthread_mutex_unlock(&state->mutex);
+    if (cutoff)
+        printf("\n[%s] interruption time=%" PRIu64 "\n", source, cutoff);
+    else
+        printf("\n[%s] no usable interruption time; dropped the in-flight stream\n",
+               source);
 }
 
 static void on_ai_control(const char *type, const char *json_data,
                           size_t data_len, void *user_data)
 {
-    demo_state_t *state = (demo_state_t *)user_data;
     if (strcmp(type, "asrInterrupt") != 0) return;
-
-    char event_id[MAX_EVENT_ID] = {0};
-    static const char key[] = "\"eventId\":\"";
-    const char *id = NULL;
-    for (size_t i = 0; i + sizeof(key) - 1 <= data_len; i++) {
-        if (memcmp(json_data + i, key, sizeof(key) - 1) == 0) {
-            id = json_data + i + sizeof(key) - 1;
-            break;
-        }
-    }
-    if (id) {
-        size_t available = data_len - (size_t)(id - json_data);
-        const char *end = memchr(id, '"', available);
-        if (end) {
-            size_t n = (size_t)(end - id);
-            if (n >= sizeof(event_id)) n = sizeof(event_id) - 1;
-            memcpy(event_id, id, n);
-            event_id[n] = '\0';
-        }
-    }
-    set_stale_event(state, event_id);
-    printf("\n[MQTT control] asrInterrupt event=%s; playback flushed\n",
-           event_id[0] ? event_id : "(unscoped)");
+    interrupt_playback((demo_state_t *)user_data, json_data, data_len, 0);
 }
 
 static int on_flow_control(tai_ctx_t *ctx, void *user_data)
@@ -140,10 +140,13 @@ static void on_audio(tai_ctx_t *ctx, const tai_audio_msg_t *msg, void *user_data
     (void)ctx;
     demo_state_t *state = (demo_state_t *)user_data;
     pthread_mutex_lock(&state->mutex);
-    int stale = state->drop_unscoped_audio ||
-                !msg->event_id || !msg->event_id[0] ||
-                event_id_seen(state, msg->event_id);
-    if (!stale) state->queued_audio++;
+    if (msg->stream_flag == TAI_STREAM_START ||
+        msg->stream_flag == TAI_STREAM_ONE_SHOT)
+        state->stream_start_ms = msg->timestamp_ms;
+    state->current_event_has_audio = 1;
+    if (msg->len && state->stream_start_ms > state->audio_cutoff_ms &&
+        state->queued_audio < PLAYBACK_CAPACITY)
+        state->queued_start_ms[state->queued_audio++] = state->stream_start_ms;
     pthread_mutex_unlock(&state->mutex);
 }
 
@@ -153,23 +156,21 @@ static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *user_data
     demo_state_t *state = (demo_state_t *)user_data;
     if (msg->event_type == TAI_EVT_START && msg->event_id && msg->event_id[0]) {
         pthread_mutex_lock(&state->mutex);
-        if (!event_id_seen(state, msg->event_id)) {
-            snprintf(state->current_event_id, sizeof(state->current_event_id),
-                     "%s", msg->event_id);
-            state->drop_unscoped_audio = 0;
-        }
+        snprintf(state->current_event_id, sizeof(state->current_event_id),
+                 "%s", msg->event_id);
+        state->current_event_has_audio = 0;
         pthread_mutex_unlock(&state->mutex);
     } else if (msg->event_type == TAI_EVT_CHAT_BREAK) {
-        set_stale_event(state, msg->event_id);
-        printf("\n[TAI Event] ChatBreak event=%s\n",
-               msg->event_id && msg->event_id[0] ? msg->event_id : "(unscoped)");
+        interrupt_playback(state, (const char *)msg->user_data,
+                           msg->user_data_len, 1);
     } else if (msg->event_type == TAI_EVT_END) {
         pthread_mutex_lock(&state->mutex);
         if (msg->event_id && state->current_event_id[0] &&
             strcmp(state->current_event_id, msg->event_id) == 0) {
             state->current_event_id[0] = '\0';
-            forget_uninterrupted_event(state, msg->event_id);
-            state->done = 1;
+            if (!state->current_event_has_audio || !state->audio_cutoff_ms ||
+                state->stream_start_ms > state->audio_cutoff_ms)
+                state->done = 1;
         }
         pthread_mutex_unlock(&state->mutex);
     }
@@ -224,7 +225,11 @@ static void *playback_consumer(void *arg)
             pthread_mutex_unlock(&state->mutex);
             break;
         }
-        if (state->queued_audio > 0) state->queued_audio--;
+        if (state->queued_audio > 0) {
+            state->queued_audio--;
+            memmove(state->queued_start_ms, state->queued_start_ms + 1,
+                    state->queued_audio * sizeof(state->queued_start_ms[0]));
+        }
         pthread_mutex_unlock(&state->mutex);
     }
     return NULL;

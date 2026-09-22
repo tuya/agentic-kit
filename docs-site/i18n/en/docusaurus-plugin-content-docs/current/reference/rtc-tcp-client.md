@@ -226,7 +226,7 @@ int  (*on_flow_control)(tai_ctx_t *ctx, void *user_data);
 - The worker calls the hook before each read and between complete Frames, but not during the connect handshake. The hook must not block; the application synchronizes shared queue state.
 - Returning 0 pauses both reads and parsing, stalling all inbound traffic including ChatBreak, ASR text, Pong, and EOF detection. Resume processes complete buffered Frames before reading again; partial input returns to bounded blocking receive.
 - An intentional pause suspends receive-liveness timeout accounting, and resume grants a fresh `ping_timeout_ms` budget. Ping and stop requests remain active; Ping send failure still disconnects.
-- Admission is at wire-Frame boundaries. One Audio Packet can synchronously emit several codec-frame callbacks, so `on_audio` must still bound its own queue.
+- Admission is also checked before each codec-frame callback within an Audio Packet. A mid-Packet pause retains that Packet's remaining bytes without copying; resume delivers the remaining frames before any later Packet. Applications discard obsolete audio inside `on_audio` by comparing the server timestamp (`msg->timestamp_ms`), not by mutating SDK receive state.
 
 Backpressure is rechecked every `AGENTIC_KIT_TAI_FLOW_CONTROL_POLL_MS` (50 ms by default), and sustained receive traffic yields CPU for `AGENTIC_KIT_TAI_WORKER_YIELD_MS` (10 ms by default).
 
@@ -246,7 +246,7 @@ Backpressure is rechecked every `AGENTIC_KIT_TAI_FLOW_CONTROL_POLL_MS` (50 ms by
 | `stream_flag` | `uint8_t` | `TAI_STREAM_*` (from the media header) |
 | `data_id` | `uint16_t` | Data ID: `AUDIO_DOWN`(2) / `AUDIO_AUX`(7) |
 | `event_id` | `const char *` | Turn ID (borrowed); `""` if absent |
-| `timestamp_ms` | `uint64_t` | Stream start timestamp (media header) |
+| `timestamp_ms` | `uint64_t` | Server media-header timestamp, **not** local time; latch START's value to filter a stream against an interruption time |
 
 `tai_text_msg_t` (text callback):
 
@@ -285,6 +285,12 @@ Received images arrive as a stream of chunks: START (or ONE_SHOT) carries the fi
 | `data` | `const uint8_t *` | Event payload (usually JSON) |
 | `len` | `size_t` | Payload length in bytes |
 | `event_id` | `const char *` | attr 61 (borrowed); `""` if absent |
+| `user_data` | `const uint8_t *` | attr 111 (borrowed), **not** NUL-terminated; NULL if absent |
+| `user_data_len` | `size_t` | `user_data` length in bytes; separate from the event payload, and the SDK does not parse its JSON |
+
+:::note ChatBreak interruption time
+The server time for `TAI_EVT_CHAT_BREAK` is not in the event payload but in attr 111: `{"breakAttributes":{"time":"<server-time>"}}`, a server epoch in milliseconds — the same clock and unit as `on_audio`'s `timestamp_ms`. Read `msg->user_data`, parse `breakAttributes.time`, and compare it with the `timestamp_ms` latched in `on_audio` to decide whether a stream is obsolete. The MQTT `asrInterrupt` arrives by a different path: its time is the `time` field of its own payload, and it is the same server time value.
+:::
 
 `tai_disconnect_msg_t` (disconnect callback):
 

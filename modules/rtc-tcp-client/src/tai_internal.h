@@ -215,9 +215,6 @@ struct tai_ctx {
     uint16_t rx_audio_frame_duration;  /* ms */
     uint16_t rx_audio_frame_size;      /* bytes per Opus packet */
     uint8_t  rx_audio_codec;           /* TAI_AUDIO_* from audio-params f[0]; 0=unknown */
-    uint8_t  rx_pending_audio_codec;
-    uint32_t rx_pending_audio_rate;
-    uint16_t rx_pending_frame_duration;
 
     /* Received turn id (attr 61) backing callback msg->event_id; "" if none */
     char     rx_event_id[64];
@@ -248,22 +245,15 @@ struct tai_ctx {
     /* Optional TCP receive backpressure (see tuya_ai.h). */
     int (*on_flow_control)(tai_ctx_t *, void *);
 
-    /* A codec-frame Packet paused inside dispatch. The bytes and Event id stay
-     * worker-owned; pending_offset advances only after an admitted callback.
-     * Teardown deliberately discards any remainder. */
-    uint8_t  rx_pending_valid;
-    uint8_t  rx_pending_flag;
-    uint8_t  rx_pending_discard;
-    uint8_t  rx_pending_from_frag;
-    uint8_t  rx_dispatch_from_frag;
-    uint16_t rx_pending_data_id;
-    uint32_t rx_pending_frame_ms;
-    uint64_t rx_pending_ts_ms;
-    size_t   rx_pending_offset;
-    size_t   rx_pending_len;
-    size_t   rx_pending_body_off;
+    /* Worker-owned audio cursor: nonzero remaining length means pending.
+     * No other Packet dispatches until it drains, so rx_audio_* / rx_event_id
+     * stay valid. Pin the current wire Frame even for reassembled Packets. */
     const uint8_t *rx_pending_body;
-    char     rx_pending_event_id[64];
+    size_t   rx_pending_len;
+    size_t   rx_pending_wire_len;
+    uint8_t  rx_pending_flag;
+    uint16_t rx_pending_data_id;
+    uint64_t rx_pending_ts_ms;
 
     /* RX linear buffer (sliding-window: bytes always at buf[0]) */
     uint8_t rx_buf[TAI_RX_BUF_SIZE];
@@ -404,10 +394,6 @@ int tai_unpack_media_hdr(const uint8_t *buf, size_t len,
 void tai_emit_disconnect(tai_ctx_t *ctx, uint8_t reason,
                          uint8_t detail, uint16_t close_code);
 
-/* Internal storage-origin hint for a dispatched Packet: 0 = rx_buf, 1 = frag_buf.
- * Only tai_process_rx sets it around process_app_packet; it is not public API. */
-#define TAI_DISPATCH_STORAGE_FRAG 1
-
 /* Fail-fast cause, RETURNED up the receive chain (dispatch -> process_app_packet
  * -> tai_process_rx) to the worker, which owns the run loop and fires a single
  * on_disconnect. Lower layers never touch connection-lifecycle state:
@@ -528,14 +514,9 @@ int tai_proto_dispatch   (tai_ctx_t *ctx,
                            uint8_t pkt_type,
                            const tai_attr_t *attrs, int attr_count,
                            const uint8_t *payload, size_t payload_len);
-/* Drain one audio Packet paused inside callback delivery.  Returns 1 while
- * delivery remains paused, 0 once the Packet (or a deliberately discarded
- * remainder) is finished.  Callers only use it for a packet whose bytes are
- * still pinned in the worker's rx_buf / frag_buf. */
-int tai_proto_drain_pending_audio(tai_ctx_t *ctx, int from_frag);
-/* Mark the current pending remainder obsolete without delivering it.  Used by
- * an application interruption from another thread before reopening admission. */
-void tai_discard_pending_audio(tai_ctx_t *ctx);
+/* Worker-only: returns 1 while delivery remains paused, 0 once finished.
+ * The Packet's bytes stay pinned in rx_buf / frag_buf until it drains. */
+int tai_proto_drain_pending_audio(tai_ctx_t *ctx);
 
 /* Internal sequence helper */
 static inline uint16_t tai_next_seq(tai_ctx_t *ctx) {

@@ -165,14 +165,15 @@ typedef struct tai_ctx tai_ctx_t;
 /* --- Audio --------------------------------------------------------------- */
 typedef struct tai_audio_msg {
     const uint8_t *data;            /* Opus frame / PCM bytes; callback-lifetime */
-    size_t         len;
+    size_t         len;             /* may be 0 for a header-only START/ONE_SHOT */
     uint8_t        codec;           /* TAI_AUDIO_OPUS / TAI_AUDIO_PCM / 0=unknown */
     uint32_t       sample_rate;     /* Hz, 0 if unknown                          */
     uint16_t       frame_duration;  /* ms per Opus frame                         */
     uint8_t        stream_flag;     /* TAI_STREAM_* (from the media header)       */
     uint16_t       data_id;         /* Data ID: AUDIO_DOWN(2) / AUDIO_AUX(7)      */
     const char    *event_id;        /* turn id, borrowed; "" if none             */
-    uint64_t       timestamp_ms;    /* stream-start ts (media header)            */
+    uint64_t       timestamp_ms;    /* server media-header timestamp, not local time;
+                                    * latch START's value for stream filtering */
     uint8_t        _reserved[8];
 } tai_audio_msg_t;
 
@@ -212,6 +213,8 @@ typedef struct tai_event_msg {
     const uint8_t *data;            /* event payload (often JSON); callback-life */
     size_t         len;
     const char    *event_id;        /* attr 61, borrowed; "" if absent           */
+    const uint8_t *user_data;       /* attr 111, borrowed, NOT NUL-terminated; NULL if absent */
+    size_t         user_data_len;   /* separate from event payload; SDK does not parse JSON */
     uint8_t        _reserved[8];
 } tai_event_msg_t;
 
@@ -338,9 +341,11 @@ typedef struct tai_config {
      * ping_timeout_ms budget. Pings and requested shutdown remain active, and a
      * Ping send failure still disconnects. The hook must return promptly.
      *
-     * Admission is at wire Frame boundaries. One Audio Packet may emit several
-     * codec-frame callbacks, so applications must also bound their queue inside
-     * on_audio. NULL means receive continuously. */
+     * Admission is also checked before each codec-frame callback within an Audio
+     * Packet. A pause retains its remaining bytes without copying; resuming
+     * delivers them before any later Packet. Applications filter obsolete audio
+     * in on_audio using their own synchronized interruption state, not by mutating
+     * SDK receive state. NULL means receive continuously. */
     int (*on_flow_control)(tai_ctx_t *ctx, void *user_data);
 
 } tai_config_t;

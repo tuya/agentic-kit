@@ -84,9 +84,12 @@ _Avoid_: heartbeat, poll.
 
 **Receive backpressure**:
 Application-controlled admission that pauses all inbound traffic, including buffered Frames,
-ChatBreak, ASR text, Pong and EOF detection, rather than only media delivery. Admission is at
-wire Frame boundaries, not codec-frame boundaries: one dispatched Packet can deliver multiple
-codec frames, so the application must also bound admission in its audio callback.
+ChatBreak, ASR text, Pong and EOF detection, rather than only media delivery. Admission is
+checked between complete Frames and before each codec-frame callback within an Audio Packet: a
+mid-Packet pause keeps the Packet's remaining bytes where they are (zero-copy, worker-owned)
+and delivers them before any later Packet once admission reopens. Interruption filtering stays
+in the application and is time-based — the server media timestamp against the interruption
+time.
 _Avoid_: audio mute, selective pause, codec-frame flow control.
 
 **Chat break**:
@@ -101,7 +104,10 @@ _Avoid_: cancel, stop, abort.
 **Server-initiated interrupt**:
 An application concern delivered independently from the media Connection: either an inbound
 ChatBreak Event on this context or an authenticated MQTT protocol-9000 AI control notice from
-the IoT Client. Applications route both paths into one playback policy; this module does not
+the IoT Client. Both carry a server time naming the interruption — the MQTT notice in its own
+payload, the ChatBreak in the UserData attribute (attr 111, `breakAttributes.time`) — and the
+application filters downlink audio by comparing that time against the media timestamp of the
+stream's START. Applications route both paths into one playback policy; this module does not
 receive or inject the MQTT notice. The independent path remains available while receive
 backpressure intentionally stops this Connection.
 _Avoid_: MQTT Event, TAI injection, acknowledgement.
@@ -212,9 +218,10 @@ The worker loops: check the liveness deadline, send a Ping when due, then block 
 time-bounded (`AGENTIC_KIT_TAI_DRAIN_BUDGET_MS`, default 150 ms) so a sustained downstream flood cannot
 starve the Ping / liveness / shutdown checks — leftover bytes wait for the next pass; and any
 successful receive refreshes the liveness clock. Receive backpressure pauses both reads and
-parsing; on resume, buffered complete Frames precede the next read or EOF detection, while
-partial input returns to bounded blocking reception. Bytes accumulate in a sliding receive
-buffer; detected EOF or a transport error makes the worker fire `on_disconnect`.
+parsing; on resume, a paused Packet's remaining codec frames drain first, then buffered complete
+Frames precede the next read or EOF detection, while partial input returns to bounded blocking
+reception. Bytes accumulate in a sliding receive buffer; detected EOF or a transport error makes
+the worker fire `on_disconnect`.
 
 `tai_process_rx` peels complete Frames off the front of that buffer:
 

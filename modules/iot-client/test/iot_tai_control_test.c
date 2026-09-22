@@ -21,12 +21,20 @@
 #include "tai_internal.h"
 #include "tai_pal_loopback.h"
 
+#define main combined_demo_main
+#include "../../../examples/posix/ai/rtc-tcp-client/mqtt_interrupt_demo.c"
+#undef main
+
 #define TEST_DEVID      "test_device_msg_001"
 #define TEST_SECRET_KEY "abcdef1234567890"
 #define TEST_LOCAL_KEY  "0123456789abcdef"
 #define TEST_MQTT_URL   "mqtts://127.0.0.1:11885"
 #define TEST_MQTT_PORT  11885
 #define WRONG_KEY_PORT  11887
+
+#define EARLY_AUDIO_MS UINT64_C(1700000000000)
+#define OLD_AUDIO_MS   UINT64_C(1700000002000)
+#define NEW_AUDIO_MS   UINT64_C(1700000004000)
 
 extern const pal_t *tai_pal_posix(void);
 int mqtt_interrupt_demo_tests(void);
@@ -105,8 +113,9 @@ static void sleep_ms(uint32_t ms)
 }
 
 typedef struct {
+    /* This mutex serializes counters and wrappers; callbacks also take playback.mutex. */
     pthread_mutex_t mutex;
-    size_t queued_audio;
+    demo_state_t playback;
     int audio_callbacks;
     int accepted_old_audio;
     int accepted_new_audio;
@@ -115,8 +124,6 @@ typedef struct {
     int mqtt_interrupts;
     int interrupted_before_tcp_drain;
     pthread_t mqtt_callback_thread;
-    char current_event_id[64];
-    char stale_event_id[64];
 } app_state_t;
 
 static app_state_t state;
@@ -205,41 +212,33 @@ static void stop_mqtt_mock(void)
         found;                                                            \
     })
 
-static int state_check(int expression)
-{
-    pthread_mutex_lock(&state.mutex);
-    int result = expression;
-    pthread_mutex_unlock(&state.mutex);
-    return result;
-}
-
-#define STATE_CHECK(expr) CHECK(state_check(expr))
+#define STATE_CHECK(expr)                                  \
+    do {                                                  \
+        pthread_mutex_lock(&state.mutex);                  \
+        CHECK(expr);                                      \
+        pthread_mutex_unlock(&state.mutex);                \
+    } while (0)
 
 static int flow_control(tai_ctx_t *ctx, void *user_data)
 {
     (void)ctx;
     app_state_t *s = (app_state_t *)user_data;
     pthread_mutex_lock(&s->mutex);
-    int admit = s->queued_audio == 0;
+    /* One queued frame is enough to pressure the real worker in this test. */
+    int admit = s->playback.queued_audio == 0;
     pthread_mutex_unlock(&s->mutex);
     return admit;
 }
 
-static void on_audio(tai_ctx_t *ctx, const tai_audio_msg_t *msg,
-                     void *user_data)
+static void combined_audio(tai_ctx_t *ctx, const tai_audio_msg_t *msg,
+                           void *user_data)
 {
-    (void)ctx;
     app_state_t *s = (app_state_t *)user_data;
     pthread_mutex_lock(&s->mutex);
     s->audio_callbacks++;
-    if (s->stale_event_id[0] && msg->event_id && msg->event_id[0] &&
-        strcmp(s->stale_event_id, msg->event_id) != 0) {
-        s->stale_event_id[0] = '\0';
-    }
-    int stale = s->stale_event_id[0] && msg->event_id &&
-                strcmp(s->stale_event_id, msg->event_id) == 0;
-    if (!stale && s->queued_audio == 0) {
-        s->queued_audio = 1;
+    size_t before = s->playback.queued_audio;
+    on_audio(ctx, msg, &s->playback);
+    if (s->playback.queued_audio > before) {
         if (msg->event_id && strcmp(msg->event_id, "old-event") == 0) {
             s->accepted_old_audio++;
         } else if (msg->event_id && strcmp(msg->event_id, "new-event") == 0) {
@@ -251,70 +250,27 @@ static void on_audio(tai_ctx_t *ctx, const tai_audio_msg_t *msg,
     pthread_mutex_unlock(&s->mutex);
 }
 
-static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg,
-                     void *user_data)
+static void combined_event(tai_ctx_t *ctx, const tai_event_msg_t *msg,
+                           void *user_data)
 {
-    (void)ctx;
     app_state_t *s = (app_state_t *)user_data;
     pthread_mutex_lock(&s->mutex);
-    if (msg->event_type == TAI_EVT_START && msg->event_id && msg->event_id[0]) {
-        snprintf(s->current_event_id, sizeof(s->current_event_id),
-                 "%s", msg->event_id);
-        if (s->stale_event_id[0] &&
-            strcmp(s->stale_event_id, msg->event_id) != 0) {
-            s->stale_event_id[0] = '\0';
-        }
-    } else if (msg->event_type == TAI_EVT_END && msg->event_id && msg->event_id[0] &&
-               s->current_event_id[0] &&
-               strcmp(s->current_event_id, msg->event_id) == 0) {
-        s->current_event_id[0] = '\0';
-    } else if (msg->event_type == TAI_EVT_CHAT_BREAK) {
-        s->chat_breaks++;
-        if (!msg->event_id || !msg->event_id[0] || !s->current_event_id[0] ||
-            strcmp(s->current_event_id, msg->event_id) == 0) {
-            s->queued_audio = 0;
-            if (msg->event_id && msg->event_id[0]) {
-                snprintf(s->stale_event_id, sizeof(s->stale_event_id),
-                         "%s", msg->event_id);
-            }
-        }
-    }
+    if (msg->event_type == TAI_EVT_CHAT_BREAK) s->chat_breaks++;
+    on_event(ctx, msg, &s->playback);
     pthread_mutex_unlock(&s->mutex);
 }
 
-static void on_ai_control(const char *type, const char *json_data,
-                          size_t data_len, void *user_data)
+static void combined_control(const char *type, const char *json_data,
+                             size_t data_len, void *user_data)
 {
     app_state_t *s = (app_state_t *)user_data;
     if (strcmp(type, "asrInterrupt") != 0) return;
-
-    static const char prefix[] = "\"eventId\":\"";
-    char event_id[64] = {0};
-    for (size_t i = 0; i + sizeof(prefix) - 1 <= data_len; i++) {
-        if (memcmp(json_data + i, prefix, sizeof(prefix) - 1) != 0) continue;
-        const char *value = json_data + i + sizeof(prefix) - 1;
-        size_t available = data_len - (size_t)(value - json_data);
-        const char *end = memchr(value, '"', available);
-        if (end) {
-            size_t len = (size_t)(end - value);
-            if (len >= sizeof(event_id)) len = sizeof(event_id) - 1;
-            memcpy(event_id, value, len);
-        }
-        break;
-    }
-    if (!event_id[0]) return;
-
     pthread_mutex_lock(&s->mutex);
     s->mqtt_callback_thread = pthread_self();
     s->mqtt_interrupts++;
     if (s->mqtt_interrupts == 2 && s->chat_breaks == 0)
         s->interrupted_before_tcp_drain = 1;
-    if (!s->current_event_id[0] ||
-        strcmp(s->current_event_id, event_id) == 0) {
-        s->queued_audio = 0;
-        snprintf(s->stale_event_id, sizeof(s->stale_event_id),
-                 "%s", event_id);
-    }
+    on_ai_control(type, json_data, data_len, &s->playback);
     pthread_mutex_unlock(&s->mutex);
 }
 
@@ -341,25 +297,28 @@ static int server_push(tai_ctx_t *ctx, uint8_t packet_type,
 static int server_push_event(tai_ctx_t *ctx, uint16_t event_type,
                              const char *event_id, uint16_t sequence)
 {
-    tai_attr_t attrs[2] = {
+    tai_attr_t attrs[3] = {
         tai_attr_strv(TAI_ATTR_SESSION_ID, ctx->session_id),
         tai_attr_strv(TAI_ATTR_EVENT_ID, event_id),
+        tai_attr_strv(TAI_ATTR_USER_DATA,
+                      "{\"breakAttributes\":{\"time\":\"1700000003000\"}}"),
     };
     uint8_t payload[4];
     int payload_len = tai_pack_event(TAI_VER_21, event_type,
                                      NULL, 0, payload, sizeof(payload));
     if (payload_len <= 0) return payload_len;
-    return server_push(ctx, TAI_PKT_EVENT, attrs, 2,
+    return server_push(ctx, TAI_PKT_EVENT, attrs,
+                       event_type == TAI_EVT_CHAT_BREAK ? 3 : 2,
                        payload, (size_t)payload_len, sequence);
 }
 
 static int server_push_audio(tai_ctx_t *ctx, const char *event_id,
-                             uint8_t fill, uint16_t sequence)
+                             uint64_t timestamp_ms, uint8_t fill, uint16_t sequence)
 {
     uint8_t payload[48];
     int header_len = tai_pack_media_hdr(TAI_VER_21, TAI_DATA_ID_AUDIO_DOWN,
                                         TAI_STREAM_START,
-                                        ctx->pal->time_ms(),
+                                        timestamp_ms,
                                         payload, sizeof(payload));
     if (header_len <= 0) return header_len;
     memset(payload + header_len, fill, 40);
@@ -377,6 +336,7 @@ int main(void)
 {
     const pal_t *pal = make_routing_pal();
     pthread_mutex_init(&state.mutex, NULL);
+    pthread_mutex_init(&state.playback.mutex, NULL);
     CHECK(iot_init(pal) == OPRT_OK);
     failures += mqtt_interrupt_demo_tests();
     CHECK(start_mqtt_mock() == 0);
@@ -391,7 +351,7 @@ int main(void)
     snprintf(iot.local_key, sizeof(iot.local_key), "%s", TEST_LOCAL_KEY);
     snprintf(iot.mqtt_url, sizeof(iot.mqtt_url), "%s", TEST_MQTT_URL);
     iot.cacert = cacert;
-    CHECK(iot_ai_ctrl_set_callback(&iot, on_ai_control, &state) == OPRT_OK);
+    CHECK(iot_ai_ctrl_set_callback(&iot, combined_control, &state) == OPRT_OK);
     CHECK(iot_client_message_connect(&iot) == OPRT_OK);
     /* Consume the mock's initial raw message before the combined scenario. */
     CHECK(iot_client_message_process(&iot, 50) == OPRT_OK);
@@ -420,8 +380,8 @@ int main(void)
         .sign_level = TAI_SIGN_HMAC_SHA256,
         .disable_tls = 1,
         .pal = pal,
-        .on_audio = on_audio,
-        .on_event = on_event,
+        .on_audio = combined_audio,
+        .on_event = combined_event,
         .on_flow_control = flow_control,
         .user_data = &state,
     };
@@ -437,37 +397,37 @@ int main(void)
     static const char early_control[] =
         "{\"protocol\":9000,\"data\":{\"data\":{"
         "\"type\":\"asrInterrupt\","
-        "\"data\":{\"eventId\":\"early-event\"}}}}";
+        "\"data\":{\"time\":\"1700000001000\"}}}}";
     CHECK(iot_client_message_publish(&iot, (const uint8_t *)early_control,
                                      sizeof(early_control) - 1) == OPRT_OK);
     for (int attempt = 0; attempt < 50 && !WAIT_FOR(state.mqtt_interrupts >= 1, 5); attempt++) {
         CHECK(iot_client_message_process(&iot, 50) == OPRT_OK);
     }
     STATE_CHECK(state.mqtt_interrupts == 1);
-    STATE_CHECK(state.queued_audio == 0);
+    STATE_CHECK(state.playback.queued_audio == 0);
     /* MQTT-before-audio ordering: early-event is cancelled before its START;
      * its later audio must drain without entering playback. */
     CHECK(server_push_event(ctx, TAI_EVT_START, "early-event", sequence++) > 0);
-    CHECK(server_push_audio(ctx, "early-event", 0x01, sequence++) > 0);
+    CHECK(server_push_audio(ctx, "early-event", EARLY_AUDIO_MS, 0x01, sequence++) > 0);
     CHECK(server_push_event(ctx, TAI_EVT_END, "early-event", sequence++) > 0);
     CHECK(server_push_event(ctx, TAI_EVT_START, "old-event", sequence++) > 0);
-    CHECK(server_push_audio(ctx, "old-event", 0x02, sequence++) > 0);
+    CHECK(server_push_audio(ctx, "old-event", OLD_AUDIO_MS, 0x02, sequence++) > 0);
     CHECK(WAIT_FOR(state.accepted_old_audio == 1, 1000));
     STATE_CHECK(state.accepted_early_audio == 0);
-    STATE_CHECK(state.queued_audio == 1);
+    STATE_CHECK(state.playback.queued_audio == 1);
 
     pthread_mutex_lock(&state.mutex);
-    state.queued_audio = 0;
+    state.playback.queued_audio = 0;
     pthread_mutex_unlock(&state.mutex);
-    CHECK(server_push_audio(ctx, "old-event", 0x11, sequence++) > 0);
+    CHECK(server_push_audio(ctx, "old-event", OLD_AUDIO_MS, 0x11, sequence++) > 0);
     CHECK(WAIT_FOR(state.accepted_old_audio == 2, 1000));
 
-    CHECK(server_push_audio(ctx, "old-event", 0x22, sequence++) > 0);
+    CHECK(server_push_audio(ctx, "old-event", OLD_AUDIO_MS, 0x22, sequence++) > 0);
     CHECK(server_push_event(ctx, TAI_EVT_CHAT_BREAK,
                             "old-event", sequence++) > 0);
     CHECK(server_push_event(ctx, TAI_EVT_END, "old-event", sequence++) > 0);
     CHECK(server_push_event(ctx, TAI_EVT_START, "new-event", sequence++) > 0);
-    CHECK(server_push_audio(ctx, "new-event", 0x33, sequence++) > 0);
+    CHECK(server_push_audio(ctx, "new-event", NEW_AUDIO_MS, 0x33, sequence++) > 0);
     /* Keep admission closed while the delayed duplicate waits on TCP. */
     CHECK(server_push_event(ctx, TAI_EVT_CHAT_BREAK,
                             "old-event", sequence++) > 0);
@@ -478,7 +438,7 @@ int main(void)
     static const char control[] =
         "{\"protocol\":9000,\"data\":{\"data\":{"
         "\"type\":\"asrInterrupt\","
-        "\"data\":{\"eventId\":\"old-event\"}}}}";
+        "\"data\":{\"time\":\"1700000003000\"}}}}";
     pthread_t mqtt_owner = pthread_self();
     CHECK(iot_client_message_publish(&iot, (const uint8_t *)control,
                                      sizeof(control) - 1) == OPRT_OK);
@@ -497,19 +457,19 @@ int main(void)
     STATE_CHECK(state.accepted_old_audio == 2);
     STATE_CHECK(state.accepted_new_audio == 1);
     STATE_CHECK(state.chat_breaks == 1);
-    STATE_CHECK(state.queued_audio == 1);
+    STATE_CHECK(state.playback.queued_audio == 1);
 
     /* Release pressure by consuming new audio; the queued duplicate is ignored. */
     pthread_mutex_lock(&state.mutex);
-    state.queued_audio = 0;
+    state.playback.queued_audio = 0;
     pthread_mutex_unlock(&state.mutex);
     CHECK(WAIT_FOR(state.chat_breaks == 2, 2000));
-    STATE_CHECK(state.queued_audio == 0);
+    STATE_CHECK(state.playback.queued_audio == 0);
     STATE_CHECK(state.accepted_new_audio == 1);
 
     /* Delayed duplicate on MQTT must also not flush the new playback. */
     pthread_mutex_lock(&state.mutex);
-    state.queued_audio = 1;
+    state.playback.queued_audio = 1;
     pthread_mutex_unlock(&state.mutex);
     CHECK(iot_client_message_publish(&iot, (const uint8_t *)control,
                                      sizeof(control) - 1) == OPRT_OK);
@@ -517,7 +477,7 @@ int main(void)
         CHECK(iot_client_message_process(&iot, 50) == OPRT_OK);
     }
     STATE_CHECK(state.mqtt_interrupts == 3);
-    STATE_CHECK(state.queued_audio == 1);
+    STATE_CHECK(state.playback.queued_audio == 1);
     STATE_CHECK(state.accepted_new_audio == 1);
 
     /* MQTT loss removes only the independent control path. TAI stays paused on
@@ -525,7 +485,7 @@ int main(void)
     iot_client_message_disconnect(&iot);
     CHECK(iot_client_message_publish(&iot, (const uint8_t *)control,
                                      sizeof(control) - 1) == OPRT_UNINITIALIZED);
-    STATE_CHECK(state.queued_audio == 1);
+    STATE_CHECK(state.playback.queued_audio == 1);
     CHECK(iot_client_message_connect(&iot) == OPRT_OK);
     CHECK(iot_client_message_process(&iot, 50) == OPRT_OK);
     CHECK(iot_client_message_publish(&iot, (const uint8_t *)control,
@@ -534,7 +494,7 @@ int main(void)
         CHECK(iot_client_message_process(&iot, 50) == OPRT_OK);
     }
     STATE_CHECK(state.mqtt_interrupts == 4);
-    STATE_CHECK(state.queued_audio == 1);
+    STATE_CHECK(state.playback.queued_audio == 1);
 
     /* Shutdown while receive admission is still closed must not hang. */
     tai_disconnect(ctx);
@@ -543,6 +503,7 @@ int main(void)
     iot.cacert = NULL;
     pal->free(cacert);
     stop_mqtt_mock();
+    pthread_mutex_destroy(&state.playback.mutex);
     pthread_mutex_destroy(&state.mutex);
     printf("iot_tai_control_test: %s\n", failures ? "FAIL" : "PASS");
     return failures ? 1 : 0;
