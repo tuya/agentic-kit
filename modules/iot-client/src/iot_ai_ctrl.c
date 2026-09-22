@@ -59,8 +59,8 @@ bool iot_ai_ctrl_dispatch(iot_client_t *client,
     return true;
 }
 
-int iot_ai_ctrl_set_callback(iot_client_t *client,
-                             ai_ctrl_callback_t callback, void *user_data)
+IOT_API int iot_ai_ctrl_set_callback(iot_client_t *client,
+                                     ai_ctrl_callback_t callback, void *user_data)
 {
     if (!client) return OPRT_INVALID_PARAMETER;
 

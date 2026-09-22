@@ -118,8 +118,14 @@ typedef void (*iot_message_callback_t)(const char *topic, size_t topic_len,
  * borrowed and remain valid only for the callback duration. Keep the callback
  * non-blocking and copy anything retained after it returns.
  *
+ * A protocol-9000 notice this layer cannot scope -- a non-object data or
+ * data.data, a non-string type, or a re-serialization allocation failure --
+ * is left unconsumed and continues to the raw message callback.
+ *
  * @param type      Control event type, such as "asrInterrupt".
  * @param json_data Serialized event-specific data; not necessarily an object.
+ *                 Re-serialized from the parsed notice with cJSON (unformatted),
+ *                 so its byte layout can differ from the original wire bytes.
  * @param data_len  Length of @p json_data, excluding any terminating NUL.
  * @param user_data Opaque pointer supplied at registration.
  */

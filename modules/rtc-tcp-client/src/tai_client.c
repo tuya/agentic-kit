@@ -640,12 +640,9 @@ void tai_disconnect(tai_ctx_t *ctx)
     ctx->rx_len     = 0;
     ctx->frag_len   = 0;
     ctx->frag_state = 0;
-    ctx->rx_pending_valid   = 0;  /* teardown drops a paused Packet remainder */
-    ctx->rx_pending_discard = 0;
-    ctx->rx_pending_offset  = 0;
-    ctx->rx_pending_len     = 0;
-    ctx->rx_pending_body    = NULL;
-    ctx->rx_pending_event_id[0] = '\0';
+    ctx->rx_pending_len      = 0;  /* teardown drops a paused Packet remainder */
+    ctx->rx_pending_wire_len = 0;
+    ctx->rx_pending_body     = NULL;
     ctx->connecting = 0;          /* clear in case a connect aborted mid-handshake */
     ctx->disconnect_emitted = 0;  /* re-arm the single-point on_disconnect      */
     ctx->rx_event_id[0] = '\0';   /* clear latched turn id so a reconnect starts clean */
@@ -735,9 +732,10 @@ static int tai_process_rx(tai_ctx_t *ctx, int *paused)
      * the connection down (the app reconnects). */
     while (ctx->rx_len >= 5) {
         /* One receive may contain several complete Frames. Stop before the next
-         * one when the consumer fills while dispatching the previous Frame. */
-        if (paused && ctx->on_flow_control &&
-            !ctx->on_flow_control(ctx, ctx->user_data)) {
+         * one when the consumer fills while dispatching the previous Frame.
+         * The leading paused gate (not the helper) is what keeps this
+         * checkpoint dark during the connect handshake (paused == NULL). */
+        if (paused && tai_rx_admission_paused(ctx)) {
             *paused = 1;
             break;
         }
@@ -747,36 +745,25 @@ static int tai_process_rx(tai_ctx_t *ctx, int *paused)
          * its explicit pending remainder instead. Once it drains, slide the
          * pinned Frame out from rx_buf so the next loop starts at the Frame
          * behind it. */
-        if (ctx->rx_pending_valid) {
-            ctx->rx_pending_valid = tai_proto_drain_pending_audio(
-                ctx, ctx->rx_pending_from_frag);
-            if (ctx->rx_pending_valid) {
+        if (ctx->rx_pending_len) {
+            if (tai_proto_drain_pending_audio(ctx)) {
                 if (paused) *paused = 1;
                 break;
             }
-            if (ctx->rx_pending_body_off && !ctx->rx_pending_from_frag) {
-                /* body_off−1 = byte offset of the body's first byte; +body_len
-                 * reaches the end of the app payload; +sig_len reaches the end
-                 * of the wire Frame. Verify against the Frame's own length
-                 * field: they must agree, so a mismatch means the pending
-                 * metadata was captured for the wrong storage. */
-                size_t pending_end = ctx->rx_pending_body_off - 1 +
-                                     ctx->rx_pending_len + ctx->sig_len;
-                size_t wire_len = tai_frame_total_size(ctx->rx_buf, ctx->rx_len);
-                if (pending_end != wire_len) {
-                    TAI_LOGE(ctx->pal, TAG,
-                             "pending audio slide mismatch: end=%zu wire=%zu",
-                             pending_end, wire_len);
-                    return TAI_PROTO_ERR_FRAME_DECODE;
-                }
-                if (pending_end <= ctx->rx_len) {
-                    memmove(ctx->rx_buf, ctx->rx_buf + pending_end,
-                            ctx->rx_len - pending_end);
-                    ctx->rx_len -= pending_end;
-                }
-                ctx->rx_pending_body = NULL;
-                ctx->rx_pending_body_off = 0;
+            /* The pinned Frame must be consumed exactly once. A zero or
+             * oversized length would underflow rx_len (a huge memmove) or
+             * leave the Frame in place to be dispatched again, so fail fast
+             * instead of silently desyncing the stream. */
+            size_t wire_len = ctx->rx_pending_wire_len;
+            if (wire_len < 5 || wire_len > ctx->rx_len) {
+                TAI_LOGE(ctx->pal, TAG,
+                         "pending slide out of range: wire=%zu rx=%zu",
+                         wire_len, ctx->rx_len);
+                return TAI_PROTO_ERR_FRAME_DECODE;
             }
+            memmove(ctx->rx_buf, ctx->rx_buf + wire_len, ctx->rx_len - wire_len);
+            ctx->rx_len -= wire_len;
+            ctx->rx_pending_wire_len = 0;
             continue;
         }
 
@@ -865,9 +852,7 @@ static int tai_process_rx(tai_ctx_t *ctx, int *paused)
         }
 
         if (complete && app_bytes && app_len > 0) {
-            ctx->rx_dispatch_from_frag = (frag_flag == TAI_FRAG_LAST);
             int fatal = process_app_packet(ctx, app_bytes, app_len);
-            ctx->rx_dispatch_from_frag = 0;
             if (fatal != TAI_OK)
                 return fatal;   /* PROTOCOL detail or TAI_RX_PEER_CLOSE|code */
         }
@@ -876,7 +861,8 @@ static int tai_process_rx(tai_ctx_t *ctx, int *paused)
          * therefore remains valid until the remainder drains. Once it drains,
          * the pending-drain path above already slid the Frame, so this code
          * runs only for the no-pending fast path. */
-        if (ctx->rx_pending_valid) {
+        if (ctx->rx_pending_len) {
+            ctx->rx_pending_wire_len = needed;
             if (paused) *paused = 1;
             break;
         }
@@ -1299,6 +1285,13 @@ int tai_send_mcp_response(tai_ctx_t *ctx, const char *json_rpc_response)
  * Drives recv + dispatch in a loop, sends periodic pings, detects pong
  * timeouts.  Auto-started by tai_connect(), stopped by tai_disconnect().
  *
+ * Receive backpressure: admission (tai_rx_admission_paused(), i.e. the
+ * on_flow_control hook) is queried at four checkpoints — pass top, before
+ * each drain read, between buffered Frames (tai_process_rx), and before each
+ * codec-frame callback (tai_protocol.c). See tuya_ai.h on_flow_control and
+ * ADR 0001 for the contract; the paused branches below each consume one
+ * facet of that state.
+ *
  * Locking: the mbedTLS read/write mutex now lives inside the shared TLS module
  * (tls_write / tls_read, granularity = a single ssl_* call), so the worker no
  * longer needs to wrap recv+dispatch in ctx_lock.  rx_buf / frag_buf are touched
@@ -1324,8 +1317,7 @@ static void *worker_thread(void *arg)
 
     while (ctx->running) {
         int was_paused = paused;
-        paused = ctx->on_flow_control &&
-                 !ctx->on_flow_control(ctx, ctx->user_data);
+        paused = tai_rx_admission_paused(ctx);
         if (!ctx->running) break;
 
         uint64_t now = ctx->pal->time_ms();
@@ -1390,7 +1382,7 @@ static void *worker_thread(void *arg)
          * new receive; a pending rx_buf remainder also keeps the Frame pinned,
          * making rx_len a valid resume marker. Partial input returns to a
          * bounded blocking receive rather than spinning. */
-        int n = ctx->rx_pending_valid ? 1
+        int n = ctx->rx_pending_len ? 1
                : resume_buffered      ? (int)ctx->rx_len
                                       : tai_recv_data(ctx, wait_ms);
         resume_buffered = 0;
@@ -1423,8 +1415,7 @@ static void *worker_thread(void *arg)
                 break;
             ctx->pal->sleep_ms(AGENTIC_KIT_TAI_WORKER_YIELD_MS);
             /* Admission is checked immediately before the next drain read. */
-            paused = ctx->on_flow_control &&
-                     !ctx->on_flow_control(ctx, ctx->user_data);
+            paused = tai_rx_admission_paused(ctx);
             if (paused || !ctx->running) break;
             n = tai_recv_data(ctx, 0);   /* drain remainder non-blocking */
         }

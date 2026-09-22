@@ -39,7 +39,8 @@
 #ifndef IOT_SDK_BV
 #define IOT_SDK_BV      "2.0"
 #endif
-#define SDK_VERSION "agentic-kit_0.5.0"
+
+#define SDK_VERSION "agentic-kit_0.5.0-dev"
 
 /* =========================================================================
  * iot-client: service endpoints & protocol constants (fixed by the Tuya

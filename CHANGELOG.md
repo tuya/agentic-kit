@@ -9,13 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- iot-client — MQTT protocol-9000 AI control channel for server-initiated `asrInterrupt` notices, delivered via `ai_ctrl_callback_t` independently of the RTC TCP Connection.
-- rtc-tcp-client — `on_flow_control` admission hook for TCP receive backpressure; pauses all inbound Frames when the application's audio queue is full, including codec-frame callbacks mid-Packet.
+- iot-client — MQTT protocol-9000 AI control channel for server-initiated `asrInterrupt` notices, delivered via `ai_ctrl_callback_t` independently of the RTC TCP Connection (#42).
+  - The notice payload carries `eventId` and the server time `time`; the time is the interruption cutoff.
+- rtc-tcp-client — `on_flow_control` admission hook for TCP receive backpressure; pauses all inbound Frames when the application's audio queue is full, including codec-frame callbacks mid-Packet (#42).
+  - New knobs: `AGENTIC_KIT_TAI_FLOW_CONTROL_POLL_MS` (admission-check period while paused, default 50 ms) and `AGENTIC_KIT_TAI_WORKER_YIELD_MS` (worker drain-pass yield under sustained traffic, default 10 ms).
+- rtc-tcp-client — `tai_event_msg_t` gains borrowed `user_data` / `user_data_len` (attr 111), so an interruption notice can be read without the SDK parsing JSON (#42).
+  - `TAI_EVT_CHAT_BREAK` carries `{"breakAttributes":{"time":"<server-time>"}}`; compare that time with the `timestamp_ms` latched from audio START to discard an interrupted stream. A notice whose time is missing or unusable fails closed onto the in-flight stream.
 
 ### Changed
 
-- **BREAKING** pal — `pal_t` gains a mandatory `sleep_ms` member; custom PALs must supply it and all consumers must rebuild.
-- rtc-tcp-client — audio Packets paused mid-body now retain a pending-delivery cursor instead of silently dropping codec frames; reopening admission resumes from the first unadmitted byte.
+- **BREAKING** pal — `pal_t` gains a mandatory `sleep_ms` member; custom PALs must supply it and all consumers must rebuild (#42).
+- rtc-tcp-client — audio Packets paused mid-body now retain a pending-delivery cursor instead of silently dropping codec frames; reopening admission resumes from the first unadmitted byte (#42).
+  - A pinned Packet whose recorded wire length cannot be consumed exactly once fails fast with `TAI_PROTO_ERR_FRAME_DECODE` instead of sliding the receive buffer out of range.
+  - A header-only START/ONE_SHOT now reaches `on_audio` with `len == 0`, so its server-side `timestamp_ms` can be latched for interruption filtering.
+- rtc-tcp-client — `tai_connect()` returns once the session acknowledgement is handled; media the server coalesced into the handshake stays buffered and is first delivered by the receive worker after connect returns (#42).
 
 - docs-site — English edition of the full documentation site, published at `/en/` with Simplified Chinese retained at `/`.
   - All 29 docs are mirrored under `docs-site/i18n/en/`, with a locale selector in both the landing-page navbar and the custom docs topbar, localized navbar/footer/sidebar catalogs, and English SVG schematics under `current/images/`.

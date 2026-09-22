@@ -14,10 +14,6 @@
 #include "log.h"
 #include "../src/tai_internal.h"   /* frame/packet codec + key derivation for the handshake mock */
 
-extern const char *test_reserved_audio_event_id;
-extern uint8_t     test_reserved_audio_body[40];
-extern size_t      test_reserved_audio_body_len;
-
 /* =========================================================================
  * Byte FIFO: single-producer, single-consumer, mutex-protected.
  * ========================================================================= */

@@ -96,6 +96,10 @@ typedef struct {
     int      event_count;
     uint8_t  event_payload[4096];   /* last event's data (reassembly check) */
     size_t   event_payload_len;
+    uint8_t  event_user_data[256];
+    size_t   event_user_data_len;
+    int      event_user_data_present;
+    int      event_user_data_borrowed;
 
     int      disconnect_calls;
     uint16_t disconnect_code;
@@ -133,6 +137,9 @@ static void st_reset(void)
     g_st.event_calls      = 0;
     g_st.event_count      = 0;
     g_st.event_payload_len = 0;
+    g_st.event_user_data_len = 0;
+    g_st.event_user_data_present = 0;
+    g_st.event_user_data_borrowed = 0;
     g_st.disconnect_calls = 0;
     g_st.disconnect_code  = 0;
     g_st.disconnect_reason = 0xFF;
@@ -202,9 +209,19 @@ static void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *ud)
     g_st.event_calls++;
     if (g_st.event_count < (int)(sizeof(g_st.event_types)/sizeof(g_st.event_types[0])))
         g_st.event_types[g_st.event_count++] = msg->event_type;
-    if (msg->data && msg->len <= sizeof(g_st.event_payload)) {
+    g_st.event_payload_len = msg->len;
+    if (msg->data && msg->len <= sizeof(g_st.event_payload))
         memcpy(g_st.event_payload, msg->data, msg->len);
-        g_st.event_payload_len = msg->len;
+    g_st.event_user_data_len = msg->user_data_len;
+    g_st.event_user_data_present = msg->user_data != NULL;
+    if (msg->user_data && msg->user_data_len <= sizeof(g_st.event_user_data)) {
+        memcpy(g_st.event_user_data, msg->user_data, msg->user_data_len);
+        uintptr_t p = (uintptr_t)msg->user_data;
+        g_st.event_user_data_borrowed =
+            (p >= (uintptr_t)ctx->rx_buf &&
+             p + msg->user_data_len <= (uintptr_t)ctx->rx_buf + sizeof(ctx->rx_buf)) ||
+            (p >= (uintptr_t)ctx->frag_buf &&
+             p + msg->user_data_len <= (uintptr_t)ctx->frag_buf + sizeof(ctx->frag_buf));
     }
     if (msg->event_id) {
         size_t n = strlen(msg->event_id);
@@ -1008,6 +1025,52 @@ static void test_request_disconnect_from_callback(void)
  * turn's packets that carry no attr 61 (inherited, not reset to ""), and is
  * cleared after EVT_END. Distinguishes §4 from §1's reset-if-absent behaviour.
  * ========================================================================= */
+static void test_event_user_data(void)
+{
+    SECTION("event_user_data");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx(ctx_mem);
+    CHECK(ctx != NULL);
+    if (!ctx) return;
+    CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+    const uint8_t user_data[] = "{\"serverTime\":123456789}";
+    const uint8_t payload[] = { 'p', 0, 'x' };
+    tai_attr_t attr = tai_attr_bytesv(TAI_ATTR_USER_DATA, user_data, sizeof(user_data) - 1);
+    uint16_t seq = 100;
+    for (int round = 0; round < 4; round++) {
+        uint8_t evt[64], app[256];
+        size_t len = round == 3 ? 0 : sizeof(payload);
+        int elen = tai_pack_event(TAI_VER_21, TAI_EVT_CHAT_BREAK,
+                                  payload, len, evt, sizeof(evt));
+        CHECK(elen > 0);
+        if (round == 1) {
+            int alen = tai_packet_encode(TAI_VER_21, TAI_PKT_EVENT, &attr, 1,
+                                         evt, (size_t)elen, app, sizeof(app));
+            CHECK(alen > 10);
+            if (alen <= 10) break;
+            size_t cuts[] = { 10, (size_t)alen };
+            server_send_app_fragmented(ctx, app, (size_t)alen, cuts, 2, &seq);
+        } else {
+            CHECK(server_send(ctx, TAI_PKT_EVENT, round == 2 ? NULL : &attr,
+                               round == 2 ? 0 : 1, evt, (size_t)elen, seq++) > 0);
+        }
+        CHECK(WAIT_FOR(g_st.event_calls == round + 1, 1000));
+        pthread_mutex_lock(&g_st.mtx);
+        CHECK_EQ_INT(g_st.event_payload_len, len);
+        CHECK(memcmp(g_st.event_payload, payload, len) == 0);
+        CHECK_EQ_INT(g_st.event_user_data_present, round != 2);
+        CHECK_EQ_INT(g_st.event_user_data_len, round == 2 ? 0 : sizeof(user_data) - 1);
+        if (round != 2) {
+            CHECK(g_st.event_user_data_borrowed);
+            CHECK(memcmp(g_st.event_user_data, user_data, sizeof(user_data) - 1) == 0);
+        }
+        pthread_mutex_unlock(&g_st.mtx);
+    }
+    tai_disconnect(ctx);
+    CHECK_EQ_INT(g_st.disconnect_calls, 0);
+    tai_ctx_deinit(ctx);
+}
+
 static void test_event_id_latch(void)
 {
     SECTION("event_id_latch");
@@ -2222,6 +2285,184 @@ static void test_receive_backpressure(void)
     tai_ctx_deinit(ctx);
 }
 
+static size_t pending_remaining, pending_wire_len;
+static uintptr_t pending_cursor;
+static int pending_fragmented, pending_metadata_ok, pending_audio_ok;
+
+static int pending_flow_control(tai_ctx_t *ctx, void *user_data)
+{
+    int ready = test_flow_control(ctx, user_data);
+    pthread_mutex_lock(&g_st.mtx);
+    if (!ready && ctx->rx_pending_wire_len) {
+        pending_remaining = ctx->rx_pending_len;
+        pending_wire_len = ctx->rx_pending_wire_len;
+        pending_cursor = (uintptr_t)ctx->rx_pending_body;
+        pending_metadata_ok = ctx->rx_audio_codec == TAI_AUDIO_OPUS &&
+            ctx->rx_audio_sample_rate == 16000 && ctx->rx_audio_frame_duration == 20 &&
+            ctx->rx_audio_frame_size == 40 && strcmp(ctx->rx_event_id, "pending-event") == 0;
+    }
+    pthread_mutex_unlock(&g_st.mtx);
+    return ready;
+}
+
+static void pending_audio(tai_ctx_t *ctx, const tai_audio_msg_t *msg, void *ud)
+{
+    const uint8_t *storage = pending_fragmented ? ctx->frag_buf : ctx->rx_buf;
+    uintptr_t p = (uintptr_t)msg->data;
+    size_t size = pending_fragmented ? sizeof(ctx->frag_buf) : sizeof(ctx->rx_buf);
+    pthread_mutex_lock(&g_st.mtx);
+    pending_audio_ok &= p >= (uintptr_t)storage && p + msg->len <= (uintptr_t)storage + size &&
+        msg->codec == TAI_AUDIO_OPUS && msg->sample_rate == 16000 &&
+        msg->frame_duration == 20 && msg->stream_flag == TAI_STREAM_START &&
+        msg->data_id == TAI_DATA_ID_AUDIO_DOWN && msg->timestamp_ms == 123456789 &&
+        strcmp(msg->event_id, "pending-event") == 0;
+    pthread_mutex_unlock(&g_st.mtx);
+    on_audio(ctx, msg, ud);
+}
+
+/* A pinned Frame whose recorded wire length cannot be trusted must fail fast:
+ * an oversized value would underflow rx_len into a huge memmove, and a zero one
+ * would leave the Frame in place to be dispatched a second time. */
+static void test_pending_bad_wire_len(void)
+{
+    SECTION("pending_audio_bad_wire_len");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    flow_allowed_calls = 0;
+    flow_paused_queries = 0;
+    flow_resume_ms = 0;
+    pending_remaining = pending_wire_len = pending_cursor = 0;
+    pending_fragmented = 0;
+    pending_metadata_ok = 0;
+    pending_audio_ok = 1;
+    tai_config_t options = { .pal = observe_pal(),
+                             .on_flow_control = pending_flow_control };
+    tai_ctx_t *ctx = setup_ctx_config(ctx_mem, &options);
+    CHECK(ctx != NULL);
+    if (!ctx) return;
+    ctx->on_audio = pending_audio;
+    CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+
+    uint8_t payload[8 + 130], app[256];
+    CHECK_EQ_INT(tai_pack_media_hdr(TAI_VER_21, TAI_DATA_ID_AUDIO_DOWN,
+                     TAI_STREAM_START, 123456789, payload, sizeof(payload)), 8);
+    for (size_t i = 8; i < sizeof(payload); i++) payload[i] = (uint8_t)i;
+    tai_attr_t attrs[] = {
+        tai_attr_strv(TAI_ATTR_AUDIO_PARAMS, "111 1 16 16000 0 16000 20 40"),
+        tai_attr_strv(TAI_ATTR_EVENT_ID, "pending-event"),
+    };
+    int alen = tai_packet_encode(TAI_VER_21, TAI_PKT_AUDIO, attrs, 2,
+                                 payload, sizeof(payload), app, sizeof(app));
+    CHECK(alen > 100);
+    if (alen <= 100) { tai_disconnect(ctx); tai_ctx_deinit(ctx); return; }
+
+    /* Admit one codec frame, then close admission: the Packet pauses mid-body. */
+    pthread_mutex_lock(&g_st.mtx);
+    flow_allowed_calls = 1;
+    pthread_mutex_unlock(&g_st.mtx);
+    uint16_t seq = 200;
+    CHECK(server_send(ctx, TAI_PKT_AUDIO, attrs, 2, payload, sizeof(payload),
+                      seq++) > 0);
+    CHECK(WAIT_FOR(pending_wire_len > 0, 1000));
+
+    /* Corrupt the recorded wire length, then let delivery run to completion. */
+    pthread_mutex_lock(&g_st.mtx);
+    ctx->rx_pending_wire_len = ctx->rx_len + 1;
+    flow_allowed_calls = 100;
+    pthread_mutex_unlock(&g_st.mtx);
+
+    CHECK(WAIT_FOR(g_st.disconnect_calls >= 1, 1000));
+    CHECK_EQ_INT(g_st.disconnect_reason, TAI_DISCONNECT_PROTOCOL);
+    CHECK_EQ_INT(g_st.disconnect_detail, TAI_PROTO_ERR_FRAME_DECODE);
+    tai_disconnect(ctx);
+    tai_ctx_deinit(ctx);
+}
+
+static void test_pending_audio(void)
+{
+    for (int mode = 0; mode < 3; mode++) {
+        SECTION(mode == 0 ? "pending_audio_multiple_pauses" :
+                mode == 1 ? "pending_audio_fragmented" : "pending_audio_shutdown");
+        static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+        flow_allowed_calls = 0;
+        flow_paused_queries = 0;
+        flow_resume_ms = 0;
+        pending_remaining = pending_wire_len = pending_cursor = 0;
+        pending_fragmented = mode != 0;
+        pending_metadata_ok = 0;
+        pending_audio_ok = 1;
+        tai_config_t options = { .pal = observe_pal(), .on_flow_control = pending_flow_control };
+        tai_ctx_t *ctx = setup_ctx_config(ctx_mem, &options);
+        CHECK(ctx != NULL);
+        if (!ctx) return;
+        ctx->on_audio = pending_audio;
+        CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+        CHECK(WAIT_FOR(flow_paused_queries > 0, 1000));
+        uint8_t payload[8 + 130], app[256];
+        CHECK_EQ_INT(tai_pack_media_hdr(TAI_VER_21, TAI_DATA_ID_AUDIO_DOWN,
+                         TAI_STREAM_START, 123456789, payload, sizeof(payload)), 8);
+        for (size_t i = 8; i < sizeof(payload); i++) payload[i] = (uint8_t)i;
+        tai_attr_t attrs[] = {
+            tai_attr_strv(TAI_ATTR_AUDIO_PARAMS, "111 1 16 16000 0 16000 20 40"),
+            tai_attr_strv(TAI_ATTR_EVENT_ID, "pending-event"),
+        };
+        int alen = tai_packet_encode(TAI_VER_21, TAI_PKT_AUDIO, attrs, 2,
+                                     payload, sizeof(payload), app, sizeof(app));
+        CHECK(alen > 100);
+        if (alen <= 100) { tai_disconnect(ctx); tai_ctx_deinit(ctx); return; }
+        uint16_t seq = 100;
+        size_t expected_wire_len;
+        if (pending_fragmented) {
+            size_t cuts[] = { 50, 100, (size_t)alen };
+            server_send_app_fragmented(ctx, app, (size_t)alen, cuts, 3, &seq);
+            expected_wire_len = (size_t)alen - 100 + 37;
+        } else {
+            expected_wire_len = server_send(ctx, TAI_PKT_AUDIO, attrs, 2,
+                                            payload, sizeof(payload), seq++);
+        }
+        CHECK(server_send_event_id(ctx, TAI_EVT_END, "later-event", seq++) > 0);
+        uintptr_t first_cursor = 0;
+        for (int allowed = 1; allowed <= (mode == 2 ? 1 : 3); allowed++) {
+            pthread_mutex_lock(&g_st.mtx);
+            flow_allowed_calls = allowed;
+            pthread_mutex_unlock(&g_st.mtx);
+            CHECK(WAIT_FOR(pending_remaining == 130 - 40 * (size_t)allowed, 1000));
+            pthread_mutex_lock(&g_st.mtx);
+            CHECK_EQ_INT(g_st.audio_calls, allowed);
+            CHECK_EQ_INT(g_st.event_calls, 0);
+            CHECK_EQ_INT(pending_wire_len, expected_wire_len);
+            CHECK(pending_metadata_ok);
+            if (allowed == 1) first_cursor = pending_cursor;
+            CHECK_EQ_INT(pending_cursor - first_cursor, 40 * (allowed - 1));
+            size_t reads = observed_recv_calls;
+            pthread_mutex_unlock(&g_st.mtx);
+            sleep_ms(50);
+            pthread_mutex_lock(&g_st.mtx);
+            CHECK_EQ_INT(observed_recv_calls, reads);
+            pthread_mutex_unlock(&g_st.mtx);
+        }
+        if (mode != 2) {
+            pthread_mutex_lock(&g_st.mtx);
+            flow_allowed_calls = 100;
+            pthread_mutex_unlock(&g_st.mtx);
+            CHECK(WAIT_FOR(g_st.event_calls == 1, 1000));
+        }
+        tai_disconnect(ctx);
+        CHECK(pending_audio_ok);
+        CHECK_EQ_INT(g_st.audio_calls, mode == 2 ? 1 : 4);
+        CHECK_EQ_INT(g_st.audio_concat_len, mode == 2 ? 40 : 130);
+        CHECK(memcmp(g_st.audio_concat, payload + 8, g_st.audio_concat_len) == 0);
+        if (mode != 2) {
+            CHECK_EQ_INT(g_st.audio_frame_lens[3], 10);
+            CHECK(strcmp(g_st.last_event_event_id, "later-event") == 0);
+        }
+        CHECK_EQ_INT(ctx->rx_pending_len, 0);
+        CHECK_EQ_INT(ctx->rx_pending_wire_len, 0);
+        CHECK(ctx->rx_pending_body == NULL);
+        CHECK_EQ_INT(g_st.disconnect_calls, 0);
+        tai_ctx_deinit(ctx);
+    }
+}
+
 static int eof_released, eof_hook_phase, eof_buffered_b;
 static size_t eof_paused_queries, eof_frame_b_len;
 static uint8_t eof_frame_b[256];
@@ -2455,6 +2696,9 @@ int main(void)
     test_log_env_default();
     pthread_mutex_init(&g_st.mtx, NULL);
 
+    test_event_user_data();
+    test_pending_audio();
+    test_pending_bad_wire_len();
     test_receive_backpressure();
     test_buffered_frame_before_eof();
     test_partial_frame_blocking_recv();
