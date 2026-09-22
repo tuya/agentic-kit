@@ -29,6 +29,7 @@
 #define WRONG_KEY_PORT  11887
 
 extern const pal_t *tai_pal_posix(void);
+int mqtt_interrupt_demo_tests(void);
 
 static int failures;
 static const pal_t *posix_pal;
@@ -377,6 +378,7 @@ int main(void)
     const pal_t *pal = make_routing_pal();
     pthread_mutex_init(&state.mutex, NULL);
     CHECK(iot_init(pal) == OPRT_OK);
+    failures += mqtt_interrupt_demo_tests();
     CHECK(start_mqtt_mock() == 0);
 
     char *cacert = load_file(pal, TEST_CONFIG_DIR "/root_cert.pem");

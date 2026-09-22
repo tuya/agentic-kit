@@ -14,7 +14,7 @@
 
 #include "demo_json.h"
 #include "iot_client.h"
-#include "tai_internal.h"
+#include "tuya_ai.h"
 
 extern const pal_t *tai_pal_posix(void);
 
@@ -84,16 +84,13 @@ static void set_stale_event(demo_state_t *state, const char *event_id)
     state->queued_audio = 0;
     if (event_id && event_id[0]) {
         mark_event_stale(state, event_id);
-        /* If pressure paused this Event inside a Packet, flush only its retained
-         * remainder; the worker then drains later wire Frames without letting
-         * already accepted bytes replay or stale callbacks refill playback. */
-        if (state->tai) tai_discard_pending_audio(state->tai);
+        /* Clearing playback reopens admission. The worker drains retained audio
+         * through on_audio(), which rejects this stale Event under the mutex. */
     } else {
         /* Missing/ambiguous correlation is fail-closed: discard audio until
          * the TCP side identifies the next Event. A repeated wire START inside
          * one multi-frame Packet must not reopen playback. */
         state->drop_unscoped_audio = 1;
-        if (state->tai) tai_discard_pending_audio(state->tai);
     }
     pthread_mutex_unlock(&state->mutex);
 }
