@@ -448,6 +448,7 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
         ${AI_TCP_SOURCES}
         "${AI_TCP_TESTS_DIR}/tai_pal_loopback.c"
         "${IOT_CLIENT_TESTS_DIR}/iot_tai_control_test.c"
+        "${IOT_CLIENT_TESTS_DIR}/mqtt_interrupt_demo_test.c"
         "${IOT_CLIENT_TESTS_DIR}/test_log.c"
     )
     target_include_directories(iot_tai_control_test PRIVATE
