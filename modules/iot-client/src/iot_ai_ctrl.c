@@ -35,9 +35,21 @@ bool iot_ai_ctrl_dispatch(iot_client_t *client,
         return false;
     }
 
-    char *payload_json = payload ? cJSON_PrintUnformatted(payload) : NULL;
-    const char *payload_bytes = payload_json ? payload_json : "";
-    size_t payload_len = payload_json ? strlen(payload_json) : 0;
+    char *payload_json = NULL;
+    const char *payload_bytes = "";
+    size_t payload_len = 0;
+    if (payload) {
+        payload_json = cJSON_PrintUnformatted(payload);
+        if (!payload_json) {
+            /* Do not turn a scoped notice into an unscoped empty payload under
+             * allocation pressure. Leave the authenticated message unconsumed
+             * so the application can apply its own fallback policy. */
+            cJSON_Delete(root);
+            return false;
+        }
+        payload_bytes = payload_json;
+        payload_len = strlen(payload_json);
+    }
 
     client->ai_ctrl_callback(type->valuestring, payload_bytes, payload_len,
                              client->ai_ctrl_user_data);

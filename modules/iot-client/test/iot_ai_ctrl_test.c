@@ -12,6 +12,7 @@
 #include "iot_ai_ctrl.h"
 #include "iot_client.h"
 #include "iot_internal.h"
+#include "cJSON.h"
 
 static int tests_run;
 static int tests_passed;
@@ -269,6 +270,60 @@ static int test_protocol_must_be_exact_integer(void)
     return failed ? -1 : 0;
 }
 
+static int cjson_allocation_count;
+static int cjson_fail_after;
+
+static void *counting_malloc(size_t size)
+{
+    cjson_allocation_count++;
+    if (cjson_fail_after >= 0 && cjson_allocation_count > cjson_fail_after)
+        return NULL;
+    return malloc(size);
+}
+
+static int test_payload_print_allocation_failure_is_unconsumed(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *client = make_client(pal);
+    const char *envelope =
+        "{\"protocol\":9000,\"data\":{\"data\":{"
+        "\"type\":\"asrInterrupt\",\"data\":{\"eventId\":\"evt-1\"}}}}";
+    cJSON_Hooks counting_hooks = { counting_malloc, pal->free };
+    cJSON_Hooks restore_hooks = { pal->malloc, pal->free };
+    int result = -1;
+
+    if (!client) return -1;
+    reset_callback();
+    iot_ai_ctrl_set_callback(client, control_callback, NULL);
+
+    cJSON_InitHooks(&counting_hooks);
+    cjson_allocation_count = 0;
+    cjson_fail_after = -1;
+    cJSON *root = cJSON_ParseWithLength(envelope, strlen(envelope));
+    if (root) cJSON_Delete(root);
+    if (cjson_allocation_count <= 0) goto out;
+
+    /* Sweep one failing allocation index at a time. The successful run proves
+     * every earlier run failed before the callback; no scoped payload was
+     * rewritten to an empty string. */
+    result = -1;
+    for (cjson_fail_after = 0; cjson_fail_after < 32; cjson_fail_after++) {
+        cjson_allocation_count = 0;
+        int consumed = iot_ai_ctrl_dispatch(client, (const uint8_t *)envelope,
+                                            strlen(envelope));
+        if (consumed) {
+            result = callback_count == 1 ? 0 : -1;
+            break;
+        }
+        if (callback_count != 0) break;
+    }
+
+out:
+    cJSON_InitHooks(&restore_hooks);
+    destroy_client(client);
+    return result;
+}
+
 int main(void)
 {
     const pal_t *pal = get_default_pal();
@@ -288,6 +343,7 @@ int main(void)
     RUN_TEST(test_deregister);
     RUN_TEST(test_set_callback_null_client);
     RUN_TEST(test_protocol_must_be_exact_integer);
+    RUN_TEST(test_payload_print_allocation_failure_is_unconsumed);
 
     printf("\n========== Results: %d/%d passed ==========\n",
            tests_passed, tests_run);

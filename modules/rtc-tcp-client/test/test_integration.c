@@ -81,7 +81,7 @@ typedef struct {
     size_t   audio_bytes;
     uint32_t audio_sample_rate;
     uint16_t audio_frame_duration;
-    size_t   audio_frame_lens[256]; /* per-call msg->len (carry-alignment check) */
+    size_t   audio_frame_lens[160]; /* per-call msg->len (carry-alignment check) */
     uint8_t  audio_concat[8192];    /* concatenation of all delivered frames     */
     size_t   audio_concat_len;
 
@@ -2067,16 +2067,33 @@ static void test_disconnect_latency(void)
 static const pal_t *observed_base_pal;
 static pal_t observed_pal;
 static size_t observed_recv_calls;
+static size_t observed_recv_bytes;
 static size_t observed_sleep_calls;
 static size_t observed_empty_polls;
+static size_t observed_after_bytes;
+static size_t observed_blocking_after_bytes;
+static size_t observed_nonblocking_after_bytes;
+static uint32_t observed_max_timeout_after_bytes;
 
 static int observed_recv(void *tcp, uint8_t *buf, size_t len,
                          uint32_t timeout_ms)
 {
     pthread_mutex_lock(&g_st.mtx);
     observed_recv_calls++;
+    if (observed_after_bytes && observed_recv_bytes >= observed_after_bytes) {
+        if (timeout_ms) observed_blocking_after_bytes++;
+        else observed_nonblocking_after_bytes++;
+        if (timeout_ms > observed_max_timeout_after_bytes)
+            observed_max_timeout_after_bytes = timeout_ms;
+    }
     pthread_mutex_unlock(&g_st.mtx);
-    return observed_base_pal->tcp_recv(tcp, buf, len, timeout_ms);
+
+    int n = observed_base_pal->tcp_recv(tcp, buf, len, timeout_ms);
+
+    pthread_mutex_lock(&g_st.mtx);
+    if (n > 0) observed_recv_bytes += (size_t)n;
+    pthread_mutex_unlock(&g_st.mtx);
+    return n;
 }
 
 static int observed_poll(void *tcp, int events, uint32_t timeout_ms)
@@ -2103,13 +2120,19 @@ static const pal_t *observe_pal(void)
     observed_pal.tcp_poll = observed_poll;
     observed_pal.sleep_ms = observed_sleep;
     observed_recv_calls = 0;
+    observed_recv_bytes = 0;
     observed_sleep_calls = 0;
     observed_empty_polls = 0;
+    observed_after_bytes = 0;
+    observed_blocking_after_bytes = 0;
+    observed_nonblocking_after_bytes = 0;
+    observed_max_timeout_after_bytes = 0;
     return &observed_pal;
 }
 
-/* Pause after each delivered Packet, including Packets buffered by one recv.
- * Resume without new network bytes to prove rx_buf work cannot be stranded. */
+/* Pause after each delivered codec frame, including frames produced by one
+ * Packet. Resume without new network bytes to prove no pending callback or
+ * buffered Frame is stranded. */
 static int flow_allowed_calls;
 static int flow_paused_queries;
 static uint64_t flow_resume_ms;
@@ -2123,6 +2146,12 @@ static int test_flow_control(tai_ctx_t *ctx, void *user_data)
     else if (flow_resume_ms == 0) flow_resume_ms = ctx->pal->time_ms();
     pthread_mutex_unlock(&g_st.mtx);
     return ready;
+}
+
+static size_t audio_frame_len_at(int index)
+{
+    return index < 160 ? g_st.audio_frame_lens[index]
+                       : g_st.audio_frame_lens[159];
 }
 
 static void test_receive_backpressure(void)
@@ -2145,20 +2174,25 @@ static void test_receive_backpressure(void)
     pthread_mutex_lock(&g_st.mtx);
     size_t paused_recv_calls = observed_recv_calls;
     pthread_mutex_unlock(&g_st.mtx);
-    uint8_t audio[800];
-    memset(audio, 0x5a, sizeof(audio));
-    for (int i = 0; i < 40; i++) {
+
+    static uint8_t audio[8][800];
+    /* Distinct constant per Packet: a wrong slide lands in another Packet's
+     * bytes and fails the packet-id check below regardless of position. */
+    for (size_t packet = 0; packet < 8; packet++) {
+        memset(audio[packet], (int)(0x10 + packet), sizeof(audio[packet]));
         CHECK(server_send_audio(ctx,
-                                i == 0 ? TAI_STREAM_START : TAI_STREAM_MIDDLE,
-                                i == 0 ? "111 1 16 16000" : NULL,
-                                audio, sizeof(audio), (uint16_t)(100 + i)) > 0);
+                                packet == 0 ? TAI_STREAM_START : TAI_STREAM_MIDDLE,
+                                packet == 0 ? "111 1 16 16000 0 16000 20 40" : NULL,
+                                audio[packet], sizeof(audio[packet]),
+                                (uint16_t)(100 + packet)) > 0);
     }
     sleep_ms(100);
     pthread_mutex_lock(&g_st.mtx);
     CHECK_EQ_INT(observed_recv_calls, paused_recv_calls);
+    CHECK_EQ_INT(g_st.audio_calls, 0);
     pthread_mutex_unlock(&g_st.mtx);
 
-    for (int allowed = 1; allowed <= 40; allowed++) {
+    for (int allowed = 1; allowed <= 8 * 20; allowed++) {
         pthread_mutex_lock(&g_st.mtx);
         flow_allowed_calls = allowed;
         pthread_mutex_unlock(&g_st.mtx);
@@ -2172,10 +2206,134 @@ static void test_receive_backpressure(void)
     tai_disconnect(ctx);
     CHECK(observed_sleep_calls > 0);
     CHECK_EQ_INT(observed_empty_polls, 0);
-    CHECK_EQ_INT(g_st.audio_calls, 40);
-    CHECK_EQ_INT(g_st.audio_bytes, 40 * sizeof(audio));
+    CHECK_EQ_INT(g_st.audio_calls, 160);
+    CHECK_EQ_INT(g_st.audio_bytes, 8 * sizeof(audio[0]));
+    for (int frame = 0; frame < 160; frame++)
+        CHECK_EQ_INT(audio_frame_len_at(frame), 40);
+    /* Byte-exact across ALL Packets, not just the paused first one: each
+     * 800-byte Packet carries its own index in every byte, so any mis-slide
+     * shows up as a wrong packet id. */
+    for (size_t i = 0; i < g_st.audio_concat_len; i++) {
+        size_t packet = i / sizeof(audio[0]);
+        if (packet >= 8) break;
+        CHECK_EQ_INT(g_st.audio_concat[i], audio[packet][0]);
+    }
     CHECK_EQ_INT(g_st.disconnect_calls, 0);
     tai_ctx_deinit(ctx);
+}
+
+static int eof_released, eof_hook_phase, eof_buffered_b;
+static size_t eof_paused_queries, eof_frame_b_len;
+static uint8_t eof_frame_b[256];
+
+static int buffered_eof_flow_control(tai_ctx_t *ctx, void *user_data)
+{
+    (void)user_data;
+    pthread_mutex_lock(&g_st.mtx);
+    int ready = eof_released;
+    if (!ready) eof_paused_queries++;
+    else if (g_st.text_calls == 1 && eof_hook_phase == 0) {
+        /* This callback runs on the receive worker: inspecting its buffer here
+         * is safe, unlike sampling rx_len from the test thread. */
+        eof_buffered_b = ctx->rx_len == eof_frame_b_len &&
+            memcmp(ctx->rx_buf, eof_frame_b, eof_frame_b_len) == 0;
+        eof_hook_phase = 1;
+        tai_loopback_close_connection();
+        ready = 0;
+    } else if (eof_hook_phase == 1) {
+        eof_hook_phase = 2;  /* admission reopens on the very next query */
+    }
+    pthread_mutex_unlock(&g_st.mtx);
+    return ready;
+}
+
+static void test_buffered_frame_before_eof(void)
+{
+    SECTION("buffered_frame_before_eof");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    eof_released = eof_hook_phase = eof_buffered_b = 0;
+    eof_paused_queries = 0;
+    tai_config_t options = { .pal = observe_pal(),
+                             .on_flow_control = buffered_eof_flow_control };
+    tai_ctx_t *ctx = setup_ctx_config(ctx_mem, &options);
+    CHECK(ctx != NULL);
+    if (!ctx) return;
+    CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+    CHECK(WAIT_FOR(eof_paused_queries > 0, 1000));
+
+    uint8_t app[128], frames[512];
+    int alen = build_text_app(ctx, TAI_STREAM_ONE_SHOT, 1, "A", 1,
+                              app, sizeof(app));
+    CHECK(alen > 0);
+    int a = alen > 0 ? tai_frame_encode(TAI_FRAG_NONE, 10, app, (size_t)alen,
+        ctx->sign_key, 32, ctx->pal, frames, sizeof(frames)) : -1;
+    alen = build_text_app(ctx, TAI_STREAM_ONE_SHOT, 2, "B", 1,
+                          app, sizeof(app));
+    CHECK(alen > 0);
+    int b = alen > 0 ? tai_frame_encode(TAI_FRAG_NONE, 11, app, (size_t)alen,
+        ctx->sign_key, 32, ctx->pal, eof_frame_b, sizeof(eof_frame_b)) : -1;
+    CHECK(a > 0 && b > 0);
+    if (a <= 0 || b <= 0) { tai_disconnect(ctx); tai_ctx_deinit(ctx); return; }
+    memcpy(frames + a, eof_frame_b, (size_t)b);
+    pthread_mutex_lock(&g_st.mtx);
+    eof_frame_b_len = (size_t)b;
+    size_t before_bytes = observed_recv_bytes;
+    tai_loopback_push_recv(frames, (size_t)(a + b));
+    eof_released = 1;
+    pthread_mutex_unlock(&g_st.mtx);
+
+    CHECK(WAIT_FOR(g_st.disconnect_calls > 0, 2000));
+    tai_disconnect(ctx);
+    CHECK_EQ_INT(eof_hook_phase, 2);
+    CHECK(eof_buffered_b);
+    CHECK_EQ_INT(observed_recv_bytes - before_bytes, a + b);
+    CHECK_EQ_INT(g_st.text_calls_at_disconnect, 2);
+    CHECK(strcmp(g_st.text_buf, "AB") == 0);
+    CHECK_EQ_INT(g_st.disconnect_calls, 1);
+    CHECK_EQ_INT(g_st.disconnect_reason, TAI_DISCONNECT_TRANSPORT);
+    CHECK_EQ_INT(g_st.disconnect_detail, TAI_TRANSPORT_EOF);
+    tai_ctx_deinit(ctx);
+}
+
+static void test_partial_frame_blocking_recv(void)
+{
+    const size_t cuts[] = { 2, 8 };  /* incomplete 5-byte header / incomplete body */
+    for (size_t i = 0; i < sizeof(cuts) / sizeof(cuts[0]); i++) {
+        SECTION(i == 0 ? "partial_header_blocking_recv" : "partial_body_blocking_recv");
+        static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+        tai_config_t options = { .pal = observe_pal(),
+                                 .ping_interval_ms = 1000000 };
+        tai_ctx_t *ctx = setup_ctx_config(ctx_mem, &options);
+        CHECK(ctx != NULL);
+        if (!ctx) return;
+        tai_loopback_set_recv_cap_ms(AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS + 5000U);
+        CHECK_EQ_INT(tai_connect(ctx), TAI_OK);
+        uint8_t app[128], frame[256];
+        int alen = build_text_app(ctx, TAI_STREAM_ONE_SHOT, 1,
+                                  "partial", 7, app, sizeof(app));
+        CHECK(alen > 0);
+        int flen = alen > 0 ? tai_frame_encode(TAI_FRAG_NONE, 10, app, (size_t)alen,
+            ctx->sign_key, 32, ctx->pal, frame, sizeof(frame)) : -1;
+        CHECK(flen > (int)cuts[i]);
+        if (flen <= (int)cuts[i]) { tai_disconnect(ctx); tai_ctx_deinit(ctx); continue; }
+        pthread_mutex_lock(&g_st.mtx);
+        observed_after_bytes = observed_recv_bytes + cuts[i];
+        pthread_mutex_unlock(&g_st.mtx);
+        tai_loopback_push_recv(frame, cuts[i]);
+        CHECK(WAIT_FOR(observed_recv_bytes >= observed_after_bytes, 1000));
+        CHECK(WAIT_FOR(observed_blocking_after_bytes > 0, 1000));
+        pthread_mutex_lock(&g_st.mtx);
+        CHECK(observed_nonblocking_after_bytes <= 4);
+        CHECK(observed_max_timeout_after_bytes <= AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS);
+        CHECK_EQ_INT(g_st.text_calls, 0);
+        pthread_mutex_unlock(&g_st.mtx);
+        tai_loopback_push_recv(frame + cuts[i], (size_t)flen - cuts[i]);
+        CHECK(WAIT_FOR(g_st.text_calls == 1, 1000));
+        tai_disconnect(ctx);
+        CHECK(strcmp(g_st.text_buf, "partial") == 0);
+        CHECK_EQ_INT(g_st.disconnect_calls, 0);
+        tai_ctx_deinit(ctx);
+    }
 }
 
 static void test_long_receive_pause_liveness(void)
@@ -2298,6 +2456,8 @@ int main(void)
     pthread_mutex_init(&g_st.mtx, NULL);
 
     test_receive_backpressure();
+    test_buffered_frame_before_eof();
+    test_partial_frame_blocking_recv();
     test_long_receive_pause_liveness();
     test_pal_sleep();
     test_text_query();
