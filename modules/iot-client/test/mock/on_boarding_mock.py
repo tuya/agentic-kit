@@ -30,7 +30,7 @@ PORT = int(os.getenv("ONBOARDING_MQTT_MOCK_PORT", "11884"))
 
 EXPECTED_AUTHKEY = "ci_authkey_1234567890abcdef"
 
-ACTIVATION_JSON = '{"data":{"httpsUrl":"https://127.0.0.1:%s","region":"AY","token":"mock_activation_token_12345"}}' % os.getenv("ATOP_MOCK_PORT", "8443")
+ACTIVATION_JSON = '{"data":{"httpsUrl":"https://127.0.0.1:%s","region":"AY","token":"mock_activation_token_12345","env":"pre"}}' % os.getenv("ATOP_MOCK_PORT", "8443")
 
 
 def compute_mqtt_password(authkey):

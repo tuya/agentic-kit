@@ -60,15 +60,16 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
 /**
  * @brief Activate device via token on-boarding (direct ATOP call).
  *
- * Parses region from the first 2 characters and secret from the last 4
- * characters of @p token, then sends the ATOP activation request directly.
+ * Parses the App registration key when present; legacy token+secret inputs
+ * continue to use the configured environment.
  * Does not use MQTT or DNS.
  *
  * @param pal         PAL adapter
  * @param on_boarding On-boarding configuration (uuid, authkey, product_key, etc.)
- * @param token       Activation token: [region:2][activation_token][secret:4] (min 7 chars)
+ * @param token       App token: [region:2][activation_token:8][env:pre|pro|prod],
+ *                    or legacy [region:2][activation_token][secret:4]
  * @param response    Output: activated device credentials
- * @return OPRT_OK on success, OPRT_INVALID_PARAMETER if any required param is NULL/empty or token too short
+ * @return OPRT_OK on success, OPRT_INVALID_PARAMETER for malformed tokens or unsupported environments
  */
 int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
                            const char *token, on_boarding_response_t *response);

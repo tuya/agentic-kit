@@ -178,7 +178,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | `feature` | `const char *` | Feature 信息（可为 NULL） |
 | `skill_param` | `const char *` | Skill 参数（可为 NULL） |
 | `timeout_ms` | `int` | 激活超时时间（毫秒） |
-| `env` | `iot_env_t` | 环境：`PROD`（默认）或 `PRE` |
+| `env` | `iot_env_t` | 默认环境（默认 `PROD`）；App 在激活数据中提供环境时，以 App 的选择为准 |
 | `mqtt_disable_tls` | `bool` | TLS 开关 |
 | `mqtt_disable_auto_connect` | `bool` | `false`（默认）激活后自动连接 MQTT；`true` 需手动调用 [`iot_client_connect()`](#iot_client_connect) |
 | `skip_version_report` | `bool` | `false`（默认）激活后上报 SDK meta 和固件版本；`true` 跳过这两次上报（仅在云端已有当前版本时设置） |
@@ -237,6 +237,7 @@ iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t *config
 ```
 
 阻塞等待 App 扫码激活。内部通过 MQTT 监听激活事件，激活成功后返回包含 `devid`、`secret_key`、`local_key` 的客户端实例。
+MQTT 激活消息的 `data.env` 为 `pre`、`pro` 或 `prod` 时，返回的 `client->env` 对应 `PRE` 或 `PROD`；未提供时沿用 `config.env`。
 
 **返回值：** 成功返回 `iot_client_t *`；超时或失败返回 `NULL`。
 
@@ -250,11 +251,11 @@ iot_client_t *iot_client_init_on_boarding_with_token(
     const char *token);
 ```
 
-使用预知的激活 Token 直接发起激活请求，跳过 MQTT 等待。Region 由 token 前两个字符自动推导。
+使用预知的激活 Token 直接发起激活请求，跳过 MQTT 等待。Region 由 token 前两个字符自动推导。涂鸦 App 下发的 token 按 `[区域:2][激活 token:8][环境 key:3~4]` 解析；`pre` 选择预发，`pro`/`prod` 选择线上，优先于 `config.env`。旧格式 `[区域:2][激活 token][secret:4]` 仍使用 `config.env`。
 
 **参数：**
 - `config` — 配网配置
-- `token` — 激活 Token（格式：`{region}{token}{secret}`，如 `AYH73H8u7Ap4pX`）
+- `token` — App token（如预发 `AY12345678pre`）；也接受旧格式（如 `AYH73H8u7Ap4pX`）
 
 **返回值：** 成功返回 `iot_client_t *`；失败返回 `NULL`。
 

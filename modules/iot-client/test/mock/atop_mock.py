@@ -254,7 +254,9 @@ def handle_activate_request(request_data, config):
                 "name": "Mock Device",
                 "productKey": product_key or "mock_product_key",
                 "localKey": "1234567890abcdef",
-                "schemaId": "mock_schema_id",
+                # Echo the fixture token so the on-boarding test verifies the
+                # complete eight-byte activation token reaches ATOP.
+                "schemaId": token if token.startswith("123456") else "mock_schema_id",
                 "schema": [],
                 "timezoneId": "Asia/Shanghai",
                 "ownerId": "mock_owner_id",
@@ -906,4 +908,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

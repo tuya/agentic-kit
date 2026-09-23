@@ -16,8 +16,8 @@ typedef struct {
     char *https_url;
     iot_region_t region;
     iot_env_t env;
+    bool env_from_app;
     char token[64];
-    char secret[5];
 } activation_message_t;
 
 // Internal activation context
@@ -34,6 +34,22 @@ static volatile bool g_on_boarding_in_progress = false;
 
 static void activate_context_destroy(void);
 
+/* TuyaOpen's registration key is "pre" or "pro"; accept the four-byte
+ * "prod" spelling as well. A three-byte unknown key is invalid, while an
+ * unknown four-byte suffix may be a legacy secret handled by the caller. */
+static int registration_key_to_env(const char *key, iot_env_t *env)
+{
+    if (!key || !env) return OPRT_INVALID_PARAMETER;
+    if (strcmp(key, "pre") == 0) {
+        *env = PRE;
+    } else if (strcmp(key, "pro") == 0 || strcmp(key, "prod") == 0) {
+        *env = PROD;
+    } else {
+        return OPRT_INVALID_PARAMETER;
+    }
+    return OPRT_OK;
+}
+
 // Parse activation response JSON and extract URLs
 static void parse_activation_message(const pal_t *pal, const char *json_str, activation_message_t *message) {
     cJSON *root = cJSON_Parse(json_str);
@@ -48,6 +64,17 @@ static void parse_activation_message(const pal_t *pal, const char *json_str, act
         IOT_LOGE("Activation response missing 'data' field");
         cJSON_Delete(root);
         return;
+    }
+
+    cJSON *env = cJSON_GetObjectItemCaseSensitive(data, "env");
+    if (env) {
+        if (!cJSON_IsString(env) ||
+            registration_key_to_env(env->valuestring, &message->env) != OPRT_OK) {
+            IOT_LOGE("Activation message contains an unsupported environment");
+            cJSON_Delete(root);
+            return;
+        }
+        message->env_from_app = true;
     }
 
     // Extract httpsUrl
@@ -242,7 +269,7 @@ static int activate_device(const pal_t *pal, on_boarding_config_t *on_boarding, 
     request.user_data = NULL;
 
     char *parsed_host = NULL;
-    request.host = IOT_DEFAULT_HOST;
+    request.host = iot_region_to_host(act_msg->region, act_msg->env);
     request.port = IOT_DEFAULT_PORT;
 
     if (act_msg->https_url && act_msg->https_url[0] != '\0') {
@@ -414,9 +441,14 @@ int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
         return OPRT_INVALID_PARAMETER;
     }
 
+    /* TuyaOpen packs [region:2][activation token:8][registration key:3-4].
+     * A trailing NUL in the four-byte key field is not part of the C string.
+     * Older callers can still pass [region:2][token][secret:4], with env
+     * supplied explicitly in the on-boarding configuration. */
+    enum { REGION_LEN = 2, ACTIVATION_TOKEN_LEN = 8 };
     size_t token_len = strlen(token);
-    if (token_len < 7) {
-        IOT_LOGE("Token too short: need at least 7 chars (2 region + token + 4 secret)");
+    if (token_len < REGION_LEN + 1 + 4) {
+        IOT_LOGE("Invalid App activation token length: %zu", token_len);
         return OPRT_INVALID_PARAMETER;
     }
 
@@ -428,20 +460,35 @@ int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
     }
 
     activation_message_t act_msg = {0};
-    size_t act_token_len = token_len - 2 - 4;
-    memcpy(act_msg.secret, token + token_len - 4, 4);
-    act_msg.secret[4] = '\0';
-    if (act_token_len >= sizeof(act_msg.token)) {
-        act_token_len = sizeof(act_msg.token) - 1;
+    bool app_env = false;
+    if (token_len == REGION_LEN + ACTIVATION_TOKEN_LEN + 3 ||
+        token_len == REGION_LEN + ACTIVATION_TOKEN_LEN + 4) {
+        app_env = registration_key_to_env(
+            token + REGION_LEN + ACTIVATION_TOKEN_LEN, &act_msg.env) == OPRT_OK;
     }
-    memcpy(act_msg.token, token + 2, act_token_len);
-    act_msg.token[act_token_len] = '\0';
+    if (token_len == REGION_LEN + ACTIVATION_TOKEN_LEN + 3 && !app_env) {
+        IOT_LOGE("Unsupported App registration key");
+        return OPRT_INVALID_PARAMETER;
+    }
+    if (app_env) {
+        memcpy(act_msg.token, token + REGION_LEN, ACTIVATION_TOKEN_LEN);
+        act_msg.token[ACTIVATION_TOKEN_LEN] = '\0';
+    } else {
+        size_t legacy_len = token_len - REGION_LEN - 4;
+        if (legacy_len >= sizeof(act_msg.token)) {
+            IOT_LOGE("Legacy activation token too long: %zu", legacy_len);
+            return OPRT_INVALID_PARAMETER;
+        }
+        memcpy(act_msg.token, token + REGION_LEN, legacy_len);
+        act_msg.token[legacy_len] = '\0';
+        act_msg.env = on_boarding->env;
+    }
     act_msg.region = region;
-    act_msg.env = on_boarding->env;
-    act_msg.https_url = iot_region_to_host(region, on_boarding->env);
+    /* TEST retains its local ATOP endpoint for host-side integration tests. */
+    act_msg.https_url = iot_region_to_host(region, on_boarding->env == TEST ? TEST : act_msg.env);
 
     IOT_LOGI("on_boarding_with_token: region=%d env=%d",
-             region, on_boarding->env);
+             region, act_msg.env);
 
     return activate_device(pal, on_boarding, &act_msg, response);
 }
@@ -678,7 +725,9 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
         goto end;
     }
 
-    g_activate_ctx->message->env = on_boarding->env;
+    if (!g_activate_ctx->message->env_from_app) {
+        g_activate_ctx->message->env = on_boarding->env;
+    }
     ret = activate_device(pal, on_boarding, g_activate_ctx->message, response);
     if (ret != OPRT_OK) {
         IOT_LOGE("Failed to activate device: %d", ret);

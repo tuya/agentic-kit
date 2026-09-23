@@ -223,7 +223,7 @@ typedef struct {
     const char *feature;
     const char *skill_param;
     int timeout_ms;
-    iot_env_t env;                 // PROD (default) or PRE
+    iot_env_t env;                 // QR fallback environment; App-provided env wins when present
     bool mqtt_disable_tls;         // false = mqtts (TLS, default), true = mqtt (TCP)
     bool mqtt_disable_auto_connect; // false (default) = connect MQTT after init/activation; true = caller invokes iot_client_connect() manually
     bool skip_version_report;       // false (default) = report both; true = skip both during init (only when cloud already has current version)
@@ -307,11 +307,13 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
  *
  * Skips the QR-code MQTT activation wait and directly sends the activation
  * request using the provided token. Region is derived from the first two
- * characters of the token; env is taken from @p config.
+ * characters of the token; a Tuya App registration key selects PRE or PROD.
+ * Legacy region/token/secret inputs keep using @p config.env.
  * Does not require DNS/MQTT — calls ATOP directly.
  *
  * @param config On-boarding configuration (uuid, authkey, product_key, etc.)
- * @param token  Activation token: [region:2][activation_token][secret:4]
+ * @param token  App token: [region:2][activation_token:8][env:pre|pro|prod],
+ *               or legacy [region:2][activation_token][secret:4]
  * @return Pointer to iot_client_t on success, NULL on error
  */
 IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boarding_config_t *config, const char *token);

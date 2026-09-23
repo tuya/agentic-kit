@@ -119,7 +119,7 @@ Only if the application explicitly sets `.mqtt_disable_auto_connect = true` must
 | `product_key` | Product PID |
 | `firmware_key` | Firmware Key (may be empty) |
 | `timeout_ms` | Activation timeout (milliseconds) |
-| `env` | Environment: `PROD` / `PRE` |
+| `env` | Environment for legacy tokens; App tokens carrying `pre`/`pro`/`prod` choose the environment |
 
 **Return value:** On success, returns an `iot_client_t *` that contains the `devid`, `secret_key`, and `local_key` after
 Activation, which can be used directly to initialize `iot_client_init()` later; on failure, returns `NULL`.

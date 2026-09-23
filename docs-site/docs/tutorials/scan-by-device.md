@@ -118,7 +118,7 @@ iot_on_boarding_config_t cfg = {
 | `product_key` | 产品 PID |
 | `firmware_key` | 固件 Key（可为空） |
 | `timeout_ms` | 激活超时时间（毫秒） |
-| `env` | 环境：`PROD` / `PRE` |
+| `env` | 旧格式 token 的环境；App token 带 `pre`/`pro`/`prod` 时由 App 决定 |
 
 **返回值：** 成功返回 `iot_client_t *`，其中包含激活后的 `devid`、
 `secret_key`、`local_key`，后续可直接用于初始化 `iot_client_init()`；失败返

@@ -237,6 +237,10 @@ static int test_on_boarding_qrcode_flow(void)
         printf("  response missing devid\n");
         return -1;
     }
+    if (resp.env != PRE) {
+        printf("  App selected PRE, response env=%d\n", resp.env);
+        return -1;
+    }
 
     printf("  devid      : %s\n", resp.devid);
     printf("  secret_key : %s\n", resp.secret_key);
@@ -299,7 +303,8 @@ static int test_on_boarding_with_token_null_response(void)
 
 /* ---------- Test: full on_boarding_with_token flow ---------- */
 
-static int test_on_boarding_with_token_flow(void)
+static int run_on_boarding_token_case(const char *app_token, iot_env_t expected_env,
+                                      const char *expected_schema_id)
 {
     const pal_t *pal = get_default_pal();
     on_boarding_config_t cfg = {0};
@@ -313,7 +318,7 @@ static int test_on_boarding_with_token_flow(void)
     cfg.cacert = g_cacert;
 
     on_boarding_response_t resp = {0};
-    int ret = on_boarding_with_token(pal, &cfg, "AYci_test_token0000", &resp);
+    int ret = on_boarding_with_token(pal, &cfg, app_token, &resp);
 
     if (ret != OPRT_OK) {
         printf("  on_boarding_with_token failed: %d\n", ret);
@@ -323,10 +328,57 @@ static int test_on_boarding_with_token_flow(void)
         printf("  response missing devid\n");
         return -1;
     }
+    if (resp.env != expected_env) {
+        printf("  App selected env=%d, response env=%d\n", expected_env, resp.env);
+        return -1;
+    }
+    if (strcmp(resp.schema_id, expected_schema_id) != 0) {
+        printf("  activation token was truncated: schema_id=%s\n", resp.schema_id);
+        return -1;
+    }
     printf("  devid      : %s\n", resp.devid);
     printf("  secret_key : %s\n", resp.secret_key);
     printf("  local_key  : %s\n", resp.local_key);
     printf("  region     : %d\n", resp.region);
+    return OPRT_OK;
+}
+
+static int test_on_boarding_token_pre(void)
+{
+    return run_on_boarding_token_case("AY12345678pre", PRE, "12345678");
+}
+
+static int test_on_boarding_token_pro(void)
+{
+    return run_on_boarding_token_case("AY12345678pro", PROD, "12345678");
+}
+
+static int test_on_boarding_token_prod(void)
+{
+    return run_on_boarding_token_case("AY12345678prod", PROD, "12345678");
+}
+
+static int test_on_boarding_token_legacy(void)
+{
+    return run_on_boarding_token_case("AYci_test_token0000", TEST, "mock_schema_id");
+}
+
+static int test_on_boarding_token_unknown_env(void)
+{
+    const pal_t *pal = get_default_pal();
+    on_boarding_config_t cfg = {0};
+    strncpy(cfg.uuid, TEST_UUID, sizeof(cfg.uuid) - 1);
+    strncpy(cfg.authkey, TEST_AUTHKEY, sizeof(cfg.authkey) - 1);
+    strncpy(cfg.product_key, TEST_PK, sizeof(cfg.product_key) - 1);
+    cfg.env = TEST;
+    cfg.cacert = g_cacert;
+
+    on_boarding_response_t resp = {0};
+    int ret = on_boarding_with_token(pal, &cfg, "AY12345678stg", &resp);
+    if (ret != OPRT_INVALID_PARAMETER) {
+        printf("  expected invalid App environment, got %d\n", ret);
+        return -1;
+    }
     return OPRT_OK;
 }
 
@@ -399,7 +451,11 @@ int main(void)
     RUN_TEST(test_on_boarding_with_token_empty_token);
     RUN_TEST(test_on_boarding_with_token_null_response);
     RUN_TEST(test_on_boarding_timeout);
-    RUN_TEST(test_on_boarding_with_token_flow);
+    RUN_TEST(test_on_boarding_token_pre);
+    RUN_TEST(test_on_boarding_token_pro);
+    RUN_TEST(test_on_boarding_token_prod);
+    RUN_TEST(test_on_boarding_token_legacy);
+    RUN_TEST(test_on_boarding_token_unknown_env);
     RUN_TEST(test_on_boarding_qrcode_flow);
 
     stop_mock(&dns_mock_pid, "DNS mock");

@@ -177,7 +177,7 @@ Configuration for device provisioning and Activation.
 | `feature` | `const char *` | Feature information (can be NULL) |
 | `skill_param` | `const char *` | Skill parameters (can be NULL) |
 | `timeout_ms` | `int` | Activation timeout in milliseconds |
-| `env` | `iot_env_t` | Environment: `PROD` (default) or `PRE` |
+| `env` | `iot_env_t` | Fallback environment (default `PROD`); an environment supplied in App Activation data takes precedence |
 | `mqtt_disable_tls` | `bool` | TLS switch |
 | `mqtt_disable_auto_connect` | `bool` | `false` (default) connects to MQTT automatically after Activation; when `true`, you must call [`iot_client_connect()`](#iot_client_connect) manually |
 | `skip_version_report` | `bool` | `false` (default) reports the SDK metadata and firmware version after Activation; `true` skips these two reports (set only when the cloud already has the current version) |
@@ -236,6 +236,7 @@ iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t *config
 ```
 
 Blocks while waiting for App QR-code Activation. Internally, it listens for the Activation event over MQTT and, after successful Activation, returns a client instance containing `devid`, `secret_key`, and `local_key`.
+When the MQTT Activation message contains `data.env` set to `pre`, `pro`, or `prod`, `client->env` becomes `PRE` or `PROD` accordingly. Without that field, it uses `config.env`.
 
 **Return value:** An `iot_client_t *` on success; `NULL` on timeout or failure.
 
@@ -249,11 +250,11 @@ iot_client_t *iot_client_init_on_boarding_with_token(
     const char *token);
 ```
 
-Starts Activation directly with a known Activation Token, skipping the MQTT wait. The Region is derived automatically from the token's first two characters.
+Starts Activation directly with a known Activation Token, skipping the MQTT wait. The Region is derived from the first two characters. Tuya App tokens use `[region:2][activation token:8][environment key:3-4]`: `pre` selects preproduction, while `pro`/`prod` selects production, overriding `config.env`. Legacy `[region:2][activation token][secret:4]` inputs still use `config.env`.
 
 **Parameters:**
 - `config` - Provisioning configuration
-- `token` - Activation Token (format: `{region}{token}{secret}`, for example `AYH73H8u7Ap4pX`)
+- `token` - App token (for example `AY12345678pre`), or a legacy token (for example `AYH73H8u7Ap4pX`)
 
 **Return value:** An `iot_client_t *` on success; `NULL` on failure.
 
