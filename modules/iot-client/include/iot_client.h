@@ -267,7 +267,9 @@ struct iot_dp_context;
     bool mqtt_disable_tls;         // false = mqtts (TLS), true = mqtt (TCP)
     const pal_t *pal;             // PAL adapter
 
-    const char *cacert;           // CA certificate for all TLS (MQTT/HTTPS/IoT-DNS) (caller-owned, points to user buffer/flash)
+    const char *cacert;           // Caller-owned CA for IoT-DNS and legacy service TLS
+    const char *self_cacert;      // IoT-DNS CA for App-selected Self endpoints
+    char *owned_self_cacert;      // SDK-owned decoded Self CA certificate
     tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (borrowed, NULL = none)
     struct mqtt_client *mqtt;     // Internal MQTT client handle
     iot_message_callback_t message_callback;  // User callback for incoming messages

@@ -511,6 +511,12 @@ int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
         }
     }
 
+    if ((!on_boarding->cacert || on_boarding->cacert[0] == '\0') &&
+        !on_boarding->cert_bundle_attach) {
+        IOT_LOGE("App-selected IoT DNS lookup requires a trusted TLS CA");
+        return OPRT_INVALID_PARAMETER;
+    }
+
     iot_region_t region;
     int ret = __token_to_region(token, &region);
     if (ret != OPRT_OK) {
@@ -526,8 +532,8 @@ int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
     act_msg.env = on_boarding->env; /* legacy enum remains for non-keyed clients */
 
     const iot_dns_config_item_t keys[] = {
-        { .key = "httpsSelfUrl" },
-        { .key = "mqttsSelfUrl" },
+        { .key = "httpsSelfUrl", .need_ca = true },
+        { .key = "mqttsSelfUrl", .need_ca = true },
     };
     iot_dns_url_config_request_t dns_req = {
         .host = on_boarding->dns_host,
@@ -564,8 +570,20 @@ int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
         return OPRT_INVALID_RESULT;
     }
 
+    char *self_cacert = NULL;
+    ret = iot_dns_url_config_first_ca_pem(pal, &dns_resp, &self_cacert);
+    if (ret != OPRT_OK) {
+        IOT_LOGE("IoT DNS did not provide a usable CA for App-selected Self endpoints");
+        iot_dns_url_config_response_free(pal, &dns_resp);
+        return ret;
+    }
+
     act_msg.https_url = (char *)https_addr; /* borrowed until DNS response is freed */
-    ret = activate_device(pal, on_boarding, &act_msg, response);
+    on_boarding_config_t activation_config = *on_boarding;
+    activation_config.cacert = self_cacert;
+    activation_config.cert_bundle_attach = NULL;
+    ret = activate_device(pal, &activation_config, &act_msg, response);
+    pal->free(self_cacert);
     iot_dns_url_config_response_free(pal, &dns_resp);
     return ret;
 }

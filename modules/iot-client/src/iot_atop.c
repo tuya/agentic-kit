@@ -104,8 +104,10 @@ int iot_atop_call(iot_client_t *client,
         .datalen   = strlen(body),
         .host      = host[0] ? host : NULL,
         .port      = port,
-        .cacert    = client->cacert,
-        .cert_bundle_attach = client->cert_bundle_attach,
+        .cacert    = client->registration_key[0] != '\0' && client->self_cacert
+                         ? client->self_cacert : client->cacert,
+        .cert_bundle_attach = client->registration_key[0] != '\0' && client->self_cacert
+                                  ? NULL : client->cert_bundle_attach,
     };
 
     atop_base_response_t atop_response = {0};

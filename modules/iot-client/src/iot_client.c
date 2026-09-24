@@ -57,7 +57,8 @@ static bool registration_key_valid(const char key[5])
 
 static bool client_has_https_trust(const iot_client_t *client)
 {
-    return (client->cacert != NULL && client->cacert[0] != '\0') ||
+    return (client->self_cacert != NULL && client->self_cacert[0] != '\0') ||
+           (client->cacert != NULL && client->cacert[0] != '\0') ||
            client->cert_bundle_attach != NULL;
 }
 
@@ -175,13 +176,18 @@ int iot_client_dns_resolve(iot_client_t *client, const char *dns_host, uint16_t 
         client->https_url[0] = '\0';
         /* The App's Self route is currently defined only for mqttsSelfUrl. */
         if (client->mqtt_disable_tls) return OPRT_NOT_SUPPORTED;
+        if ((!client->cacert || client->cacert[0] == '\0') &&
+            !client->cert_bundle_attach) {
+            IOT_LOGE("App-selected IoT DNS lookup requires a trusted TLS CA");
+            return OPRT_INVALID_PARAMETER;
+        }
     }
     const char *mqtt_dns_key = client->mqtt_disable_tls ? IOT_DNS_KEY_MQTT
                                 : keyed ? "mqttsSelfUrl" : IOT_DNS_KEY_MQTTS;
     const char *https_dns_key = keyed ? "httpsSelfUrl" : IOT_DNS_KEY_HTTPS;
     iot_dns_config_item_t dns_keys[] = {
-        { .key = mqtt_dns_key },
-        { .key = https_dns_key },
+        { .key = mqtt_dns_key, .need_ca = keyed },
+        { .key = https_dns_key, .need_ca = keyed },
     };
     iot_dns_url_config_request_t dns_req = {
         .cacert = client->cacert,
@@ -203,6 +209,13 @@ int iot_client_dns_resolve(iot_client_t *client, const char *dns_host, uint16_t 
     }
 
     if (keyed) {
+        char *self_cacert = NULL;
+        ret = iot_dns_url_config_first_ca_pem(client->pal, &dns_resp, &self_cacert);
+        if (ret != OPRT_OK) {
+            iot_dns_url_config_response_free(client->pal, &dns_resp);
+            IOT_LOGW("IoT DNS did not return a usable CA for Self endpoints");
+            return ret;
+        }
         const char *mqtt_addr = NULL;
         const char *https_addr = NULL;
         for (int i = 0; i < dns_resp.endpoint_count; i++) {
@@ -211,9 +224,9 @@ int iot_client_dns_resolve(iot_client_t *client, const char *dns_host, uint16_t 
             else if (strcmp(dns_resp.endpoints[i].key, https_dns_key) == 0)
                 https_addr = dns_resp.endpoints[i].addr;
         }
-        if (!valid_self_endpoint(https_addr, true,
-                                 client_has_https_trust(client)) ||
+        if (!valid_self_endpoint(https_addr, true, true) ||
             !valid_self_endpoint(mqtt_addr, false, true)) {
+            client->pal->free(self_cacert);
             iot_dns_url_config_response_free(client->pal, &dns_resp);
             IOT_LOGW("IoT DNS did not return valid Self endpoints");
             return OPRT_INVALID_RESULT;
@@ -222,6 +235,14 @@ int iot_client_dns_resolve(iot_client_t *client, const char *dns_host, uint16_t 
                                 "mqtts://%s", mqtt_addr);
         int https_len = snprintf(client->https_url, sizeof(client->https_url),
                                  "%s", https_addr);
+        if (mqtt_len >= 0 && (size_t)mqtt_len < sizeof(client->mqtt_url) &&
+            https_len >= 0 && (size_t)https_len < sizeof(client->https_url)) {
+            if (client->owned_self_cacert) client->pal->free(client->owned_self_cacert);
+            client->owned_self_cacert = self_cacert;
+            client->self_cacert = self_cacert;
+        } else {
+            client->pal->free(self_cacert);
+        }
         iot_dns_url_config_response_free(client->pal, &dns_resp);
         if (mqtt_len < 0 || (size_t)mqtt_len >= sizeof(client->mqtt_url) ||
             https_len < 0 || (size_t)https_len >= sizeof(client->https_url)) {
@@ -327,8 +348,10 @@ int iot_client_report_init_versions(iot_client_t *client,
             .sdk_version = SDK_VERSION,
             .host        = meta_host[0] ? meta_host : NULL,
             .port        = meta_port,
-            .cacert      = client->cacert,
-            .cert_bundle_attach = client->cert_bundle_attach,
+            .cacert      = client->registration_key[0] != '\0' && client->self_cacert
+                               ? client->self_cacert : client->cacert,
+            .cert_bundle_attach = client->registration_key[0] != '\0' && client->self_cacert
+                                      ? NULL : client->cert_bundle_attach,
         };
         device_meta_save_response_t meta_resp = {0};
         int meta_ret = atop_device_meta_save(client->pal, &meta_req, &meta_resp);
@@ -453,6 +476,9 @@ IOT_API void iot_client_deinit(iot_client_t *client)
         client->pal->free(client->schema);
     }
     const pal_t *pal = client->pal;
+    if (client->owned_self_cacert) {
+        pal->free(client->owned_self_cacert);
+    }
     /* Wipe before freeing: devid, secret_key and local_key are plaintext in this
      * struct, and on an embedded allocator the next malloc of a similar size
      * hands the block -- keys included -- to unrelated code. Matters most on the
@@ -777,8 +803,10 @@ IOT_API int iot_client_get_session_token_ex(iot_client_t *client, const char *ag
         .agent_code = agent_code,
         .host = host,
         .port = parsed_port,
-        .cacert = client->cacert,
-        .cert_bundle_attach = client->cert_bundle_attach,
+        .cacert = client->registration_key[0] != '\0' && client->self_cacert
+                      ? client->self_cacert : client->cacert,
+        .cert_bundle_attach = client->registration_key[0] != '\0' && client->self_cacert
+                                  ? NULL : client->cert_bundle_attach,
     };
 
     ai_token_response_t resp = {0};

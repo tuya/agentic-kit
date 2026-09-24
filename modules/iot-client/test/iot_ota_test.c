@@ -369,6 +369,38 @@ static int test_keyed_ota_and_version_init_require_self_https(void)
     return 0;
 }
 
+static int test_keyed_ota_uses_dns_self_ca(void)
+{
+    iot_client_t client = {0};
+    client.pal = get_default_pal();
+    client.region = AY;
+    memcpy(client.registration_key, "pr_0", 5);
+    snprintf(client.devid, sizeof(client.devid), "%s", TEST_DEVID);
+    snprintf(client.secret_key, sizeof(client.secret_key), "%s", TEST_SEC_KEY);
+    snprintf(client.https_url, sizeof(client.https_url),
+             "https://127.0.0.1:%u/d.json", MOCK_PORT);
+    client.cacert = "not a valid CA";
+    client.self_cacert = g_cacert;
+
+    if (iot_ota_report_version(&client, "1.0.0") != OPRT_OK) {
+        printf("  OTA version report did not use Self CA\n");
+        return -1;
+    }
+
+    iot_ota_upgrade_info_t info = {0};
+    if (iot_ota_check_upgrade(&client, 0, &info) != OPRT_OK) {
+        printf("  OTA upgrade query did not use Self CA\n");
+        return -1;
+    }
+    iot_ota_upgrade_info_free(&client, &info);
+
+    if (iot_ota_report_status(&client, 0, OTA_STATUS_READY) != OPRT_OK) {
+        printf("  OTA status report did not use Self CA\n");
+        return -1;
+    }
+    return 0;
+}
+
 /* ---------- main ---------- */
 
 int main(void)
@@ -397,6 +429,7 @@ int main(void)
     RUN_TEST(test_upgrade_get_missing_devid);
     RUN_TEST(test_upgrade_status_update_null_params);
     RUN_TEST(test_keyed_ota_and_version_init_require_self_https);
+    RUN_TEST(test_keyed_ota_uses_dns_self_ca);
 
     /* Success tests */
     RUN_TEST(test_version_update);

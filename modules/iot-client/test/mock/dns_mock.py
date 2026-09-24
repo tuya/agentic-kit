@@ -11,6 +11,7 @@ Listens on http://127.0.0.1:8198 (plain HTTP) by default.
 """
 
 import json
+import base64
 import os
 import ssl
 import sys
@@ -29,12 +30,10 @@ class ReusableHTTPServer(HTTPServer):
 MOCK_HOST = "127.0.0.1"
 MOCK_PORT = 8198
 
-FAKE_CA_CERT = (
-    "MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh"
-    "MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3"
-    "d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBH"
-    "MjAeFw0xMzA4MDExMjAwMDBaFw0zODAxMTUxMjAwMDBa"
-)
+_root_ca_pem_path = os.path.join(os.path.dirname(__file__), "..", "config", "root_cert.pem")
+with open(_root_ca_pem_path, encoding="ascii") as _root_ca_file:
+    _root_ca_pem = _root_ca_file.read()
+FAKE_CA_CERT = base64.b64encode(ssl.PEM_cert_to_DER_cert(_root_ca_pem)).decode("ascii")
 
 DNS_DB = {
     "a1.tuyacn.com": {
@@ -167,7 +166,13 @@ class DNSMockHandler(BaseHTTPRequestHandler):
                     expected_env = stream.read().strip()
             except OSError:
                 expected_env = ""
-            if req.get("env") != expected_env or not self_keys <= requested:
+            need_ca_keys = {
+                item.get("key")
+                for item in config
+                if item.get("need_ca") is True
+            }
+            if (req.get("env") != expected_env or not self_keys <= requested or
+                    not self_keys <= need_ca_keys):
                 self._send_json({"ttl": 600})
                 return
         result = {

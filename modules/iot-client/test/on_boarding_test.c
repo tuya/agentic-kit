@@ -457,6 +457,33 @@ static int test_on_boarding_token_pre(void)
     return run_on_boarding_token_case("AYH73H8u7Apr_0", "pr_0", "H73H8u7A");
 }
 
+static int test_on_boarding_token_uses_dns_ca_for_activation(void)
+{
+    const pal_t *pal = get_default_pal();
+    on_boarding_config_t cfg = {0};
+    strncpy(cfg.uuid, TEST_UUID, sizeof(cfg.uuid) - 1);
+    strncpy(cfg.authkey, TEST_AUTHKEY, sizeof(cfg.authkey) - 1);
+    strncpy(cfg.sw_ver, TEST_SW_VER, sizeof(cfg.sw_ver) - 1);
+    strncpy(cfg.product_key, TEST_PK, sizeof(cfg.product_key) - 1);
+    strncpy(cfg.pv, TEST_PV, sizeof(cfg.pv) - 1);
+    strncpy(cfg.bv, TEST_BV, sizeof(cfg.bv) - 1);
+    cfg.env = TEST;
+    cfg.cacert = g_cacert;
+    cfg.dns_host = MOCK_DNS_HOST;
+    cfg.dns_port = MOCK_DNS_PORT;
+
+    if (write_test_file(g_expected_env_file, "pr_0") != 0 ||
+        write_test_file(g_activation_record_file, "") != 0) return -1;
+    on_boarding_response_t resp = {0};
+    int ret = on_boarding_with_token(pal, &cfg, "AY12345678pr_0", &resp);
+    if (ret != OPRT_OK) {
+        printf("  activation did not use the CA returned by IoT DNS: ret=%d\n", ret);
+        return -1;
+    }
+    pal->free(resp.schema);
+    return 0;
+}
+
 static int test_on_boarding_token_exact_activation_token(void)
 {
     return run_on_boarding_token_case("AY12345678pr_0", "pr_0", "12345678");
@@ -580,8 +607,8 @@ static int test_on_boarding_token_rejects_non443_without_trust(void)
 
     on_boarding_response_t resp = {0};
     int ret = on_boarding_with_token(pal, &cfg, "AY12345678pr_0", &resp);
-    if (ret != OPRT_INVALID_RESULT || !no_activation_recorded()) {
-        printf("  non-443 HTTPS without trust was not rejected before activation: %d\n", ret);
+    if (ret != OPRT_INVALID_PARAMETER || !no_activation_recorded()) {
+        printf("  App-selected DNS proceeded without bootstrap TLS trust: %d\n", ret);
         return -1;
     }
     return OPRT_OK;
@@ -753,6 +780,7 @@ int main(void)
     RUN_TEST(test_public_token_onboarding_rejects_plaintext_before_network);
     RUN_TEST(test_on_boarding_timeout);
     RUN_TEST(test_on_boarding_token_pre);
+    RUN_TEST(test_on_boarding_token_uses_dns_ca_for_activation);
     RUN_TEST(test_on_boarding_token_exact_activation_token);
     RUN_TEST(test_on_boarding_token_requires_dns_before_activation);
     RUN_TEST(test_on_boarding_token_daily);

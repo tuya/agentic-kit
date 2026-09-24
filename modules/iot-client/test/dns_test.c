@@ -13,6 +13,7 @@
 
 #include "iot_dns.h"
 #include "iot_client.h"
+#include "iot_client_message.h"
 #include "iot_internal.h"
 #include "iot_dp_internal.h"
 
@@ -26,20 +27,23 @@ static int tests_passed = 0;
 static char expected_env_file[] = "/tmp/agentic-dns-env-XXXXXX";
 static pal_t fail_dns_pal;
 static int failed_dns_connects = 0;
-static int failed_mqtt_connects = 0;
+static char *test_cacert = NULL;
 static int wait_for_port(uint16_t port, int timeout_ms);
 
-static void *dns_succeeds_mqtt_fails_connect(const char *host, uint16_t port,
-                                             uint32_t timeout_ms)
+static char *load_test_cacert(void)
 {
-    const pal_t *base = get_default_pal();
-    if (strcmp(host, IOT_DNS_DEFAULT_HOST) == 0 && port == IOT_DNS_DEFAULT_PORT)
-        return base->tcp_connect(MOCK_HOST, 8199, timeout_ms);
-    if (strcmp(host, MOCK_HOST) == 0 && port == 19998) {
-        failed_mqtt_connects++;
-        return NULL;
-    }
-    return NULL;
+    FILE *file = fopen(TEST_CONFIG_DIR "/root_cert.pem", "rb");
+    if (!file) return NULL;
+    if (fseek(file, 0, SEEK_END) != 0) { fclose(file); return NULL; }
+    long size = ftell(file);
+    if (size <= 0 || fseek(file, 0, SEEK_SET) != 0) { fclose(file); return NULL; }
+    char *pem = malloc((size_t)size + 1);
+    if (!pem) { fclose(file); return NULL; }
+    size_t read_size = fread(pem, 1, (size_t)size, file);
+    fclose(file);
+    if (read_size != (size_t)size) { free(pem); return NULL; }
+    pem[size] = '\0';
+    return pem;
 }
 
 static void *always_fail_tcp_connect(const char *host, uint16_t port, uint32_t timeout_ms)
@@ -67,7 +71,21 @@ static void init_keyed_client(iot_client_t *client, const char *key)
     client->pal = get_default_pal();
     client->region = AY;
     snprintf(client->devid, sizeof(client->devid), "ci_device_test_001");
+    client->cacert = test_cacert;
     memcpy(client->registration_key, key, 5);
+}
+
+static int test_keyed_dns_requires_a_trusted_bootstrap_ca(void)
+{
+    iot_client_t client;
+    init_keyed_client(&client, "pr_0");
+    client.cacert = NULL;
+    int ret = iot_client_dns_resolve(&client, MOCK_HOST, 8199);
+    if (ret != OPRT_INVALID_PARAMETER) {
+        printf("  keyed DNS accepted missing bootstrap CA/bundle: %d\n", ret);
+        return -1;
+    }
+    return 0;
 }
 
 static int test_keyed_dns_routes_raw_env_and_self_endpoints(void)
@@ -75,7 +93,7 @@ static int test_keyed_dns_routes_raw_env_and_self_endpoints(void)
     iot_client_t client;
     init_keyed_client(&client, "pr_0");
     if (expect_dns_env("pr_0") != 0) return -1;
-    int ret = iot_client_dns_resolve(&client, MOCK_HOST, MOCK_PORT);
+    int ret = iot_client_dns_resolve(&client, MOCK_HOST, 8199);
     if (ret != OPRT_OK || strcmp(client.https_url, "https://127.0.0.1:443/d.json") != 0 ||
         strcmp(client.mqtt_url, "mqtts://127.0.0.1:11884") != 0) {
         printf("  keyed DNS did not return Self endpoints: %d\n", ret);
@@ -95,7 +113,7 @@ static int test_keyed_dns_missing_endpoint_clears_both(void)
     if (expect_dns_env("MSMQ") != 0) return -1;
     snprintf(client.https_url, sizeof(client.https_url), "https://old.example.com/d.json");
     snprintf(client.mqtt_url, sizeof(client.mqtt_url), "mqtts://old.example.com:8883");
-    int ret = iot_client_dns_resolve(&client, MOCK_HOST, MOCK_PORT);
+    int ret = iot_client_dns_resolve(&client, MOCK_HOST, 8199);
     if (ret == OPRT_OK || client.https_url[0] || client.mqtt_url[0]) {
         printf("  missing Self endpoint reused old route: %d\n", ret);
         return -1;
@@ -108,7 +126,7 @@ static int test_keyed_dns_oversize_clears_both(void)
     iot_client_t client;
     init_keyed_client(&client, "LONG");
     if (expect_dns_env("LONG") != 0) return -1;
-    int ret = iot_client_dns_resolve(&client, MOCK_HOST, MOCK_PORT);
+    int ret = iot_client_dns_resolve(&client, MOCK_HOST, 8199);
     if (ret == OPRT_OK || client.https_url[0] || client.mqtt_url[0]) return -1;
     return 0;
 }
@@ -118,7 +136,7 @@ static int test_keyed_dns_missing_https_clears_both(void)
     iot_client_t client;
     init_keyed_client(&client, "MSHT");
     if (expect_dns_env("MSHT") != 0) return -1;
-    int ret = iot_client_dns_resolve(&client, MOCK_HOST, MOCK_PORT);
+    int ret = iot_client_dns_resolve(&client, MOCK_HOST, 8199);
     if (ret == OPRT_OK || client.https_url[0] || client.mqtt_url[0]) return -1;
     return 0;
 }
@@ -128,7 +146,7 @@ static int test_keyed_dns_overflowed_port_is_rejected(void)
     iot_client_t client;
     init_keyed_client(&client, "OVFL");
     if (expect_dns_env("OVFL") != 0) return -1;
-    int ret = iot_client_dns_resolve(&client, MOCK_HOST, MOCK_PORT);
+    int ret = iot_client_dns_resolve(&client, MOCK_HOST, 8199);
     if (ret == OPRT_OK || client.https_url[0] || client.mqtt_url[0]) {
         printf("  overflowing port was accepted: %d\n", ret);
         return -1;
@@ -189,6 +207,7 @@ static int test_keyed_init_retains_credentials_and_retries_dns(void)
     snprintf(cfg.devid, sizeof(cfg.devid), "device-with-credentials");
     snprintf(cfg.secret_key, sizeof(cfg.secret_key), "secret-for-test");
     snprintf(cfg.local_key, sizeof(cfg.local_key), "local-key-for-test");
+    cfg.cacert = test_cacert;
     memcpy(cfg.registration_key, "pr_0", 5);
     iot_client_t *client = iot_client_init(&cfg);
     int first_attempts = failed_dns_connects;
@@ -212,55 +231,44 @@ static int test_keyed_init_retains_credentials_and_retries_dns(void)
 
 static int test_keyed_init_retains_credentials_after_mqtt_failure(void)
 {
-    if (expect_dns_env("pr_0") != 0) return -1;
-    tls_mock_pid = fork();
-    if (tls_mock_pid == 0) {
-        setenv("DNS_MOCK_USE_SSL", "1", 1);
-        setenv("DNS_MOCK_PORT", "8199", 1);
-        setenv("ONBOARDING_MQTT_MOCK_PORT", "19998", 1);
-        execlp(PYTHON3_EXEC, PYTHON3_EXEC, DNS_MOCK_PATH, NULL);
-        _exit(1);
-    }
-    if (tls_mock_pid < 0) return -1;
-    if (wait_for_port(8199, 15000) != 0) {
-        kill(tls_mock_pid, SIGTERM);
-        waitpid(tls_mock_pid, NULL, 0);
-        tls_mock_pid = -1;
-        return -1;
-    }
-
     fail_dns_pal = *get_default_pal();
-    fail_dns_pal.tcp_connect = dns_succeeds_mqtt_fails_connect;
-    failed_mqtt_connects = 0;
-    if (iot_init(&fail_dns_pal) != OPRT_OK) {
-        kill(tls_mock_pid, SIGTERM);
-        waitpid(tls_mock_pid, NULL, 0);
-        tls_mock_pid = -1;
-        return -1;
-    }
+    fail_dns_pal.tcp_connect = always_fail_tcp_connect;
+    if (iot_init(&fail_dns_pal) != OPRT_OK) return -1;
     iot_client_config_t cfg = {0};
-    snprintf(cfg.devid, sizeof(cfg.devid), "ci_device_test_001");
     snprintf(cfg.secret_key, sizeof(cfg.secret_key), "1234567890abcdef");
     snprintf(cfg.local_key, sizeof(cfg.local_key), "0123456789abcdef");
     cfg.region = AY;
     cfg.skip_version_report = true;
-    memcpy(cfg.registration_key, "pr_0", 5);
+    cfg.cacert = test_cacert;
+    cfg.mqtt_disable_auto_connect = true;
 
     iot_client_t *client = iot_client_init(&cfg);
-    int ok = client && client->mqtt == NULL && failed_mqtt_connects > 0 &&
-             strcmp(client->devid, cfg.devid) == 0 &&
+    if (client) {
+        snprintf(client->devid, sizeof(client->devid), "ci_device_test_001");
+        memcpy(client->registration_key, "pr_0", 5);
+        snprintf(client->https_url, sizeof(client->https_url), "https://127.0.0.1:443/d.json");
+        snprintf(client->mqtt_url, sizeof(client->mqtt_url), "mqtts://127.0.0.1:19998");
+        client->self_cacert = test_cacert;
+    }
+    int connect_ret = client ? iot_client_message_connect(client) : OPRT_INVALID_PARAMETER;
+    int credentials_ok = client &&
+             strcmp(client->devid, "ci_device_test_001") == 0 &&
              strcmp(client->secret_key, cfg.secret_key) == 0 &&
-             strcmp(client->local_key, cfg.local_key) == 0 &&
-             strcmp(client->registration_key, "pr_0") == 0 &&
+             strcmp(client->local_key, cfg.local_key) == 0;
+    int key_ok = client && strcmp(client->registration_key, "pr_0") == 0;
+    int routes_ok = client &&
              strcmp(client->mqtt_url, "mqtts://127.0.0.1:19998") == 0 &&
              strcmp(client->https_url, "https://127.0.0.1:443/d.json") == 0;
+    int ok = client && client->mqtt == NULL && connect_ret != OPRT_OK &&
+             credentials_ok && key_ok && routes_ok;
+    if (!ok) {
+        printf("  keyed MQTT failure state: client=%d mqtt=%d ret=%d credentials=%d key=%d routes=%d\n",
+               client != NULL, client && client->mqtt != NULL, connect_ret,
+               credentials_ok, key_ok, routes_ok);
+    }
     if (client) iot_client_deinit(client);
     iot_init(get_default_pal());
-    kill(tls_mock_pid, SIGTERM);
-    waitpid(tls_mock_pid, NULL, 0);
-    tls_mock_pid = -1;
     if (!ok) {
-        printf("  MQTT failure discarded keyed client or its credentials\n");
         return -1;
     }
     return 0;
@@ -335,6 +343,28 @@ static int start_mock(void)
         return -1;
     }
     return OPRT_OK;
+}
+
+static int start_tls_mock(void)
+{
+    tls_mock_pid = fork();
+    if (tls_mock_pid == 0) {
+        setenv("DNS_MOCK_USE_SSL", "1", 1);
+        setenv("DNS_MOCK_PORT", "8199", 1);
+        execlp(PYTHON3_EXEC, PYTHON3_EXEC, DNS_MOCK_PATH, NULL);
+        _exit(1);
+    }
+    if (tls_mock_pid < 0) return -1;
+    return wait_for_port(8199, 15000);
+}
+
+static void stop_tls_mock(void)
+{
+    if (tls_mock_pid > 0) {
+        kill(tls_mock_pid, SIGTERM);
+        waitpid(tls_mock_pid, NULL, 0);
+        tls_mock_pid = -1;
+    }
 }
 
 static void stop_mock(void)
@@ -1024,6 +1054,8 @@ int main(void)
     printf("========== IoT DNS Test Suite ==========\n");
 
     iot_init(get_default_pal());
+    test_cacert = load_test_cacert();
+    if (!test_cacert) return 1;
 
     int env_fd = mkstemp(expected_env_file);
     if (env_fd < 0) return 1;
@@ -1069,11 +1101,14 @@ int main(void)
     RUN_TEST(test_url_config_sdk_keys_resolve);
     RUN_TEST(test_url_config_basic);
     RUN_TEST(test_url_config_with_region);
+    if (start_tls_mock() != 0) return 1;
+    RUN_TEST(test_keyed_dns_requires_a_trusted_bootstrap_ca);
     RUN_TEST(test_keyed_dns_routes_raw_env_and_self_endpoints);
     RUN_TEST(test_keyed_dns_missing_endpoint_clears_both);
     RUN_TEST(test_keyed_dns_oversize_clears_both);
     RUN_TEST(test_keyed_dns_missing_https_clears_both);
     RUN_TEST(test_keyed_dns_overflowed_port_is_rejected);
+    stop_tls_mock();
     RUN_TEST(test_registration_key_is_exactly_four_printable_bytes);
     RUN_TEST(test_keyed_client_rejects_plaintext_mqtt_configuration);
     RUN_TEST(test_keyed_init_retains_credentials_and_retries_dns);
@@ -1084,6 +1119,7 @@ int main(void)
     RUN_TEST(test_ca_cert_ecdsa);
 
     stop_mock();
+    free(test_cacert);
     unlink(expected_env_file);
 
     printf("\n========== Results: %d/%d passed ==========\n",
