@@ -90,7 +90,8 @@ int iot_atop_call(iot_client_t *client,
 
     char host[64] = {0};
     uint16_t port = IOT_DEFAULT_PORT;
-    iot_client_resolve_atop_host(client, host, sizeof(host), &port);
+    rt = iot_client_resolve_atop_host(client, host, sizeof(host), &port);
+    if (rt != OPRT_OK) return rt;
 
     atop_base_request_t atop_request = {
         .path      = "/d.json",

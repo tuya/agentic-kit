@@ -210,6 +210,8 @@ class DNSMockHandler(BaseHTTPRequestHandler):
                     entry["addr"] = "https://127.0.0.1:8443"
                 if req.get("env") == "P080" and key == "httpsSelfUrl":
                     entry["addr"] = "https://127.0.0.1:80/d.json"
+                if req.get("env") == "OVFL" and key == "httpsSelfUrl":
+                    entry["addr"] = "https://127.0.0.1:4294967739/d.json"
                 if item.get("need_ip6"):
                     entry["ip6s"] = ["fe80::1"]
                 result[key] = entry

@@ -896,7 +896,8 @@ int iot_dp_schema_check_update(iot_client_t *client)
 
     char host[64] = {0};
     uint16_t port = IOT_DEFAULT_PORT;
-    iot_client_resolve_atop_host(client, host, sizeof(host), &port);
+    int host_ret = iot_client_resolve_atop_host(client, host, sizeof(host), &port);
+    if (host_ret != OPRT_OK) return host_ret;
 
     schema_newest_request_t req = {
         .devid     = client->devid,

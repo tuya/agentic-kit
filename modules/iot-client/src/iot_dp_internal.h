@@ -47,12 +47,15 @@ void iot_dp_deinit(iot_client_t *client);
 /**
  * @brief Resolve the ATOP host/port for this client (implemented in iot_client.c).
  *
- * Mirrors the logic in iot_client_get_session_token(): prefer parsing
- * client->https_url, else fall back to iot_region_to_host(region, env).
+ * Legacy clients may fall back to the region host. Keyed clients require a
+ * validated Self HTTPS URL and return an error when unresolved.
  * @p host_out is filled with a NUL-terminated host (empty string if none) and
  * *port_out is set (defaults to IOT_DEFAULT_PORT). Shared so iot_dp.c does not
  * duplicate parse_host_port().
  */
-void iot_client_resolve_atop_host(iot_client_t *client, char *host_out, size_t host_len, uint16_t *port_out);
+int iot_client_resolve_atop_host(iot_client_t *client, char *host_out, size_t host_len, uint16_t *port_out);
+
+/* Shared by init/reconnect; explicit host/port permit isolated DNS regression tests. */
+int iot_client_dns_resolve(iot_client_t *client, const char *dns_host, uint16_t dns_port);
 
 #endif /* __IOT_DP_INTERNAL_H__ */

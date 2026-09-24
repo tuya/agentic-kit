@@ -13,6 +13,7 @@
 
 #include "atop.h"
 #include "iot_client.h"
+#include "iot_ota.h"
 #include "iot_internal.h"
 
 #define MOCK_HOST "127.0.0.1"
@@ -348,6 +349,26 @@ static int test_upgrade_status_update_null_params(void)
     return OPRT_OK;
 }
 
+static int test_keyed_ota_and_version_init_require_self_https(void)
+{
+    iot_client_t client = {0};
+    client.pal = get_default_pal();
+    client.region = AY;
+    memcpy(client.registration_key, "pr_0", 5);
+    snprintf(client.devid, sizeof(client.devid), "%s", TEST_DEVID);
+    snprintf(client.secret_key, sizeof(client.secret_key), "%s", TEST_SEC_KEY);
+    iot_ota_upgrade_info_t info = {0};
+    iot_client_config_t config = {0};
+    if (iot_ota_report_version(&client, "1.0.0") != OPRT_UNINITIALIZED ||
+        iot_ota_check_upgrade(&client, 0, &info) != OPRT_UNINITIALIZED ||
+        iot_ota_report_status(&client, 0, OTA_STATUS_READY) != OPRT_UNINITIALIZED ||
+        iot_client_report_init_versions(&client, &config) != OPRT_UNINITIALIZED) {
+        printf("  keyed ATOP/OTA request escaped without Self HTTPS\n");
+        return -1;
+    }
+    return 0;
+}
+
 /* ---------- main ---------- */
 
 int main(void)
@@ -375,6 +396,7 @@ int main(void)
     RUN_TEST(test_upgrade_get_null_params);
     RUN_TEST(test_upgrade_get_missing_devid);
     RUN_TEST(test_upgrade_status_update_null_params);
+    RUN_TEST(test_keyed_ota_and_version_init_require_self_https);
 
     /* Success tests */
     RUN_TEST(test_version_update);
