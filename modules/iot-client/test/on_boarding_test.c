@@ -39,6 +39,18 @@ static int tests_passed = 0;
 static char *g_cacert = NULL;
 static char g_expected_env_file[] = "/tmp/agentic-kit-dns-env-XXXXXX";
 static char g_activation_record_file[] = "/tmp/agentic-kit-atop-record-XXXXXX";
+static pal_t g_no_network_pal;
+static int g_network_attempts;
+
+static void *count_and_reject_tcp_connect(const char *host, uint16_t port,
+                                          uint32_t timeout_ms)
+{
+    (void)host;
+    (void)port;
+    (void)timeout_ms;
+    g_network_attempts++;
+    return NULL;
+}
 
 #define RUN_TEST(fn)                                       \
     do {                                                   \
@@ -365,6 +377,34 @@ static int test_on_boarding_with_token_null_response(void)
         return -1;
     }
     return OPRT_OK;
+}
+
+static int test_public_token_onboarding_rejects_plaintext_before_network(void)
+{
+    iot_on_boarding_config_t cfg = {0};
+    strncpy(cfg.uuid, TEST_UUID, sizeof(cfg.uuid) - 1);
+    strncpy(cfg.authkey, TEST_AUTHKEY, sizeof(cfg.authkey) - 1);
+    strncpy(cfg.product_key, TEST_PK, sizeof(cfg.product_key) - 1);
+    cfg.mqtt_disable_tls = true;
+
+    if (write_test_file(g_activation_record_file, "") != 0) return -1;
+    g_no_network_pal = *get_default_pal();
+    g_no_network_pal.tcp_connect = count_and_reject_tcp_connect;
+    g_network_attempts = 0;
+    if (iot_init(&g_no_network_pal) != OPRT_OK) return -1;
+
+    iot_client_t *client = iot_client_init_on_boarding_with_token(
+        &cfg, "AY12345678pr_0");
+    int attempts = g_network_attempts;
+    iot_init(get_default_pal());
+    if (client) iot_client_deinit(client);
+
+    if (client || attempts != 0 || !no_activation_recorded()) {
+        printf("  unsupported plaintext config reached network before rejection (%d attempts)\n",
+               attempts);
+        return -1;
+    }
+    return 0;
 }
 
 /* ---------- Test: full on_boarding_with_token flow ---------- */
@@ -710,6 +750,7 @@ int main(void)
     RUN_TEST(test_on_boarding_with_token_null_token);
     RUN_TEST(test_on_boarding_with_token_empty_token);
     RUN_TEST(test_on_boarding_with_token_null_response);
+    RUN_TEST(test_public_token_onboarding_rejects_plaintext_before_network);
     RUN_TEST(test_on_boarding_timeout);
     RUN_TEST(test_on_boarding_token_pre);
     RUN_TEST(test_on_boarding_token_exact_activation_token);

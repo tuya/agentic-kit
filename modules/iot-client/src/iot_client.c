@@ -661,6 +661,13 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
         return NULL;
     }
 
+    /* Token on-boarding always carries an App registration key.  Reject a
+     * plaintext MQTT configuration before activation can issue credentials. */
+    if (config->mqtt_disable_tls) {
+        IOT_LOGE("token on-boarding requires MQTT over TLS");
+        return NULL;
+    }
+
     IOT_LOGI("iot_client_init_on_boarding_with_token: uuid=%s", config->uuid);
 
     on_boarding_config_t ob_cfg = {0};
