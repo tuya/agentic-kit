@@ -391,6 +391,11 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
         "${coremqtt_source_dir}/source/core_mqtt.c"
         "${coremqtt_source_dir}/source/core_mqtt_serializer.c"
         "${coremqtt_source_dir}/source/core_mqtt_state.c"
+        # Same remap story as coreMQTT/coreHTTP above: tls.c lives in the
+        # remap-free agentic_kit_common, but its keylog warning is asserted
+        # by tests -- compiling it here puts its lines behind the sink while
+        # agentic_kit_common's copy stays unreferenced on the link line.
+        "${COMMON_DIR}/tls.c"
         "${IOT_CLIENT_TESTS_DIR}/test_log.c"
     )
     target_include_directories(tuya_iot_client_testlog PUBLIC
