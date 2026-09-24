@@ -37,7 +37,7 @@ static void activate_context_destroy(void);
 
 /* The QR/MQTT activation message's env field still uses the legacy enum.
  * Direct BLE authToken registration keys never pass through this mapping. */
-static int registration_key_to_env(const char *key, iot_env_t *env)
+static int activation_data_env_to_iot_env(const char *key, iot_env_t *env)
 {
     if (!key || !env) return OPRT_INVALID_PARAMETER;
     if (strcmp(key, "pre") == 0) {
@@ -69,7 +69,7 @@ static void parse_activation_message(const pal_t *pal, const char *json_str, act
     cJSON *env = cJSON_GetObjectItemCaseSensitive(data, "env");
     if (env) {
         if (!cJSON_IsString(env) ||
-            registration_key_to_env(env->valuestring, &message->env) != OPRT_OK) {
+            activation_data_env_to_iot_env(env->valuestring, &message->env) != OPRT_OK) {
             IOT_LOGE("Activation message contains an unsupported environment");
             cJSON_Delete(root);
             return;

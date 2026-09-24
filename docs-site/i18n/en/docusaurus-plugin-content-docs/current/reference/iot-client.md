@@ -250,11 +250,11 @@ iot_client_t *iot_client_init_on_boarding_with_token(
     const char *token);
 ```
 
-Starts Activation directly with a known Activation Token, skipping the MQTT wait. The Region is derived from the first two characters. Tuya App tokens use `[region:2][activation token:8][environment key:3-4]`: `pre` selects preproduction, while `pro`/`prod` selects production, overriding `config.env`. Legacy `[region:2][activation token][secret:4]` inputs still use `config.env`.
+Starts Activation directly with a known Activation Token, skipping the MQTT wait. The Region is derived from the first two characters. Tuya App BLE provisioning tokens have the fixed format `[region:2][activation token:8][secret:4]`, for example `AYosCOZoHRTl`. The trailing four-byte `secret` is opaque and is passed unchanged as the IoT DNS request's `env` parameter to obtain the HTTPS/MQTT endpoints for that environment. The device does not map it to `pre`, `pro`, or `prod`, nor use it to set `client->env`. `config.env` remains the client environment enum and does not determine this App-token route. Note: `data.env` in the separate MQTT activation-message path used by `on_boarding_with_qrcode()` is still parsed as `pre`, `pro`, or `prod`.
 
 **Parameters:**
 - `config` - Provisioning configuration
-- `token` - App token (for example `AY12345678pre`), or a legacy token (for example `AYH73H8u7Ap4pX`)
+- `token` - Tuya App BLE provisioning token in `[region:2][activation token:8][secret:4]` format, for example `AYosCOZoHRTl`
 
 **Return value:** An `iot_client_t *` on success; `NULL` on failure.
 

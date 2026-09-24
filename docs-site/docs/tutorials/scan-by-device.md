@@ -118,7 +118,7 @@ iot_on_boarding_config_t cfg = {
 | `product_key` | 产品 PID |
 | `firmware_key` | 固件 Key（可为空） |
 | `timeout_ms` | 激活超时时间（毫秒） |
-| `env` | 旧格式 token 的环境；App token 带 `pre`/`pro`/`prod` 时由 App 决定 |
+| `env` | 客户端环境枚举。App BLE Token 尾部 4 字节 `secret` 原样作为 IoT DNS 的 `env` 参数；不映射为 `pre`/`pro`/`prod`，也不由此字段决定 App token 的路由 |
 
 **返回值：** 成功返回 `iot_client_t *`，其中包含激活后的 `devid`、
 `secret_key`、`local_key`，后续可直接用于初始化 `iot_client_init()`；失败返

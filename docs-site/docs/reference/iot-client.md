@@ -251,11 +251,11 @@ iot_client_t *iot_client_init_on_boarding_with_token(
     const char *token);
 ```
 
-使用预知的激活 Token 直接发起激活请求，跳过 MQTT 等待。Region 由 token 前两个字符自动推导。涂鸦 App 下发的 token 按 `[区域:2][激活 token:8][环境 key:3~4]` 解析；`pre` 选择预发，`pro`/`prod` 选择线上，优先于 `config.env`。旧格式 `[区域:2][激活 token][secret:4]` 仍使用 `config.env`。
+使用预知的激活 Token 直接发起激活请求，跳过 MQTT 等待。Region 由 token 前两个字符自动推导。涂鸦 App 的 BLE 配网 Token 固定为 `[区域码:2][激活 token:8][secret:4]`，例如 `AYosCOZoHRTl`。末尾 4 字节 `secret` 是不透明值，设备原样作为 IoT DNS 请求的 `env` 参数，用于获取该环境对应的 HTTPS/MQTT 地址；设备不把它映射成 `pre`、`pro` 或 `prod`，也不根据它设置 `client->env`。`config.env` 只保留为客户端环境枚举，不决定这条 App token 路由。注意：`on_boarding_with_qrcode()` 的 MQTT 激活消息 `data.env` 是另一条路径，仍按 `pre`、`pro`、`prod` 解析。
 
 **参数：**
 - `config` — 配网配置
-- `token` — App token（如预发 `AY12345678pre`）；也接受旧格式（如 `AYH73H8u7Ap4pX`）
+- `token` — App BLE 配网 Token，格式为 `[区域码:2][激活 token:8][secret:4]`，例如 `AYosCOZoHRTl`
 
 **返回值：** 成功返回 `iot_client_t *`；失败返回 `NULL`。
 

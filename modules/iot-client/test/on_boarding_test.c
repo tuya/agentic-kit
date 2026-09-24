@@ -441,6 +441,10 @@ static int run_on_boarding_token_case(const char *app_token, const char *expecte
         printf("  raw registration key was not retained\n");
         return -1;
     }
+    if (resp.env != cfg.env) {
+        printf("  opaque token secret changed config.env\n");
+        return -1;
+    }
     if (strcmp(resp.schema_id, expected_schema_id) != 0) {
         printf("  activation token was truncated: schema_id=%s\n", resp.schema_id);
         return -1;
@@ -452,7 +456,7 @@ static int run_on_boarding_token_case(const char *app_token, const char *expecte
     return OPRT_OK;
 }
 
-static int test_on_boarding_token_pre(void)
+static int test_on_boarding_token_secret_pr_0(void)
 {
     return run_on_boarding_token_case("AYH73H8u7Apr_0", "pr_0", "H73H8u7A");
 }
@@ -514,7 +518,7 @@ static int test_on_boarding_token_requires_dns_before_activation(void)
     return OPRT_OK;
 }
 
-static int test_on_boarding_token_daily(void)
+static int test_on_boarding_token_secret_da_0(void)
 {
     return run_on_boarding_token_case("AY12345678da_0", "da_0", "12345678");
 }
@@ -546,7 +550,7 @@ static int test_on_boarding_token_dns_rejects_wrong_env(void)
     return OPRT_OK;
 }
 
-static int test_on_boarding_token_arbitrary_production_key(void)
+static int test_on_boarding_token_arbitrary_secret(void)
 {
     return run_on_boarding_token_case("AY12345678Q7xZ", "Q7xZ", "12345678");
 }
@@ -779,13 +783,13 @@ int main(void)
     RUN_TEST(test_on_boarding_with_token_null_response);
     RUN_TEST(test_public_token_onboarding_rejects_plaintext_before_network);
     RUN_TEST(test_on_boarding_timeout);
-    RUN_TEST(test_on_boarding_token_pre);
+    RUN_TEST(test_on_boarding_token_secret_pr_0);
     RUN_TEST(test_on_boarding_token_uses_dns_ca_for_activation);
     RUN_TEST(test_on_boarding_token_exact_activation_token);
     RUN_TEST(test_on_boarding_token_requires_dns_before_activation);
-    RUN_TEST(test_on_boarding_token_daily);
+    RUN_TEST(test_on_boarding_token_secret_da_0);
     RUN_TEST(test_on_boarding_token_dns_rejects_wrong_env);
-    RUN_TEST(test_on_boarding_token_arbitrary_production_key);
+    RUN_TEST(test_on_boarding_token_arbitrary_secret);
     RUN_TEST(test_on_boarding_token_private_cloud_key);
     RUN_TEST(test_on_boarding_token_opaque_punctuation_key);
     RUN_TEST(test_on_boarding_activation_does_not_log_post_json);
