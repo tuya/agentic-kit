@@ -256,7 +256,7 @@ def handle_activate_request(request_data, config):
                 "localKey": "1234567890abcdef",
                 # Echo the fixture token so the on-boarding test verifies the
                 # complete eight-byte activation token reaches ATOP.
-                "schemaId": token if token.startswith("123456") else "mock_schema_id",
+                "schemaId": token if len(token) == 8 else "mock_schema_id",
                 "schema": [],
                 "timezoneId": "Asia/Shanghai",
                 "ownerId": "mock_owner_id",

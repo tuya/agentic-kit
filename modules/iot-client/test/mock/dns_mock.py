@@ -85,6 +85,14 @@ URL_CONFIG_ENDPOINTS = {
         "addr": "https://a1-test.example.com/d.json",
         "ips": ["10.0.0.1", "10.0.0.2"],
     },
+    "httpsSelfUrl": {
+        "addr": f"https://127.0.0.1:{os.getenv('ATOP_MOCK_PORT', '8443')}/d.json",
+        "ips": ["127.0.0.1"],
+    },
+    "mqttsSelfUrl": {
+        "addr": f"127.0.0.1:{os.getenv('ONBOARDING_MQTT_MOCK_PORT', '11884')}",
+        "ips": ["127.0.0.1"],
+    },
 }
 
 
@@ -148,6 +156,15 @@ class DNSMockHandler(BaseHTTPRequestHandler):
             return
 
         config = req.get("config", [])
+        requested = {item.get("key") for item in config}
+        self_keys = {"httpsSelfUrl", "mqttsSelfUrl"}
+        if requested & self_keys:
+            # A keyed activation must send the opaque App key and ask for both
+            # Self endpoints. Special four-byte keys drive negative tests.
+            if req.get("env") not in {"pr_0", "da_0", "Q7xZ", "x_ab",
+                                      "MSHT", "MSMQ", "MALF", "LONG"} or not self_keys <= requested:
+                self._send_json({"ttl": 600})
+                return
         result = {
             "ttl": 600,
             "psk_key": "",
@@ -164,8 +181,16 @@ class DNSMockHandler(BaseHTTPRequestHandler):
         for item in config:
             key = item.get("key", "")
             ep = URL_CONFIG_ENDPOINTS.get(key)
+            if req.get("env") == "MSHT" and key == "httpsSelfUrl":
+                continue
+            if req.get("env") == "MSMQ" and key == "mqttsSelfUrl":
+                continue
             if ep:
                 entry = {"addr": ep["addr"], "ips": ep["ips"]}
+                if req.get("env") == "MALF" and key == "httpsSelfUrl":
+                    entry["addr"] = "not-a-https-url"
+                if req.get("env") == "LONG" and key == "httpsSelfUrl":
+                    entry["addr"] = "https://" + "x" * 80 + "/d.json"
                 if item.get("need_ip6"):
                     entry["ip6s"] = ["fe80::1"]
                 result[key] = entry

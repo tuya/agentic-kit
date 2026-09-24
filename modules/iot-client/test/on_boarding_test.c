@@ -303,7 +303,7 @@ static int test_on_boarding_with_token_null_response(void)
 
 /* ---------- Test: full on_boarding_with_token flow ---------- */
 
-static int run_on_boarding_token_case(const char *app_token, iot_env_t expected_env,
+static int run_on_boarding_token_case(const char *app_token, const char *expected_key,
                                       const char *expected_schema_id)
 {
     const pal_t *pal = get_default_pal();
@@ -316,6 +316,8 @@ static int run_on_boarding_token_case(const char *app_token, iot_env_t expected_
     strncpy(cfg.bv, TEST_BV, sizeof(cfg.bv) - 1);
     cfg.env = TEST;
     cfg.cacert = g_cacert;
+    cfg.dns_host = MOCK_DNS_HOST;
+    cfg.dns_port = MOCK_DNS_PORT;
 
     on_boarding_response_t resp = {0};
     int ret = on_boarding_with_token(pal, &cfg, app_token, &resp);
@@ -328,8 +330,8 @@ static int run_on_boarding_token_case(const char *app_token, iot_env_t expected_
         printf("  response missing devid\n");
         return -1;
     }
-    if (resp.env != expected_env) {
-        printf("  App selected env=%d, response env=%d\n", expected_env, resp.env);
+    if (strcmp(resp.registration_key, expected_key) != 0) {
+        printf("  raw registration key was not retained\n");
         return -1;
     }
     if (strcmp(resp.schema_id, expected_schema_id) != 0) {
@@ -345,25 +347,54 @@ static int run_on_boarding_token_case(const char *app_token, iot_env_t expected_
 
 static int test_on_boarding_token_pre(void)
 {
-    return run_on_boarding_token_case("AY12345678pre", PRE, "12345678");
+    return run_on_boarding_token_case("AYH73H8u7Apr_0", "pr_0", "H73H8u7A");
 }
 
-static int test_on_boarding_token_pro(void)
+static int test_on_boarding_token_exact_activation_token(void)
 {
-    return run_on_boarding_token_case("AY12345678pro", PROD, "12345678");
+    return run_on_boarding_token_case("AY12345678pr_0", "pr_0", "12345678");
 }
 
-static int test_on_boarding_token_prod(void)
+static int test_on_boarding_token_requires_dns_before_activation(void)
 {
-    return run_on_boarding_token_case("AY12345678prod", PROD, "12345678");
+    const pal_t *pal = get_default_pal();
+    on_boarding_config_t cfg = {0};
+    strncpy(cfg.uuid, TEST_UUID, sizeof(cfg.uuid) - 1);
+    strncpy(cfg.authkey, TEST_AUTHKEY, sizeof(cfg.authkey) - 1);
+    strncpy(cfg.product_key, TEST_PK, sizeof(cfg.product_key) - 1);
+    strncpy(cfg.sw_ver, TEST_SW_VER, sizeof(cfg.sw_ver) - 1);
+    strncpy(cfg.pv, TEST_PV, sizeof(cfg.pv) - 1);
+    strncpy(cfg.bv, TEST_BV, sizeof(cfg.bv) - 1);
+    cfg.env = TEST;
+    cfg.cacert = g_cacert;
+    cfg.dns_host = MOCK_DNS_HOST;
+    cfg.dns_port = 19998; /* no DNS service */
+
+    on_boarding_response_t resp = {0};
+    int ret = on_boarding_with_token(pal, &cfg, "AY12345678pr_0", &resp);
+    if (ret == OPRT_OK || resp.devid[0] != '\0') {
+        printf("  activation proceeded without App-selected DNS endpoints: %d\n", ret);
+        return -1;
+    }
+    return OPRT_OK;
 }
 
-static int test_on_boarding_token_legacy(void)
+static int test_on_boarding_token_daily(void)
 {
-    return run_on_boarding_token_case("AYci_test_token0000", TEST, "mock_schema_id");
+    return run_on_boarding_token_case("AY12345678da_0", "da_0", "12345678");
 }
 
-static int test_on_boarding_token_unknown_env(void)
+static int test_on_boarding_token_arbitrary_production_key(void)
+{
+    return run_on_boarding_token_case("AY12345678Q7xZ", "Q7xZ", "12345678");
+}
+
+static int test_on_boarding_token_private_cloud_key(void)
+{
+    return run_on_boarding_token_case("AY12345678x_ab", "x_ab", "12345678");
+}
+
+static int test_on_boarding_token_rejects_invalid_input(void)
 {
     const pal_t *pal = get_default_pal();
     on_boarding_config_t cfg = {0};
@@ -374,10 +405,54 @@ static int test_on_boarding_token_unknown_env(void)
     cfg.cacert = g_cacert;
 
     on_boarding_response_t resp = {0};
-    int ret = on_boarding_with_token(pal, &cfg, "AY12345678stg", &resp);
-    if (ret != OPRT_INVALID_PARAMETER) {
-        printf("  expected invalid App environment, got %d\n", ret);
-        return -1;
+    const char *invalid[] = {
+        "AY12345678pre",       /* short */
+        "AY12345678pr_0x",     /* long */
+        "AYci_test_token0000", /* legacy variable-width token */
+        "ZZ12345678pr_0",     /* unsupported region */
+        "AY1234\x01" "678pr_0", /* control byte in activation token */
+        "AY12345678p\x01_0",   /* control byte in registration key */
+        "AY12345678p\xC3_0",   /* non-ASCII byte in registration key */
+    };
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        memset(&resp, 0, sizeof(resp));
+        int ret = on_boarding_with_token(pal, &cfg, invalid[i], &resp);
+        if (ret != OPRT_INVALID_PARAMETER || resp.devid[0] != '\0') {
+            printf("  malformed token case %zu not rejected: %d\n", i, ret);
+            return -1;
+        }
+    }
+    return OPRT_OK;
+}
+
+static int test_on_boarding_token_rejects_incomplete_dns(void)
+{
+    const pal_t *pal = get_default_pal();
+    on_boarding_config_t cfg = {0};
+    strncpy(cfg.uuid, TEST_UUID, sizeof(cfg.uuid) - 1);
+    strncpy(cfg.authkey, TEST_AUTHKEY, sizeof(cfg.authkey) - 1);
+    strncpy(cfg.sw_ver, TEST_SW_VER, sizeof(cfg.sw_ver) - 1);
+    strncpy(cfg.product_key, TEST_PK, sizeof(cfg.product_key) - 1);
+    strncpy(cfg.pv, TEST_PV, sizeof(cfg.pv) - 1);
+    strncpy(cfg.bv, TEST_BV, sizeof(cfg.bv) - 1);
+    cfg.env = TEST;
+    cfg.cacert = g_cacert;
+    cfg.dns_host = MOCK_DNS_HOST;
+    cfg.dns_port = MOCK_DNS_PORT;
+
+    const char *tokens[] = {
+        "AY12345678MSHT", /* no HTTPS Self endpoint */
+        "AY12345678MSMQ", /* no MQTT Self endpoint */
+        "AY12345678MALF", /* malformed HTTPS endpoint */
+        "AY12345678LONG", /* oversized HTTPS endpoint */
+    };
+    for (size_t i = 0; i < sizeof(tokens) / sizeof(tokens[0]); i++) {
+        on_boarding_response_t resp = {0};
+        int ret = on_boarding_with_token(pal, &cfg, tokens[i], &resp);
+        if (ret == OPRT_OK || resp.devid[0] != '\0') {
+            printf("  bad DNS endpoint case %zu activated: %d\n", i, ret);
+            return -1;
+        }
     }
     return OPRT_OK;
 }
@@ -452,10 +527,13 @@ int main(void)
     RUN_TEST(test_on_boarding_with_token_null_response);
     RUN_TEST(test_on_boarding_timeout);
     RUN_TEST(test_on_boarding_token_pre);
-    RUN_TEST(test_on_boarding_token_pro);
-    RUN_TEST(test_on_boarding_token_prod);
-    RUN_TEST(test_on_boarding_token_legacy);
-    RUN_TEST(test_on_boarding_token_unknown_env);
+    RUN_TEST(test_on_boarding_token_exact_activation_token);
+    RUN_TEST(test_on_boarding_token_requires_dns_before_activation);
+    RUN_TEST(test_on_boarding_token_daily);
+    RUN_TEST(test_on_boarding_token_arbitrary_production_key);
+    RUN_TEST(test_on_boarding_token_private_cloud_key);
+    RUN_TEST(test_on_boarding_token_rejects_invalid_input);
+    RUN_TEST(test_on_boarding_token_rejects_incomplete_dns);
     RUN_TEST(test_on_boarding_qrcode_flow);
 
     stop_mock(&dns_mock_pid, "DNS mock");

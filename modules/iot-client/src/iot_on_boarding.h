@@ -39,6 +39,7 @@ typedef struct {
     char *schema;               // Device schema JSON (caller must free via pal->free)
     iot_region_t region;
     iot_env_t env;
+    char registration_key[5];   // Opaque four-byte App key; empty for QR activation
 } on_boarding_response_t;
 
 /**
@@ -60,16 +61,14 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
 /**
  * @brief Activate device via token on-boarding (direct ATOP call).
  *
- * Parses the App registration key when present; legacy token+secret inputs
- * continue to use the configured environment.
- * Does not use MQTT or DNS.
+ * Parses the App's fixed-width authToken and resolves activation endpoints
+ * from IoT DNS using its opaque registration key before contacting ATOP.
  *
  * @param pal         PAL adapter
  * @param on_boarding On-boarding configuration (uuid, authkey, product_key, etc.)
- * @param token       App token: [region:2][activation_token:8][env:pre|pro|prod],
- *                    or legacy [region:2][activation_token][secret:4]
+ * @param token       App token: [region:2][activation_token:8][registration_key:4]
  * @param response    Output: activated device credentials
- * @return OPRT_OK on success, OPRT_INVALID_PARAMETER for malformed tokens or unsupported environments
+ * @return OPRT_OK on success, OPRT_INVALID_PARAMETER for malformed tokens
  */
 int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
                            const char *token, on_boarding_response_t *response);
