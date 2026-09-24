@@ -213,8 +213,6 @@ int atop_activate_request(const pal_t *pal, const activite_request_t *request, a
     }
     offset += (size_t)write_len;
 
-    IOT_LOGI("POST JSON:%s", buffer);
-
     /* atop_base_request object construct */
     atop_base_request_t atop_request = {.uuid = request->uuid,
                                         .key = request->authkey,

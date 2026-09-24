@@ -14,10 +14,12 @@
 #include "iot_on_boarding.h"
 #include "iot_client.h"
 #include "iot_internal.h"
+#include "test_log.h"
 
 
 #define MOCK_DNS_HOST  "127.0.0.1"
 #define MOCK_DNS_PORT  8198
+#define MOCK_DNS_PLAIN_PORT 8199
 #define MOCK_MQTT_PORT 11884
 #define MOCK_ATOP_PORT 8443
 
@@ -29,6 +31,7 @@
 #define TEST_BV      "1.0"
 
 static pid_t dns_mock_pid = -1;
+static pid_t dns_plain_mock_pid = -1;
 static pid_t mqtt_mock_pid = -1;
 static pid_t atop_mock_pid = -1;
 static int tests_run = 0;
@@ -132,6 +135,21 @@ static int start_dns_mock(void)
     return OPRT_OK;
 }
 
+static int start_plain_dns_mock(void)
+{
+    dns_plain_mock_pid = fork();
+    if (dns_plain_mock_pid == 0) {
+        setenv("DNS_MOCK_USE_SSL", "0", 1);
+        setenv("DNS_MOCK_PORT", "8199", 1);
+        setenv("DNS_MOCK_EXPECTED_ENV_FILE", g_expected_env_file, 1);
+        execlp(PYTHON3_EXEC, PYTHON3_EXEC, DNS_MOCK_PATH, NULL);
+        perror("execlp plain dns mock failed");
+        _exit(1);
+    }
+    if (dns_plain_mock_pid < 0) return -1;
+    return 0;
+}
+
 static int start_mqtt_mock(void)
 {
     mqtt_mock_pid = fork();
@@ -219,6 +237,10 @@ static int wait_for_mocks(void)
 {
     if (wait_for_port(MOCK_DNS_PORT, 15000) != 0) {
         fprintf(stderr, "DNS mock (%u) never became connectable\n", MOCK_DNS_PORT);
+        return -1;
+    }
+    if (wait_for_port(MOCK_DNS_PLAIN_PORT, 15000) != 0) {
+        fprintf(stderr, "Plain DNS mock (%u) never became connectable\n", MOCK_DNS_PLAIN_PORT);
         return -1;
     }
     if (wait_for_port(MOCK_MQTT_PORT, 15000) != 0) {
@@ -467,6 +489,64 @@ static int test_on_boarding_token_private_cloud_key(void)
     return run_on_boarding_token_case("AY12345678x_ab", "x_ab", "12345678");
 }
 
+static int test_on_boarding_token_opaque_punctuation_key(void)
+{
+    return run_on_boarding_token_case("AY12345678a+%_", "a+%_", "12345678");
+}
+
+static int test_on_boarding_activation_does_not_log_post_json(void)
+{
+    const pal_t *pal = get_default_pal();
+    on_boarding_config_t cfg = {0};
+    strncpy(cfg.uuid, TEST_UUID, sizeof(cfg.uuid) - 1);
+    strncpy(cfg.authkey, TEST_AUTHKEY, sizeof(cfg.authkey) - 1);
+    strncpy(cfg.sw_ver, TEST_SW_VER, sizeof(cfg.sw_ver) - 1);
+    strncpy(cfg.product_key, TEST_PK, sizeof(cfg.product_key) - 1);
+    strncpy(cfg.pv, TEST_PV, sizeof(cfg.pv) - 1);
+    strncpy(cfg.bv, TEST_BV, sizeof(cfg.bv) - 1);
+    cfg.env = TEST;
+    cfg.cacert = g_cacert;
+    cfg.dns_host = MOCK_DNS_HOST;
+    cfg.dns_port = MOCK_DNS_PORT;
+    if (write_test_file(g_expected_env_file, "pr_0") != 0) return -1;
+
+    static char captured[16384];
+    on_boarding_response_t resp = {0};
+    test_log_capture_begin(captured, sizeof(captured));
+    int ret = on_boarding_with_token(pal, &cfg, "AYH73H8u7Apr_0", &resp);
+    test_log_capture_end();
+    if (ret != OPRT_OK || strstr(captured, "POST JSON:") != NULL) {
+        printf("  activation logged an unredacted POST JSON or failed: %d\n", ret);
+        return -1;
+    }
+    return OPRT_OK;
+}
+
+static int test_on_boarding_token_rejects_non443_without_trust(void)
+{
+    const pal_t *pal = get_default_pal();
+    on_boarding_config_t cfg = {0};
+    strncpy(cfg.uuid, TEST_UUID, sizeof(cfg.uuid) - 1);
+    strncpy(cfg.authkey, TEST_AUTHKEY, sizeof(cfg.authkey) - 1);
+    strncpy(cfg.sw_ver, TEST_SW_VER, sizeof(cfg.sw_ver) - 1);
+    strncpy(cfg.product_key, TEST_PK, sizeof(cfg.product_key) - 1);
+    strncpy(cfg.pv, TEST_PV, sizeof(cfg.pv) - 1);
+    strncpy(cfg.bv, TEST_BV, sizeof(cfg.bv) - 1);
+    cfg.env = TEST;
+    cfg.dns_host = MOCK_DNS_HOST;
+    cfg.dns_port = MOCK_DNS_PLAIN_PORT;
+    if (write_test_file(g_expected_env_file, "pr_0") != 0 ||
+        write_test_file(g_activation_record_file, "") != 0) return -1;
+
+    on_boarding_response_t resp = {0};
+    int ret = on_boarding_with_token(pal, &cfg, "AY12345678pr_0", &resp);
+    if (ret != OPRT_INVALID_RESULT || !no_activation_recorded()) {
+        printf("  non-443 HTTPS without trust was not rejected before activation: %d\n", ret);
+        return -1;
+    }
+    return OPRT_OK;
+}
+
 static int test_on_boarding_token_https_url_without_path(void)
 {
     return run_on_boarding_token_case("AY12345678NOPA", "NOPA", "12345678");
@@ -478,9 +558,16 @@ static int test_on_boarding_token_rejects_invalid_input(void)
     on_boarding_config_t cfg = {0};
     strncpy(cfg.uuid, TEST_UUID, sizeof(cfg.uuid) - 1);
     strncpy(cfg.authkey, TEST_AUTHKEY, sizeof(cfg.authkey) - 1);
+    strncpy(cfg.sw_ver, TEST_SW_VER, sizeof(cfg.sw_ver) - 1);
     strncpy(cfg.product_key, TEST_PK, sizeof(cfg.product_key) - 1);
+    strncpy(cfg.pv, TEST_PV, sizeof(cfg.pv) - 1);
+    strncpy(cfg.bv, TEST_BV, sizeof(cfg.bv) - 1);
     cfg.env = TEST;
     cfg.cacert = g_cacert;
+    cfg.dns_host = MOCK_DNS_HOST;
+    cfg.dns_port = MOCK_DNS_PORT;
+
+    if (write_test_file(g_expected_env_file, "pr_0") != 0) return -1;
 
     on_boarding_response_t resp = {0};
     const char *invalid[] = {
@@ -491,6 +578,8 @@ static int test_on_boarding_token_rejects_invalid_input(void)
         "AY1234\x01" "678pr_0", /* control byte in activation token */
         "AY12345678p\x01_0",   /* control byte in registration key */
         "AY12345678p\xC3_0",   /* non-ASCII byte in registration key */
+        "AY1234\"678pr_0",    /* unescaped JSON quote in activation token */
+        "AY1234\\678pr_0",    /* unescaped JSON backslash in activation token */
     };
     for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
         memset(&resp, 0, sizeof(resp));
@@ -528,13 +617,15 @@ static int test_on_boarding_token_rejects_incomplete_dns(void)
         "AY12345678QURY", /* query string cannot be silently discarded */
         "AY12345678FRAG", /* fragment cannot be silently discarded */
         "AY12345678WHAU", /* whitespace in HTTPS authority */
+        "AY12345678P080", /* port 80 uses plain TCP despite https URL */
     };
     for (size_t i = 0; i < sizeof(tokens) / sizeof(tokens[0]); i++) {
         if (write_test_file(g_expected_env_file, tokens[i] + 10) != 0 ||
             write_test_file(g_activation_record_file, "") != 0) return -1;
         on_boarding_response_t resp = {0};
         int ret = on_boarding_with_token(pal, &cfg, tokens[i], &resp);
-        if (ret == OPRT_OK || resp.devid[0] != '\0' || !no_activation_recorded()) {
+        if (ret != OPRT_INVALID_RESULT || resp.devid[0] != '\0' ||
+            !no_activation_recorded()) {
             printf("  bad DNS endpoint case %zu activated: %d\n", i, ret);
             return -1;
         }
@@ -593,9 +684,11 @@ int main(void)
         return 1;
     }
 
-    if (start_dns_mock() != 0 || start_mqtt_mock() != 0 || start_atop_mock() != 0) {
+    if (start_dns_mock() != 0 || start_plain_dns_mock() != 0 ||
+        start_mqtt_mock() != 0 || start_atop_mock() != 0) {
         fprintf(stderr, "Failed to start mock servers\n");
         stop_mock(&dns_mock_pid, "DNS mock");
+        stop_mock(&dns_plain_mock_pid, "plain DNS mock");
         stop_mock(&mqtt_mock_pid, "MQTT mock");
         stop_mock(&atop_mock_pid, "ATOP mock");
         pal->free(g_cacert);
@@ -605,6 +698,7 @@ int main(void)
      * (replaces a blind sleep that raced mock startup on a loaded CI box). */
     if (wait_for_mocks() != 0) {
         stop_mock(&dns_mock_pid, "DNS mock");
+        stop_mock(&dns_plain_mock_pid, "plain DNS mock");
         stop_mock(&mqtt_mock_pid, "MQTT mock");
         stop_mock(&atop_mock_pid, "ATOP mock");
         pal->free(g_cacert);
@@ -624,12 +718,16 @@ int main(void)
     RUN_TEST(test_on_boarding_token_dns_rejects_wrong_env);
     RUN_TEST(test_on_boarding_token_arbitrary_production_key);
     RUN_TEST(test_on_boarding_token_private_cloud_key);
+    RUN_TEST(test_on_boarding_token_opaque_punctuation_key);
+    RUN_TEST(test_on_boarding_activation_does_not_log_post_json);
+    RUN_TEST(test_on_boarding_token_rejects_non443_without_trust);
     RUN_TEST(test_on_boarding_token_https_url_without_path);
     RUN_TEST(test_on_boarding_token_rejects_invalid_input);
     RUN_TEST(test_on_boarding_token_rejects_incomplete_dns);
     RUN_TEST(test_on_boarding_qrcode_flow);
 
     stop_mock(&dns_mock_pid, "DNS mock");
+    stop_mock(&dns_plain_mock_pid, "plain DNS mock");
     stop_mock(&mqtt_mock_pid, "MQTT mock");
     stop_mock(&atop_mock_pid, "ATOP mock");
 

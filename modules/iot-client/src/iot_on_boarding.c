@@ -312,9 +312,7 @@ static int activate_device(const pal_t *pal, on_boarding_config_t *on_boarding, 
     request.cert_bundle_attach = on_boarding->cert_bundle_attach;
 
     IOT_LOGI("Sending activation request with:");
-    IOT_LOGI("  - Token: [%zu chars, prefix=%.4s...]",
-             request.token ? strlen(request.token) : 0,
-             (request.token && strlen(request.token) >= 4) ? request.token : "----");
+    IOT_LOGI("  - Token: [%zu chars]", request.token ? strlen(request.token) : 0);
     IOT_LOGI("  - Software Version: %s", request.sw_ver);
     IOT_LOGI("  - Product Key: %s", request.product_key);
     IOT_LOGI("  - Protocol Version: %s", request.pv);
@@ -443,7 +441,7 @@ static int __token_to_region(const char *token, iot_region_t *region)
 /* IoT DNS Self URLs must fit the IoT client's 64-byte endpoint buffers.
  * Validate the authority before handing the HTTPS URL to activate_device,
  * whose legacy QR path still supports the old endpoint parsing rules. */
-static bool valid_self_authority(const char *addr, bool https)
+static bool valid_self_authority(const char *addr, bool https, bool has_tls_trust)
 {
     if (!addr) return false;
     size_t len = strlen(addr);
@@ -467,8 +465,9 @@ static bool valid_self_authority(const char *addr, bool https)
         if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
               (c >= '0' && c <= '9') || c == '.' || c == '-')) return false;
     }
+    unsigned int port = https ? 443u : 0u;
     if (colon) {
-        unsigned int port = 0;
+        port = 0;
         if (colon + 1 == authority_end) return false;
         for (const char *p = colon + 1; p < authority_end; p++) {
             unsigned char c = (unsigned char)*p;
@@ -478,6 +477,9 @@ static bool valid_self_authority(const char *addr, bool https)
         }
         if (port == 0) return false;
     }
+    /* The HTTP transport selects plaintext for port 80, and for other
+     * non-443 ports when no CA/certificate bundle is configured. */
+    if (https && (port == 80u || (port != 443u && !has_tls_trust))) return false;
     return true;
 }
 
@@ -500,6 +502,11 @@ int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
         unsigned char c = (unsigned char)token[i];
         if (c < 0x21 || c > 0x7e) {
             IOT_LOGE("App activation token contains an invalid byte");
+            return OPRT_INVALID_PARAMETER;
+        }
+        if (i >= REGION_LEN && i < REGION_LEN + ACTIVATION_TOKEN_LEN &&
+            (c == '"' || c == '\\')) {
+            IOT_LOGE("App activation token contains an unsafe JSON byte");
             return OPRT_INVALID_PARAMETER;
         }
     }
@@ -548,8 +555,10 @@ int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
         else if (strcmp(dns_resp.endpoints[i].key, "mqttsSelfUrl") == 0)
             mqtts_addr = dns_resp.endpoints[i].addr;
     }
-    if (!valid_self_authority(https_addr, true) ||
-        !valid_self_authority(mqtts_addr, false)) {
+    bool has_tls_trust = (on_boarding->cacert && on_boarding->cacert[0]) ||
+                         on_boarding->cert_bundle_attach;
+    if (!valid_self_authority(https_addr, true, has_tls_trust) ||
+        !valid_self_authority(mqtts_addr, false, has_tls_trust)) {
         IOT_LOGE("IoT DNS did not return valid App-selected Self endpoints");
         iot_dns_url_config_response_free(pal, &dns_resp);
         return OPRT_INVALID_RESULT;
