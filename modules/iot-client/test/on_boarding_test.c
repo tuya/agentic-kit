@@ -34,6 +34,8 @@ static pid_t atop_mock_pid = -1;
 static int tests_run = 0;
 static int tests_passed = 0;
 static char *g_cacert = NULL;
+static char g_expected_env_file[] = "/tmp/agentic-kit-dns-env-XXXXXX";
+static char g_activation_record_file[] = "/tmp/agentic-kit-atop-record-XXXXXX";
 
 #define RUN_TEST(fn)                                       \
     do {                                                   \
@@ -70,6 +72,46 @@ static char *load_file(const pal_t *pal, const char *path)
     return buf;
 }
 
+static void remove_test_files(void)
+{
+    unlink(g_expected_env_file);
+    unlink(g_activation_record_file);
+}
+
+static int create_test_files(void)
+{
+    int env_fd = mkstemp(g_expected_env_file);
+    if (env_fd < 0) return -1;
+    close(env_fd);
+    int record_fd = mkstemp(g_activation_record_file);
+    if (record_fd < 0) {
+        unlink(g_expected_env_file);
+        return -1;
+    }
+    close(record_fd);
+    atexit(remove_test_files);
+    return 0;
+}
+
+static int write_test_file(const char *path, const char *content)
+{
+    FILE *f = fopen(path, "w");
+    if (!f) return -1;
+    int ok = fputs(content, f) >= 0;
+    if (fclose(f) != 0) ok = 0;
+    return ok ? 0 : -1;
+}
+
+static int no_activation_recorded(void)
+{
+    FILE *f = fopen(g_activation_record_file, "r");
+    if (!f) return 0;
+    int first = fgetc(f);
+    int ok = first == EOF && !ferror(f);
+    fclose(f);
+    return ok;
+}
+
 /* ---------- Mock server lifecycle ---------- */
 
 static int start_dns_mock(void)
@@ -77,6 +119,7 @@ static int start_dns_mock(void)
     dns_mock_pid = fork();
     if (dns_mock_pid == 0) {
         setenv("DNS_MOCK_USE_SSL", "1", 1);
+        setenv("DNS_MOCK_EXPECTED_ENV_FILE", g_expected_env_file, 1);
         execlp(PYTHON3_EXEC, PYTHON3_EXEC, DNS_MOCK_PATH, NULL);
         perror("execlp dns mock failed");
         _exit(1);
@@ -111,6 +154,7 @@ static int start_atop_mock(void)
     if (atop_mock_pid == 0) {
         setenv("ATOP_MOCK_USE_SSL", "1", 1);
         setenv("ATOP_MOCK_PORT", "8443", 1);
+        setenv("ATOP_MOCK_RECORD_FILE", g_activation_record_file, 1);
         execlp(PYTHON3_EXEC, PYTHON3_EXEC, ATOP_MOCK_PATH, NULL);
         perror("execlp atop mock failed");
         _exit(1);
@@ -319,6 +363,7 @@ static int run_on_boarding_token_case(const char *app_token, const char *expecte
     cfg.dns_host = MOCK_DNS_HOST;
     cfg.dns_port = MOCK_DNS_PORT;
 
+    if (write_test_file(g_expected_env_file, expected_key) != 0) return -1;
     on_boarding_response_t resp = {0};
     int ret = on_boarding_with_token(pal, &cfg, app_token, &resp);
 
@@ -370,9 +415,10 @@ static int test_on_boarding_token_requires_dns_before_activation(void)
     cfg.dns_host = MOCK_DNS_HOST;
     cfg.dns_port = 19998; /* no DNS service */
 
+    if (write_test_file(g_activation_record_file, "") != 0) return -1;
     on_boarding_response_t resp = {0};
     int ret = on_boarding_with_token(pal, &cfg, "AY12345678pr_0", &resp);
-    if (ret == OPRT_OK || resp.devid[0] != '\0') {
+    if (ret == OPRT_OK || resp.devid[0] != '\0' || !no_activation_recorded()) {
         printf("  activation proceeded without App-selected DNS endpoints: %d\n", ret);
         return -1;
     }
@@ -384,6 +430,33 @@ static int test_on_boarding_token_daily(void)
     return run_on_boarding_token_case("AY12345678da_0", "da_0", "12345678");
 }
 
+static int test_on_boarding_token_dns_rejects_wrong_env(void)
+{
+    const pal_t *pal = get_default_pal();
+    on_boarding_config_t cfg = {0};
+    strncpy(cfg.uuid, TEST_UUID, sizeof(cfg.uuid) - 1);
+    strncpy(cfg.authkey, TEST_AUTHKEY, sizeof(cfg.authkey) - 1);
+    strncpy(cfg.sw_ver, TEST_SW_VER, sizeof(cfg.sw_ver) - 1);
+    strncpy(cfg.product_key, TEST_PK, sizeof(cfg.product_key) - 1);
+    strncpy(cfg.pv, TEST_PV, sizeof(cfg.pv) - 1);
+    strncpy(cfg.bv, TEST_BV, sizeof(cfg.bv) - 1);
+    cfg.env = TEST;
+    cfg.cacert = g_cacert;
+    cfg.dns_host = MOCK_DNS_HOST;
+    cfg.dns_port = MOCK_DNS_PORT;
+
+    /* The wire token says pr_0, while this mock invocation expects da_0. */
+    if (write_test_file(g_expected_env_file, "da_0") != 0 ||
+        write_test_file(g_activation_record_file, "") != 0) return -1;
+    on_boarding_response_t resp = {0};
+    int ret = on_boarding_with_token(pal, &cfg, "AY12345678pr_0", &resp);
+    if (ret == OPRT_OK || resp.devid[0] != '\0' || !no_activation_recorded()) {
+        printf("  DNS accepted an env different from its test-controlled expectation\n");
+        return -1;
+    }
+    return OPRT_OK;
+}
+
 static int test_on_boarding_token_arbitrary_production_key(void)
 {
     return run_on_boarding_token_case("AY12345678Q7xZ", "Q7xZ", "12345678");
@@ -392,6 +465,11 @@ static int test_on_boarding_token_arbitrary_production_key(void)
 static int test_on_boarding_token_private_cloud_key(void)
 {
     return run_on_boarding_token_case("AY12345678x_ab", "x_ab", "12345678");
+}
+
+static int test_on_boarding_token_https_url_without_path(void)
+{
+    return run_on_boarding_token_case("AY12345678NOPA", "NOPA", "12345678");
 }
 
 static int test_on_boarding_token_rejects_invalid_input(void)
@@ -445,11 +523,18 @@ static int test_on_boarding_token_rejects_incomplete_dns(void)
         "AY12345678MSMQ", /* no MQTT Self endpoint */
         "AY12345678MALF", /* malformed HTTPS endpoint */
         "AY12345678LONG", /* oversized HTTPS endpoint */
+        "AY12345678BADP", /* HTTPS path is not /d.json */
+        "AY12345678WSPC", /* whitespace after HTTPS path */
+        "AY12345678QURY", /* query string cannot be silently discarded */
+        "AY12345678FRAG", /* fragment cannot be silently discarded */
+        "AY12345678WHAU", /* whitespace in HTTPS authority */
     };
     for (size_t i = 0; i < sizeof(tokens) / sizeof(tokens[0]); i++) {
+        if (write_test_file(g_expected_env_file, tokens[i] + 10) != 0 ||
+            write_test_file(g_activation_record_file, "") != 0) return -1;
         on_boarding_response_t resp = {0};
         int ret = on_boarding_with_token(pal, &cfg, tokens[i], &resp);
-        if (ret == OPRT_OK || resp.devid[0] != '\0') {
+        if (ret == OPRT_OK || resp.devid[0] != '\0' || !no_activation_recorded()) {
             printf("  bad DNS endpoint case %zu activated: %d\n", i, ret);
             return -1;
         }
@@ -502,6 +587,12 @@ int main(void)
         fprintf(stderr, "Warning: CA cert not loaded, TLS tests may skip verification\n");
     }
 
+    if (create_test_files() != 0) {
+        fprintf(stderr, "Failed to create isolated mock control files\n");
+        pal->free(g_cacert);
+        return 1;
+    }
+
     if (start_dns_mock() != 0 || start_mqtt_mock() != 0 || start_atop_mock() != 0) {
         fprintf(stderr, "Failed to start mock servers\n");
         stop_mock(&dns_mock_pid, "DNS mock");
@@ -530,8 +621,10 @@ int main(void)
     RUN_TEST(test_on_boarding_token_exact_activation_token);
     RUN_TEST(test_on_boarding_token_requires_dns_before_activation);
     RUN_TEST(test_on_boarding_token_daily);
+    RUN_TEST(test_on_boarding_token_dns_rejects_wrong_env);
     RUN_TEST(test_on_boarding_token_arbitrary_production_key);
     RUN_TEST(test_on_boarding_token_private_cloud_key);
+    RUN_TEST(test_on_boarding_token_https_url_without_path);
     RUN_TEST(test_on_boarding_token_rejects_invalid_input);
     RUN_TEST(test_on_boarding_token_rejects_incomplete_dns);
     RUN_TEST(test_on_boarding_qrcode_flow);

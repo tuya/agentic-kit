@@ -456,6 +456,9 @@ static bool valid_self_authority(const char *addr, bool https)
     }
     const char *authority_end = https ? strchr(start, '/') : NULL;
     if (!authority_end) authority_end = addr + len;
+    /* ATOP always sends to /d.json. A DNS path cannot be silently ignored. */
+    if (https && *authority_end != '\0' && strcmp(authority_end, "/d.json") != 0)
+        return false;
     const char *colon = memchr(start, ':', (size_t)(authority_end - start));
     const char *host_end = colon ? colon : authority_end;
     if (host_end == start || (!https && !colon)) return false;
