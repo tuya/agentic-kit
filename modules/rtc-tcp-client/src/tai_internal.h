@@ -72,8 +72,9 @@
  * Buffer sizes — defaults & docs: include/tai_config_defaults.h
  * (AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD, AGENTIC_KIT_TAI_FRAG_BUF_SIZE, AGENTIC_KIT_TAI_TX_HDR_BUF_SIZE,
  *  AGENTIC_KIT_TAI_FRAME_COALESCE_LIMIT, AGENTIC_KIT_TAI_TX_CTRL_BUF_SIZE, AGENTIC_KIT_TAI_MAX_ATTRS,
- *  AGENTIC_KIT_TAI_DRAIN_BUDGET_MS, AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS; reduce for
- *  memory-constrained targets, e.g. ESP32 without PSRAM.)
+ *  AGENTIC_KIT_TAI_DRAIN_BUDGET_MS, AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS,
+ *  AGENTIC_KIT_TAI_FLOW_CONTROL_POLL_MS, AGENTIC_KIT_TAI_WORKER_YIELD_MS;
+ *  reduce for memory-constrained targets, e.g. ESP32 without PSRAM.)
  * ========================================================================= */
 
 /* RX sliding-window buffer. Sized to EXACTLY one maximum wire frame —
@@ -240,6 +241,19 @@ struct tai_ctx {
     void (*on_event)     (tai_ctx_t *, const tai_event_msg_t      *, void *);
     void (*on_disconnect)(tai_ctx_t *, const tai_disconnect_msg_t *, void *);
     void *user_data;
+
+    /* Optional TCP receive backpressure (see tuya_ai.h). */
+    int (*on_flow_control)(tai_ctx_t *, void *);
+
+    /* Worker-owned audio cursor: nonzero remaining length means pending.
+     * No other Packet dispatches until it drains, so rx_audio_* / rx_event_id
+     * stay valid. Pin the current wire Frame even for reassembled Packets. */
+    const uint8_t *rx_pending_body;
+    size_t   rx_pending_len;
+    size_t   rx_pending_wire_len;
+    uint8_t  rx_pending_flag;
+    uint16_t rx_pending_data_id;
+    uint64_t rx_pending_ts_ms;
 
     /* RX linear buffer (sliding-window: bytes always at buf[0]) */
     uint8_t rx_buf[TAI_RX_BUF_SIZE];
@@ -500,6 +514,9 @@ int tai_proto_dispatch   (tai_ctx_t *ctx,
                            uint8_t pkt_type,
                            const tai_attr_t *attrs, int attr_count,
                            const uint8_t *payload, size_t payload_len);
+/* Worker-only: returns 1 while delivery remains paused, 0 once finished.
+ * The Packet's bytes stay pinned in rx_buf / frag_buf until it drains. */
+int tai_proto_drain_pending_audio(tai_ctx_t *ctx);
 
 /* Internal sequence helper */
 static inline uint16_t tai_next_seq(tai_ctx_t *ctx) {

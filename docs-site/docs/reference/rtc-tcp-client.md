@@ -178,7 +178,7 @@ sidebar_position: 1
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `ping_interval_ms` | `uint32_t` | Ping 间隔（0 = 默认 60000ms） |
-| `ping_timeout_ms` | `uint32_t` | Ping 超时（0 = 默认 90000ms） |
+| `ping_timeout_ms` | `uint32_t` | 接收存活超时，任意入站数据均刷新（0 = 默认 90000ms）；主动背压暂停期间不计超时，恢复时获得完整的新预算 |
 | `connect_timeout_ms` | `uint32_t` | 连接超时（0 = 默认 5000ms）。分别约束 `tai_connect` 的两个串行等待阶段：先是连接建立（TCP 建连 + TLS 握手，共用一份预算），再是服务端 SessionNew 应答。任一阶段超时即判定连接失败，因此 `tai_connect` 最坏耗时约为该值的 2 倍。 |
 
 ### 3.7 测试配置 {#37-测试配置}
@@ -205,6 +205,7 @@ sidebar_position: 1
 | `on_image` | function pointer | 图像数据回调（云端生成的图片） |
 | `on_event` | function pointer | 事件回调（MCP、打断、VAD 等） |
 | `on_disconnect` | function pointer | 断连回调 |
+| `on_flow_control` | `int (*)(tai_ctx_t *, void *)` | 可选接收背压钩子；非零允许接收，0 暂停读取与解析，NULL 不启用背压 |
 | `user_data` | `void *` | 透传到所有回调 |
 
 **回调签名：**
@@ -217,7 +218,19 @@ void (*on_text)      (tai_ctx_t *ctx, const tai_text_msg_t       *msg, void *use
 void (*on_image)     (tai_ctx_t *ctx, const tai_image_msg_t      *msg, void *user_data);
 void (*on_event)     (tai_ctx_t *ctx, const tai_event_msg_t      *msg, void *user_data);
 void (*on_disconnect)(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *user_data);
+int  (*on_flow_control)(tai_ctx_t *ctx, void *user_data);
 ```
+
+#### 接收背压（`on_flow_control`）
+
+- worker 在每次读取前及完整 Frame 之间调用钩子，握手阶段不调用。钩子必须非阻塞；应用负责同步共享的队列状态。
+- 返回 0 会暂停读取和解析，所有入站流量都会停滞，包括 ChatBreak、ASR 文本、Pong 和 EOF 检测。恢复后先处理已缓冲的完整 Frame，再读取；不完整输入回到有上限的阻塞接收。
+- 主动暂停挂起接收存活超时；恢复时获得新的完整 `ping_timeout_ms` 预算。Ping 和停止请求仍执行，Ping 发送失败仍断连。
+- 背压也在 Audio Packet 内的每个编解码帧回调前检查。中途暂停会以零拷贝方式保留该 Packet 的剩余字节，恢复时先交付剩余帧、再处理后续 Packet。应用应在 `on_audio` 中按服务端时间（`msg->timestamp_ms`）丢弃过期音频，而不是改写 SDK 接收状态。
+
+默认每 `AGENTIC_KIT_TAI_FLOW_CONTROL_POLL_MS`（50 ms）重查背压，并以 `AGENTIC_KIT_TAI_WORKER_YIELD_MS`（10 ms）在持续流量下让出 CPU。
+
+`pal_t` 新增必填的 `sleep_ms` 回调。它必须非忙等地休眠至少请求的毫秒数，0 为 no-op，且不能依赖 socket 可读性。所有自定义 PAL 和使用方必须用新头文件重新编译。
 
 ### 接收消息结构体 {#接收消息结构体}
 
@@ -233,7 +246,7 @@ void (*on_disconnect)(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *use
 | `stream_flag` | `uint8_t` | `TAI_STREAM_*`（取自媒体头） |
 | `data_id` | `uint16_t` | 数据 ID：`AUDIO_DOWN`(2) / `AUDIO_AUX`(7) |
 | `event_id` | `const char *` | turn id（借用）；无则为 `""` |
-| `timestamp_ms` | `uint64_t` | 流起始时间戳（媒体头） |
+| `timestamp_ms` | `uint64_t` | 服务端媒体头时间戳，**非**本地时间；过滤流时以 START 的值锁定，与打断时间比较 |
 
 `tai_text_msg_t`（文本回调）：
 
@@ -272,6 +285,12 @@ void (*on_disconnect)(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *use
 | `data` | `const uint8_t *` | 事件负载（通常为 JSON） |
 | `len` | `size_t` | 负载字节数 |
 | `event_id` | `const char *` | attr 61（借用）；无则为 `""` |
+| `user_data` | `const uint8_t *` | attr 111（借用），**非** NUL 结尾；无则为 NULL |
+| `user_data_len` | `size_t` | `user_data` 字节数；与事件负载分离，SDK 不解析其 JSON |
+
+:::note ChatBreak 打断时间
+`TAI_EVT_CHAT_BREAK` 的服务端时间不在事件负载里，而在 attr 111 中：`{"breakAttributes":{"time":"<server-time>"}}`，值为服务端 epoch 毫秒，与 `on_audio` 的 `timestamp_ms` 同钟同单位。读取 `msg->user_data`、解析 `breakAttributes.time`，再与 `on_audio` 中锁定的 `timestamp_ms` 比较，即可判定该流是否已过期。MQTT 侧的 `asrInterrupt` 走另一条路径：时间在其自身负载的 `time` 字段，且是同一个服务端时间值。
+:::
 
 `tai_disconnect_msg_t`（断连回调）：
 

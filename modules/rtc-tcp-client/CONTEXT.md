@@ -77,8 +77,20 @@ The liveness exchange the background thread runs: it sends a Ping every `ping_in
 (default 60 s) and treats the Connection as dead if no inbound traffic — a Pong *or any*
 received data — arrives within `ping_timeout_ms` (default 90 s), then fires `on_disconnect`.
 Counting any receive, not just Pong, keeps a long downstream stream from tripping a spurious
-timeout.
+timeout. Intentional receive backpressure suspends only receive liveness; resuming grants a
+fresh timeout budget without counting as received traffic. Pings and requested stop remain
+active; a Ping send failure still disconnects, and the peer may enforce its own timeout.
 _Avoid_: heartbeat, poll.
+
+**Receive backpressure**:
+Application-controlled admission that pauses all inbound traffic, including buffered Frames,
+ChatBreak, ASR text, Pong and EOF detection, rather than only media delivery. Admission is
+checked between complete Frames and before each codec-frame callback within an Audio Packet: a
+mid-Packet pause keeps the Packet's remaining bytes where they are (zero-copy, worker-owned)
+and delivers them before any later Packet once admission reopens. Interruption filtering stays
+in the application and is time-based — the server media timestamp against the interruption
+time.
+_Avoid_: audio mute, selective pause, codec-frame flow control.
 
 **Chat break**:
 A client-sent Event (`TAI_EVT_CHAT_BREAK`) that interrupts the server's in-progress
@@ -88,6 +100,17 @@ spoke over the reply): the device clears the interrupted turn's downlink and kee
 uplink open. The current cloud no longer sends `TAI_EVT_SERVER_VAD`; a device must treat
 an inbound ChatBreak as the turn boundary.
 _Avoid_: cancel, stop, abort.
+
+**Server-initiated interrupt**:
+An application concern delivered independently from the media Connection: either an inbound
+ChatBreak Event on this context or an authenticated MQTT protocol-9000 AI control notice from
+the IoT Client. Both carry a server time naming the interruption — the MQTT notice in its own
+payload, the ChatBreak in the UserData attribute (attr 111, `breakAttributes.time`) — and the
+application filters downlink audio by comparing that time against the media timestamp of the
+stream's START. Applications route both paths into one playback policy; this module does not
+receive or inject the MQTT notice. The independent path remains available while receive
+backpressure intentionally stops this Connection.
+_Avoid_: MQTT Event, TAI injection, acknowledgement.
 
 **Server VAD**:
 A server-sent Event (`TAI_EVT_SERVER_VAD`) signalling that voice-activity detection found
@@ -194,8 +217,11 @@ The worker loops: check the liveness deadline, send a Ping when due, then block 
 `tai_recv_data` until bytes arrive or the next Ping falls due, then drain. The drain is
 time-bounded (`AGENTIC_KIT_TAI_DRAIN_BUDGET_MS`, default 150 ms) so a sustained downstream flood cannot
 starve the Ping / liveness / shutdown checks — leftover bytes wait for the next pass; and any
-successful receive refreshes the liveness clock. Bytes accumulate in a sliding receive buffer;
-EOF or a transport error makes the worker fire `on_disconnect`.
+successful receive refreshes the liveness clock. Receive backpressure pauses both reads and
+parsing; on resume, a paused Packet's remaining codec frames drain first, then buffered complete
+Frames precede the next read or EOF detection, while partial input returns to bounded blocking
+reception. Bytes accumulate in a sliding receive buffer; detected EOF or a transport error makes
+the worker fire `on_disconnect`.
 
 `tai_process_rx` peels complete Frames off the front of that buffer:
 

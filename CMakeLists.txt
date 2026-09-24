@@ -193,6 +193,7 @@ set(IOT_CLIENT_SOURCES
     "${IOT_CLIENT_DIR}/src/atop_base.c"
     "${IOT_CLIENT_DIR}/src/cipher_wrapper.c"
     "${IOT_CLIENT_DIR}/src/http_client_interface.c"
+    "${IOT_CLIENT_DIR}/src/iot_ai_ctrl.c"
     "${IOT_CLIENT_DIR}/src/iot_atop.c"
     "${IOT_CLIENT_DIR}/src/iot_client.c"
     "${IOT_CLIENT_DIR}/src/iot_client_message.c"
@@ -437,10 +438,42 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     agentic_kit_add_iot_test(iot_reset_test "${IOT_CLIENT_TESTS_DIR}/iot_reset_test.c")
     agentic_kit_add_iot_test(iot_mqtt_test "${IOT_CLIENT_TESTS_DIR}/mqtt_test.c")
     agentic_kit_add_iot_test(iot_message_test "${IOT_CLIENT_TESTS_DIR}/iot_client_message_test.c")
+    agentic_kit_add_iot_test(iot_ai_ctrl_test "${IOT_CLIENT_TESTS_DIR}/iot_ai_ctrl_test.c")
     agentic_kit_add_iot_test(iot_on_boarding_test "${IOT_CLIENT_TESTS_DIR}/on_boarding_test.c")
     agentic_kit_add_iot_test(iot_dp_test "${IOT_CLIENT_TESTS_DIR}/iot_dp_test.c")
     agentic_kit_add_iot_test(iot_ota_test "${IOT_CLIENT_TESTS_DIR}/iot_ota_test.c")
     agentic_kit_add_iot_test(iot_ota_verify_test "${IOT_CLIENT_TESTS_DIR}/iot_ota_verify_test.c")
+
+    add_executable(iot_tai_control_test
+        ${AI_TCP_SOURCES}
+        "${AI_TCP_TESTS_DIR}/tai_pal_loopback.c"
+        "${IOT_CLIENT_TESTS_DIR}/iot_tai_control_test.c"
+        "${IOT_CLIENT_TESTS_DIR}/mqtt_interrupt_demo_test.c"
+        "${IOT_CLIENT_TESTS_DIR}/test_log.c"
+    )
+    target_include_directories(iot_tai_control_test PRIVATE
+        "${AI_TCP_DIR}/include"
+        "${AI_TCP_DIR}/src"
+        "${AI_TCP_TESTS_DIR}"
+        "${IOT_CLIENT_DIR}/include"
+        "${IOT_CLIENT_DIR}/src"
+        "${IOT_CLIENT_TESTS_DIR}"
+        "${IOT_CLIENT_TESTS_DIR}/log_config"
+        "${cjson_source_dir}"
+        "${PAL_DIR}"
+        "${COMMON_DIR}"
+    )
+    target_link_libraries(iot_tai_control_test PRIVATE
+        tuya_iot_client_testlog
+        agentic_kit_pal
+        Threads::Threads
+    )
+    target_compile_definitions(iot_tai_control_test PRIVATE
+        PYTHON3_EXEC="${Python3_EXECUTABLE}"
+        TEST_CONFIG_DIR="${IOT_CLIENT_TESTS_DIR}/config"
+        MESSAGE_MOCK_PATH="${IOT_CLIENT_TESTS_DIR}/mock/message_mock.py"
+    )
+    add_test(NAME iot_tai_control_test COMMAND iot_tai_control_test)
 
     # The ble sources compile into the executable (not the tuya_ble
     # library) so they pick up the test sink's log remap from

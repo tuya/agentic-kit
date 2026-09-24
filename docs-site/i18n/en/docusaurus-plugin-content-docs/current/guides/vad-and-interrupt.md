@@ -144,6 +144,12 @@ When the user speaks again while the AI is responding, the current response need
 
 ### RTC TCP Client {#rtc-tcp-client}
 
+:::note Independent MQTT control path
+A device can keep the IoT MQTT and RTC TCP Connection active together. After `iot_ai_ctrl_set_callback()` is registered, a protocol-9000 `asrInterrupt` is independent of RTC TCP receive backpressure. One application thread should own `iot_client_process()`, publish, and reconnect, while the MQTT callback and `TAI_EVT_CHAT_BREAK` feed the same thread-safe playback policy.
+
+An interruption is decided by **server time**, not by event ID: MQTT `asrInterrupt` carries `data.time`, and TCP `TAI_EVT_CHAT_BREAK` carries `breakAttributes.time` inside attr 111 (not in the event payload). Keep the greatest value as the cutoff, flush the playback queue, then release RTC receive pressure so the worker can keep authenticating and draining old media -- never discard raw TCP bytes, which would corrupt Frame boundaries. In `on_audio`, latch START's `msg->timestamp_ms` and drop every stream at or before the cutoff. A server notice does not require `tai_chat_break()`, and it must not end or reopen a Server-VAD uplink.
+:::
+
 **Receive a server-initiated chat break (`TAI_EVT_CHAT_BREAK`, type=4):**
 
 `TAI_EVT_CHAT_BREAK` has two roles: it signals an interruption when the user speaks during the AI response; in server-VAD mode, it is also the **turn-end signal** (sent when the cloud detects that the user has stopped speaking; the current cloud no longer sends `TAI_EVT_SERVER_VAD`). Device-side handling is the same in both cases:
@@ -154,17 +160,31 @@ void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *ud)
     if (msg->event_type == TAI_EVT_CHAT_BREAK) {
         // 1. Stop TTS playback
         audio_player_stop();
-        // 2. Clear the playback buffer (discard this turn's in-flight TTS
-        //    until the next TAI_STREAM_START)
+        // 2. Read the server interruption time from attr 111 and advance the cutoff
+        uint64_t cutoff = parse_break_time(msg->user_data, msg->user_data_len);
+        if (cutoff) audio_cutoff_ms = cutoff > audio_cutoff_ms ? cutoff : audio_cutoff_ms;
+        // 3. Clear the playback buffer; only streams newer than the cutoff requeue
         audio_buffer_flush();
-        // 3. Ignore subsequent callbacks for this turn
-        set_ignore_current_response(true);
         // Do not stop microphone capture or call tai_send_audio_end().
         // Do not call tai_send_audio_start() to reopen the uplink stream either:
         // in server-VAD mode, the uplink Event remains open throughout.
-        // If this chat break's eventId has no corresponding local downlink buffer,
-        // just log and ignore it.
+        // If attr 111 is missing or its time is invalid, fail closed: treat the
+        // in-flight stream's START as the cutoff instead of letting it play on.
     }
+}
+```
+
+`on_audio` latches START's server time and filters on it:
+
+```c
+void on_audio(tai_ctx_t *ctx, const tai_audio_msg_t *msg, void *ud)
+{
+    if (msg->stream_flag == TAI_STREAM_START ||
+        msg->stream_flag == TAI_STREAM_ONE_SHOT)
+        stream_start_ms = msg->timestamp_ms;   // server time, not local time
+    // MIDDLE/END carry no new time; they reuse this turn's latched start
+    if (msg->len && stream_start_ms > audio_cutoff_ms)
+        audio_buffer_push(msg->data, msg->len);
 }
 ```
 

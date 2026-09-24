@@ -130,4 +130,14 @@
 #define AGENTIC_KIT_TAI_WORKER_POLL_CAP_MS  2000U
 #endif
 
+/* Delay between admission checks while on_flow_control pauses all receives. */
+#ifndef AGENTIC_KIT_TAI_FLOW_CONTROL_POLL_MS
+#define AGENTIC_KIT_TAI_FLOW_CONTROL_POLL_MS  50U
+#endif
+
+/* CPU yield between receive-worker drain passes under sustained traffic. */
+#ifndef AGENTIC_KIT_TAI_WORKER_YIELD_MS
+#define AGENTIC_KIT_TAI_WORKER_YIELD_MS  10U
+#endif
+
 #endif /* AGENTIC_KIT_TAI_CONFIG_DEFAULTS_H */

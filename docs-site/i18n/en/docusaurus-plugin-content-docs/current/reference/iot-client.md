@@ -440,6 +440,20 @@ Publishes an encrypted message to `smart/device/out/{deviceid}`.
 
 ---
 
+### `iot_ai_ctrl_set_callback` {#iot_ai_ctrl_set_callback}
+
+```c
+int iot_ai_ctrl_set_callback(iot_client_t *client,
+                             ai_ctrl_callback_t callback,
+                             void *user_data);
+```
+
+Registers for P2.3-decrypted and authenticated MQTT protocol-9000 AI control notices. The callback runs on the thread calling `iot_client_process()`, and `type` plus `json_data` remain valid only during the callback. Keep it bounded to updating state or notifying an application thread; do not disconnect or destroy the IoT client there.
+
+If notices sent during subscription setup must be observable, initialize with `mqtt_disable_auto_connect=true`, register the callback, and then call `iot_client_connect()`. Pass a NULL callback to deregister. RTC TCP receive backpressure does not stall this MQTT path. The application should merge MQTT notices and TAI ChatBreak into one playback policy. An `asrInterrupt` payload carries an `eventId` and a server time `time` (a string of milliseconds); that time is the cutoff for interruption filtering -- compare it with the `msg->timestamp_ms` latched in `on_audio` to discard obsolete media, rather than deciding by event ID. A server notice is not an acknowledgment request for `tai_chat_break()` and must not automatically end a Server-VAD uplink.
+
+---
+
 ### `iot_get_qrcode_info` {#iot_get_qrcode_info}
 
 ```c

@@ -112,6 +112,21 @@ typedef void (*iot_message_callback_t)(const char *topic, size_t topic_len,
                                        const uint8_t *data, size_t data_len);
 
 /**
+ * @brief Callback for authenticated AI control messages delivered over MQTT.
+ *
+ * Fires on the thread calling iot_client_process(). The type and JSON data are
+ * borrowed and remain valid only for the callback duration. Keep the callback
+ * non-blocking and copy anything retained after it returns.
+ *
+ * @param type      Control event type, such as "asrInterrupt".
+ * @param json_data Serialized event-specific data; not necessarily an object.
+ * @param data_len  Length of @p json_data, excluding any terminating NUL.
+ * @param user_data Opaque pointer supplied at registration.
+ */
+typedef void (*ai_ctrl_callback_t)(const char *type, const char *json_data,
+                                   size_t data_len, void *user_data);
+
+/**
  * @brief Reset type classification (mirrors TuyaOpen TUYA_RESET_TYPE_REMOTE_*).
  *
  * Inbound only: how to read a device-remove the cloud pushed at us. The
@@ -273,6 +288,8 @@ struct iot_dp_context;
     void *reset_user_data;                    // Opaque pointer passed back to reset_callback
     iot_ota_confirm_callback_t ota_confirm_callback; // APP-confirmed OTA (protocol 15) callback
     void *ota_confirm_user_data;                      // Opaque pointer passed back to ota_confirm_callback
+    ai_ctrl_callback_t ai_ctrl_callback;              // AI control (protocol 9000) callback
+    void *ai_ctrl_user_data;                          // Opaque pointer passed back to ai_ctrl_callback
 
     struct iot_dp_context *dp;    // DP layer state; points into dp_storage, NULL when inactive
     void *dp_storage[IOT_DP_CONTEXT_STORAGE / sizeof(void *)]; // inline storage for *dp (no heap)
@@ -438,6 +455,23 @@ IOT_API int iot_client_process(iot_client_t *client, uint32_t timeout_ms);
  * @return OPRT_OK on success, OPRT_INVALID_PARAMETER if client is NULL
  */
 IOT_API int iot_client_publish(iot_client_t *client, const uint8_t *data, size_t data_len);
+
+/**
+ * @brief Register the MQTT protocol-9000 AI control callback.
+ *
+ * Register before the application starts pumping MQTT messages. If commands
+ * must be observable during initial MQTT subscription, initialize with
+ * mqtt_disable_auto_connect=true, register here, then call iot_client_connect().
+ * Passing NULL as @p callback deregisters the current callback.
+ *
+ * @param client    IoT client instance.
+ * @param callback  Callback, or NULL to deregister.
+ * @param user_data Opaque pointer passed to @p callback.
+ * @return OPRT_OK, or OPRT_INVALID_PARAMETER if @p client is NULL.
+ */
+IOT_API int iot_ai_ctrl_set_callback(iot_client_t *client,
+                                     ai_ctrl_callback_t callback,
+                                     void *user_data);
 
 /**
  * @brief Get AI agent session token from Tuya cloud.

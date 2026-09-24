@@ -76,6 +76,8 @@ void tai_loopback_close_connection(void);
 #define TAI_LB_HS_AUTH_OK  4   /* confirm via an AuthenticateResponse (pkt 3) with
                                 * connection-status-code 200, the way the production
                                 * server does, instead of a SessionNew ack.        */
+#define TAI_LB_HS_ACK_WITH_TEXT 5 /* push SessionNew ack and a signed Text Frame in
+                                    * one receive batch; Text must reach the worker. */
 
 void tai_loopback_set_local_key(const char *local_key);
 void tai_loopback_set_handshake_mode(int mode);
