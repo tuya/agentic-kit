@@ -142,6 +142,12 @@ tai_config_t cfg = {
 
 ### RTC TCP Client {#rtc-tcp-client}
 
+:::note MQTT 独立控制路径
+设备可同时保持 IoT MQTT 与 RTC TCP Connection。注册 `iot_ai_ctrl_set_callback()` 后，protocol-9000 `asrInterrupt` 不受 RTC TCP 接收背压影响。应用应让一个线程独占 `iot_client_process()` / publish / reconnect，并把 MQTT callback 与 `TAI_EVT_CHAT_BREAK` 汇入同一线程安全的播放策略。
+
+打断的判定依据是**服务端时间**，不是 eventId：MQTT `asrInterrupt` 读 `data.time`，TCP `TAI_EVT_CHAT_BREAK` 读 attr 111 中的 `breakAttributes.time`（不是事件负载）。把最大的时间记为截止时间，清空播放队列，再恢复 RTC 接收，让 worker 继续校验和排空旧媒体；不要直接丢弃 TCP 字节，否则会破坏 Frame 边界。`on_audio` 中锁定 START 的 `msg->timestamp_ms`，凡不晚于截止时间的流一律丢弃。服务端打断不要求调用 `tai_chat_break()`，也不要结束或重开云端 VAD 上行流。
+:::
+
 **接收服务端打断（`TAI_EVT_CHAT_BREAK`，type=4）：**
 
 `TAI_EVT_CHAT_BREAK` 有双重身份：用户在 AI 回复中插话时它是打断信号；在云端 VAD 模式下它同时也是**回合结束信号**（云端检测到用户停止说话后下发，当前云端不再下发 `TAI_EVT_SERVER_VAD`）。两种情况下的设备处理相同：
@@ -152,15 +158,31 @@ void on_event(tai_ctx_t *ctx, const tai_event_msg_t *msg, void *ud)
     if (msg->event_type == TAI_EVT_CHAT_BREAK) {
         // 1. 停止 TTS 播放
         audio_player_stop();
-        // 2. 清空播放缓冲区（丢弃本轮在途 TTS，直到下一个 TAI_STREAM_START）
+        // 2. 从 attr 111 取服务端打断时间，推进截止时间（取最大值）
+        uint64_t cutoff = parse_break_time(msg->user_data, msg->user_data_len);
+        if (cutoff) audio_cutoff_ms = cutoff > audio_cutoff_ms ? cutoff : audio_cutoff_ms;
+        // 3. 清空播放缓冲区；只有晚于截止时间的流才会重新入队
         audio_buffer_flush();
-        // 3. 忽略本轮后续回调
-        set_ignore_current_response(true);
         // 不要停止麦克风采音，不要调用 tai_send_audio_end()，
         // 也不要调用 tai_send_audio_start() 重开上行流——
         // 云端 VAD 模式下上行 Event 一直保持打开。
-        // 若该打断的 eventId 没有对应的本地下行缓存，记录日志并忽略即可。
+        // 若 attr 111 缺失或时间无效，按失败关闭处理：把当前流的 START
+        // 当作截止时间，丢弃在途流，而不是当作无事发生继续播放。
     }
+}
+```
+
+`on_audio` 侧锁定 START 的服务端时间，并据此过滤：
+
+```c
+void on_audio(tai_ctx_t *ctx, const tai_audio_msg_t *msg, void *ud)
+{
+    if (msg->stream_flag == TAI_STREAM_START ||
+        msg->stream_flag == TAI_STREAM_ONE_SHOT)
+        stream_start_ms = msg->timestamp_ms;   // 服务端时间，非本地时间
+    // MIDDLE/END 不带新时间，沿用本轮流锁定的起始时间
+    if (msg->len && stream_start_ms > audio_cutoff_ms)
+        audio_buffer_push(msg->data, msg->len);
 }
 ```
 
