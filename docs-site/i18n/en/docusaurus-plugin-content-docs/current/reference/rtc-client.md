@@ -134,7 +134,7 @@ stm_ret stm_open_set_log_level(stm_log_level_e level);
 | 5 | `STM_LOG_LEVEL_FATAL` | Fatal |
 | 6 | `STM_LOG_LEVEL_NONE` | No output |
 
-Note: rtc-client is a prebuilt library — its logs go through the `on_log` callback set at init, and the level is controlled by this runtime API, outside the SDK's compile-time `AGENTIC_KIT_LOG_LEVEL` / `AGENTIC_KIT_LOG` facade (modules compiled from source go through the facade; see Compile-Time Knobs).
+Note: rtc-client is a prebuilt library — its logs go through the `on_log` callback set at init, and the level is controlled by this runtime API, outside the SDK's compile-time `AGENTIC_KIT_LOG_LEVEL` / `AGENTIC_KIT_LOG` facade (modules compiled from source go through the facade; see Compile-Time Configuration).
 
 ---
 

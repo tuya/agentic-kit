@@ -1,6 +1,6 @@
 ---
-title: Compile-Time Knobs
-sidebar_label: Compile-Time Knobs
+title: Compile-Time Configuration
+sidebar_label: Compile-Time Configuration
 sidebar_position: 9
 toc_labels:
   三种覆盖方式任选其一: Override options
@@ -14,11 +14,11 @@ toc_labels:
   怎么确认覆盖生效了: Verify overrides
 ---
 
-# Compile-Time Knobs
+# Compile-Time Configuration
 
-The SDK provides **22 compile-time knobs** for buffers, timeouts, task scheduling, and log levels. This page explains how to override defaults per product, describes the design, and provides quick-reference tables.
+The SDK provides **22 compile-time configuration options** for buffers, timeouts, task scheduling, and log levels. This page explains how to override defaults per product, describes the design, and provides quick-reference tables.
 
-**Recommended approach:** put the knobs you want to change in one `agentic_kit_config.h`. There is no need to edit SDK sources or create separate override files per module.
+**Recommended approach:** put the configuration options you want to change in one `agentic_kit_config.h`. There is no need to edit SDK sources or create separate override files per module.
 
 ## Where Defaults Live {#默认值在哪里}
 
@@ -36,17 +36,17 @@ Defaults live with their owning subsystem. Each file's comments document the uni
 - **rtc-tcp-client** — TAI send/receive buffers, scheduling, and the module log ceiling.
 
   File: `modules/rtc-tcp-client/include/tai_config_defaults.h`
-- **tuya-ble** — the module log ceiling, currently its only knob.
+- **tuya-ble** — the module log ceiling, currently its only configuration option.
 
   File: `modules/tuya-ble/include/tuya_ble_config_defaults.h`
 
-See the [design rationale](#为什么这样设计) for the shared configuration entry point, and [configuration scope](#这些名字故意不在-config-文件里) for why BLE layout constants are not knobs.
+See the [design rationale](#为什么这样设计) for the shared configuration entry point, and [configuration scope](#这些名字故意不在-config-文件里) for why BLE layout constants are not configuration options.
 
 ## Three Ways to Override (Pick One) {#三种覆盖方式任选其一}
 
 ### Option 1 (recommended): create your own `agentic_kit_config.h` {#方式一推荐自建-agentic_kit_configh}
 
-1. Create `agentic_kit_config.h` with only the knobs you want to change. Use plain `#define`, not `#ifndef`.
+1. Create `agentic_kit_config.h` with only the configuration options you want to change. Use plain `#define`, not `#ifndef`.
 2. Add its directory to the include path of **every target that compiles SDK sources**.
 3. Rebuild the SDK. Each source file picks up the configuration automatically; no extra `-D` is needed.
 
@@ -75,7 +75,7 @@ cmake -B build -DCMAKE_C_FLAGS="-I<config directory>"
 
 ### Option 2: individual `-D` flags {#方式二逐个-d}
 
-Cheapest when touching one or two knobs, or when a CI matrix switches them:
+Cheapest when touching one or two configuration options, or when a CI matrix switches them:
 
 ```cmake
 target_compile_definitions(my_sdk_target PRIVATE
@@ -91,23 +91,23 @@ The fallback for toolchains without `__has_include` (older armcc, for example). 
 -DAGENTIC_KIT_USER_CONFIG='"my_kit_opts.h"'   # the file's directory must also be on the include path
 ```
 
-When set it takes priority over the Option-1 probe (both are never included); do not define the same knob in both places.
+When set it takes priority over the Option-1 probe (both are never included); do not define the same configuration option in both places.
 
 ## One Iron Rule: Identical for Every Target That Compiles SDK Sources {#一条铁律对所有编译-sdk-源码的-target-保持一致}
 
-Knobs are compile-time constants that directly determine struct layouts and buffer sizes. **Different translation units seeing different values produces no linker error** — `tai_ctx_size()` computes the size with one set of values while the task allocates memory with another, and the overflow happens silently. Whichever way you override, every target that compiles SDK sources (the SDK library, SDK sources compiled directly into the app, test programs) must see the same configuration.
+Configuration options are compile-time constants that directly determine struct layouts and buffer sizes. **Different translation units seeing different values produces no linker error** — `tai_ctx_size()` computes the size with one set of values while the task allocates memory with another, and the overflow happens silently. Whichever way you override, every target that compiles SDK sources (the SDK library, SDK sources compiled directly into the app, test programs) must see the same configuration.
 
 ## Why It Is Designed This Way {#为什么这样设计}
 
-**Why the defaults are distributed across subsystems while the override pickup is in one place.** These defaults used to be scattered at their call sites, and buffer sizes are really **product properties** (how large the schema is, whether there is PSRAM, the audio frame length) — choosing them means going over the memory budget item by item, and a production incident review needs to answer at a glance "which knob owns this memory and why that value". Now each default lives with its owning subsystem — logs in `common/log.h`, the FreeRTOS task in `pal/pal_config_defaults.h`, module knobs in each module's include/ — so budget reviews and code reviews look at the owning file.
+**Why the defaults are distributed across subsystems while the override pickup is in one place.** These defaults used to be scattered at their call sites, and buffer sizes are really **product properties** (how large the schema is, whether there is PSRAM, the audio frame length) — choosing them means going over the memory budget item by item, and a production incident review needs to answer at a glance "which configuration option owns this memory and why that value". Now each default lives with its owning subsystem — logs in `common/log.h`, the FreeRTOS task in `pal/pal_config_defaults.h`, module configuration options in each module's include/ — so budget reviews and code reviews look at the owning file.
 
-The **pickup logic** for integrator overrides, though, exists in exactly one place, `common/log.h`: every SDK translation unit includes that header, and every `*_config_defaults.h` includes it first, so by the time any `#ifndef` default takes effect your override is already in place — one `agentic_kit_config.h` moves all 22 knobs, with no need to split overrides per subsystem.
+The **pickup logic** for integrator overrides, though, exists in exactly one place, `common/log.h`: every SDK translation unit includes that header, and every `*_config_defaults.h` includes it first, so by the time any `#ifndef` default takes effect your override is already in place — one `agentic_kit_config.h` overrides all 22 configuration options, with no need to split overrides per subsystem.
 
-**Why every knob carries the `AGENTIC_KIT_` prefix.** The name collision is not hypothetical: coreMQTT's bundled `core_mqtt_config_defaults.h` defines a same-named `MQTT_SEND_TIMEOUT_MS` (default 20000U) that fought the SDK's 2000U by include order, and `LOG_LEVEL` is claimed by several platform SDKs. The prefix moves these names into the SDK's own namespace — your `-D` no longer hits someone else's macro, and theirs no longer hits yours.
+**Why every configuration option carries the `AGENTIC_KIT_` prefix.** The name collision is not hypothetical: coreMQTT's bundled `core_mqtt_config_defaults.h` defines a same-named `MQTT_SEND_TIMEOUT_MS` (default 20000U) that fought the SDK's 2000U by include order, and `LOG_LEVEL` is claimed by several platform SDKs. The prefix moves these names into the SDK's own namespace — your `-D` no longer hits someone else's macro, and theirs no longer hits yours.
 
 **Why the SDK files are named `_defaults.h`, leaving the plain name `agentic_kit_config.h` to you.** `#include "..."` (quoted) searches the includer's own directory (the SDK's `common/`) before the `-I` path. If the SDK itself occupied the name `agentic_kit_config.h`, your same-named file on any include path would forever be shadowed by the SDK's own. Reserving the plain name for the integrator is the same convention as lwIP's `lwipopts.h`, mbedTLS's `mbedtls_config.h`, and FreeRTOS's `FreeRTOSConfig.h`: **the override file's name belongs to the integrator**.
 
-**Why `#ifndef` defaults plus including your file first, instead of letting you edit the SDK files.** You never touch SDK sources, so upgrades merge cleanly; knobs your file doesn't mention automatically follow the SDK defaults.
+**Why `#ifndef` defaults plus including your file first, instead of letting you edit the SDK files.** You never touch SDK sources, so upgrades merge cleanly; configuration options your file doesn't mention automatically follow the SDK defaults.
 
 ## Logging: a Compile-Time Gate, Single Layer {#日志编译期闸门单层}
 
@@ -137,10 +137,10 @@ Log volume is therefore a build decision: compile production firmware with `-DAG
 
 ### Remapping the Dispatch: AGENTIC_KIT_LOG {#改写日志分发agentic_kit_log}
 
-Where logs go has no runtime switch: you decide it at compile time by defining `AGENTIC_KIT_LOG` in the same override file as your knobs, and every SDK log line dispatches into your own macro. That is precisely the road into macro-based logging systems (ESP-IDF's `ESP_LOGx`, Zephyr's `LOG_*`) — macro to macro, no `va_list` in between (a `va_list` cannot be forwarded to a macro, so any function-bridge design degrades into `vsnprintf` into a buffer, then feeding it back in with `"%s"`: an extra copy, an extra truncation point, and the target macro's format checking lost along the way):
+Where logs go has no runtime switch: you decide it at compile time by defining `AGENTIC_KIT_LOG` in the same override file as your configuration options, and every SDK log line dispatches into your own macro. That is precisely the road into macro-based logging systems (ESP-IDF's `ESP_LOGx`, Zephyr's `LOG_*`) — macro to macro, no `va_list` in between (a `va_list` cannot be forwarded to a macro, so any function-bridge design degrades into `vsnprintf` into a buffer, then feeding it back in with `"%s"`: an extra copy, an extra truncation point, and the target macro's format checking lost along the way):
 
 ```c
-/* agentic_kit_config.h — same file, same pickup as the knobs;
+/* agentic_kit_config.h — same file, same pickup as the configuration options;
  * level is the SDK's 1-4 integer, esp_log_level_t needs a mapping */
 #define AGENTIC_KIT_LOG(level, tag, fmt, ...)                                   \
     ESP_LOG_LEVEL_LOCAL((level) == LOG_ERROR ? ESP_LOG_ERROR :                  \
@@ -155,7 +155,7 @@ Every log macro in the SDK (iot-client's `IOT_LOG*`, `TAI_LOG*`, `TUYA_BLE_HAL_L
 Two rules, binding both directions:
 
 - **The ceiling still gates**: lines compiled out by `AGENTIC_KIT_LOG_LEVEL` cannot be resurrected by a remap (`log_tag_*` expand to `((void)0)` above the ceiling);
-- **The remap must reach every target that compiles SDK sources** — the same iron rule as the knobs. There is no runtime dispatch to fall back on and no second switch: what compiles in is what prints. The default expansion keeps `log_emit`'s `format(printf)` compile-time checking; your own macro opts out unless you re-add the attribute. If your target is a function rather than a macro, it can call `log_emit_valist()` (the facade's `va_list` entry, the `esp_log_writev` role) to reuse the default stderr output instead of re-implementing the formatting.
+- **The remap must reach every target that compiles SDK sources** — the same iron rule as the configuration options. There is no runtime dispatch to fall back on and no second switch: what compiles in is what prints. The default expansion keeps `log_emit`'s `format(printf)` compile-time checking; your own macro opts out unless you re-add the attribute. If your target is a function rather than a macro, it can call `log_emit_valist()` (the facade's `va_list` entry, the `esp_log_writev` role) to reuse the default stderr output instead of re-implementing the formatting.
 
 The full shape of a function sink — note that `log_emit_valist()` **takes no tag argument**: fold the tag into the format string in your macro, and the output keeps its `[tag]` prefix as the default expansion does:
 
@@ -174,19 +174,19 @@ void my_sink(log_level_t level, const char *fmt, ...)
 }
 ```
 
-## Knob Quick Reference {#旋钮速查}
+## Configuration Reference {#配置项速查}
 
-See [Where Defaults Live](#默认值在哪里) for each subsystem's file path. Those files' comments are authoritative for defaults and detailed rationale; the tables below list common reasons to adjust each knob.
+See [Where Defaults Live](#默认值在哪里) for each subsystem's file path. Those files' comments are authoritative for defaults and detailed rationale; the tables below list common reasons to adjust each configuration option.
 
 ### SDK-Wide {#全-sdk}
 
-| Knob | Default | When to adjust |
+| Configuration macro | Default | When to adjust |
 |------|------|---------|
 | `AGENTIC_KIT_LOG_LEVEL` | 4 (debug) | Lower to 1–2 in production (single compile-time layer, see above) |
 
 ### Per-Module Log Ceilings {#每模块日志上限}
 
-| Knob | Default | When to adjust |
+| Configuration macro | Default | When to adjust |
 |------|------|---------|
 | `AGENTIC_KIT_IOT_LOG_LEVEL` | = `AGENTIC_KIT_LOG_LEVEL` | Lower iot-client alone (lower-only, see the log section above) |
 | `AGENTIC_KIT_TAI_LOG_LEVEL` | = `AGENTIC_KIT_LOG_LEVEL` | Lower rtc-tcp-client alone; below 3 the packet-log formatter goes too |
@@ -194,7 +194,7 @@ See [Where Defaults Live](#默认值在哪里) for each subsystem's file path. T
 
 ### iot-client: MQTT {#iot-client-mqtt}
 
-| Knob | Default | When to adjust |
+| Configuration macro | Default | When to adjust |
 |------|------|---------|
 | `AGENTIC_KIT_MQTT_MAX_PACKET_SIZE` | 4096 | When a single CONNECT/SUBSCRIBE/PUBLISH packet overflows. **Coupling**: the DP publish gate `DP_MQTT_MAX_PAYLOAD` in `iot_dp.c` derives from it and follows automatically |
 | `AGENTIC_KIT_MQTT_SEND_TIMEOUT_MS` | 2000U | Weak networks, large-packet send timeouts |
@@ -203,14 +203,14 @@ See [Where Defaults Live](#默认值在哪里) for each subsystem's file path. T
 
 ### iot-client: ATOP over HTTP {#iot-client-atop-over-http}
 
-| Knob | Default | When to adjust |
+| Configuration macro | Default | When to adjust |
 |------|------|---------|
 | `AGENTIC_KIT_REQUEST_HEADER_BUFFER_SIZE` | 1024 | When assembled request headers (request line + headers) no longer fit |
 | `AGENTIC_KIT_RESPONSE_BUFFER_SIZE` | 4096 | **Must-read for products with a large DP schema**: the status line, response headers, and encrypted response body share this one buffer; overflow reports `OPRT_COMMUNICATION_ERROR`. The decrypted-JSON cap is roughly 2.8 KB net of headers (see [Generic ATOP Calls](./atop-generic-call)) |
 
 ### rtc-tcp-client (TAI 2.1) {#rtc-tcp-client-tai-21}
 
-| Knob | Default | When to adjust |
+| Configuration macro | Default | When to adjust |
 |------|------|---------|
 | `AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD` | 4096U | Transport fragmentation cap, also advertised to the server in ClientHello. Lower saves RX memory, costs more fragments |
 | `AGENTIC_KIT_TAI_FRAG_BUF_SIZE` | 32000U | Reassembly buffer = the maximum downlink application packet (large Events / MCP commands / context JSON). Often lowered on PSRAM-less ESP32 |
@@ -224,7 +224,7 @@ See [Where Defaults Live](#默认值在哪里) for each subsystem's file path. T
 
 ### PAL: FreeRTOS Task {#pal-freertos-任务}
 
-| Knob | Default | When to adjust |
+| Configuration macro | Default | When to adjust |
 |------|------|---------|
 | `AGENTIC_KIT_PAL_FR_TASK_STACK_WORDS` | 6144 | **The unit is StackType_t words, not bytes** (6144 ≈ 24 KB on a 32-bit platform; the TLS handshake runs on this task — don't cut it to 6 KB by mistake) |
 | `AGENTIC_KIT_PAL_FR_TASK_PRIORITY` | `tskIDLE_PRIORITY + 5` | Relative to the audio task and the application's main tasks |
@@ -232,7 +232,7 @@ See [Where Defaults Live](#默认值在哪里) for each subsystem's file path. T
 
 ## Migrating from the Old Names {#从旧名字迁移}
 
-All knobs now carry the `AGENTIC_KIT_` prefix (the collision backstory is above). A mechanical rename of old `-D` flags and override headers is all it takes:
+All configuration options now carry the `AGENTIC_KIT_` prefix (the collision backstory is above). A mechanical rename of old `-D` flags and override headers is all it takes:
 
 | Old name | New name |
 |------|------|
@@ -260,8 +260,8 @@ All knobs now carry the `AGENTIC_KIT_` prefix (the collision backstory is above)
 ## Names Deliberately Outside the Config Files {#这些名字故意不在-config-文件里}
 
 - **`TUYA_BLE_HAL_LOGI/LOGW/LOGE/HEXDUMP`** — defined in `modules/tuya-ble/include/tuya_ble_prov.h`; they are the public header's port-binding contract, overridden by the port before inclusion.
-- **`TUYA_BLE_RX_BUF_SIZE` / `TUYA_BLE_TX_BUF_SIZE` / `TUYA_BLE_TX_QUEUE_DEPTH`** — also in `tuya_ble_prov.h`, but for a different reason: they determine the layout of the public struct `tuya_ble_prov_state_t`, and ports size their own buffers against them, which makes them part of the port API; changing them changes a struct layout that ports must recompile and re-size against (the header itself declares the layout not ABI-stable) — they are not build knobs. tuya-ble therefore has exactly one compile-time knob — the module log ceiling `AGENTIC_KIT_TUYA_BLE_LOG_LEVEL`, living in `modules/tuya-ble/include/tuya_ble_config_defaults.h` under the naming convention above (the full story on the geometry/layout constants sits in the `tuya_ble_prov.h` header comment).
-- **`IOT_SDK_SW_VER` / `PV` / `BV` and the per-region ATOP hosts** — `modules/iot-client/src/iot_internal.h`; release-managed values, not build knobs (an internal header, split from the knobs, not riding the override mechanism).
+- **`TUYA_BLE_RX_BUF_SIZE` / `TUYA_BLE_TX_BUF_SIZE` / `TUYA_BLE_TX_QUEUE_DEPTH`** — also in `tuya_ble_prov.h`, but for a different reason: they determine the layout of the public struct `tuya_ble_prov_state_t`, and ports size their own buffers against them, which makes them part of the port API; changing them changes a struct layout that ports must recompile and re-size against (the header itself declares the layout not ABI-stable) — they are not build configuration options. tuya-ble therefore has exactly one compile-time configuration option — the module log ceiling `AGENTIC_KIT_TUYA_BLE_LOG_LEVEL`, living in `modules/tuya-ble/include/tuya_ble_config_defaults.h` under the naming convention above (the full story on the geometry/layout constants sits in the `tuya_ble_prov.h` header comment).
+- **`IOT_SDK_SW_VER` / `PV` / `BV` and the per-region ATOP hosts** — `modules/iot-client/src/iot_internal.h`; release-managed values, not build configuration options (an internal header, split from the configuration options, not riding the override mechanism).
 - **coreMQTT / coreHTTP log routing** — `common/core_mqtt_config.h`, `common/core_http_config.h`; the routed log lines still pass the `AGENTIC_KIT_LOG_LEVEL` gate, nothing to tune separately.
 
 ## How to Confirm an Override Took Effect {#怎么确认覆盖生效了}
@@ -269,7 +269,7 @@ All knobs now carry the `AGENTIC_KIT_` prefix (the collision backstory is above)
 **Compile probe** (the most direct). With **exactly the same include paths and `-D`s as the real build** (if Option 2/3 used `-D`, the probe needs them too), compile this small file — an `#error` means it did not take:
 
 ```c
-/* probe.c — include the defaults file that defines the knob (all of them pick up your override first) */
+/* probe.c — include the defaults file that defines the configuration option (all of them pick up your override first) */
 #include "iot_client_config_defaults.h"
 #if AGENTIC_KIT_RESPONSE_BUFFER_SIZE != 8192
 #error "override not picked up"

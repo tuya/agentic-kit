@@ -134,7 +134,7 @@ stm_ret stm_open_set_log_level(stm_log_level_e level);
 | 5 | `STM_LOG_LEVEL_FATAL` | 致命 |
 | 6 | `STM_LOG_LEVEL_NONE` | 不输出 |
 
-注意：rtc-client 是预编译库，其日志经初始化时的 `on_log` 回调输出、级别由本运行时接口控制——不在 SDK 编译期 `AGENTIC_KIT_LOG_LEVEL` / `AGENTIC_KIT_LOG` 门面之内（从源码编译的模块才走该门面，见《编译期旋钮》）。
+注意：rtc-client 是预编译库，其日志经初始化时的 `on_log` 回调输出、级别由本运行时接口控制——不在 SDK 编译期 `AGENTIC_KIT_LOG_LEVEL` / `AGENTIC_KIT_LOG` 门面之内（从源码编译的模块才走该门面，见《编译期配置》）。
 
 ---
 
