@@ -30,6 +30,7 @@
 
 #include "iot_client.h"
 #include "iot_internal.h"
+#include "iot_dp_internal.h"
 #include "log.h"
 
 #define MOCK_HOST "127.0.0.1"
@@ -156,6 +157,90 @@ static int test_null_params(void)
         return -1;
     }
     return 0;
+}
+
+static int test_keyed_client_without_https_never_uses_default_host(void)
+{
+    iot_client_t client = g_client;
+    memcpy(client.registration_key, "pr_0", sizeof(client.registration_key));
+    client.https_url[0] = '\0';
+    char host[64] = {0};
+    uint16_t port = 0;
+    if (iot_client_resolve_atop_host(&client, host, sizeof(host), &port) == OPRT_OK || host[0]) {
+        printf("  keyed client resolved a missing HTTPS endpoint\n");
+        return -1;
+    }
+    char token[128] = {0};
+    if (iot_client_get_session_token(&client, "agent", token, sizeof(token)) == OPRT_OK) {
+        printf("  keyed client made ATOP request without HTTPS endpoint\n");
+        return -1;
+    }
+    return 0;
+}
+
+static int test_keyed_client_uses_self_https_for_session_token(void)
+{
+    iot_client_t client = g_client;
+    memcpy(client.registration_key, "pr_0", sizeof(client.registration_key));
+    char token[1024] = {0};
+    int ret = iot_client_get_session_token(&client, "agent_alpha", token, sizeof(token));
+    if (ret != OPRT_OK || token[0] == '\0') {
+        printf("  keyed session token did not use Self HTTPS: %d\n", ret);
+        return -1;
+    }
+    return 0;
+}
+
+static int test_legacy_client_keeps_region_fallback(void)
+{
+    iot_client_t client = g_client;
+    client.https_url[0] = '\0';
+    client.region = AY;
+    client.env = PROD;
+    char host[64] = {0};
+    uint16_t port = 0;
+    int ret = iot_client_resolve_atop_host(&client, host, sizeof(host), &port);
+    if (ret != OPRT_OK || strcmp(host, IOT_CN_HOST) != 0 || port != IOT_DEFAULT_PORT)
+        return -1;
+    return 0;
+}
+
+static int test_invalid_keyed_https_does_not_fall_back(void)
+{
+    iot_client_t client = g_client;
+    memcpy(client.registration_key, "pr_0", sizeof(client.registration_key));
+    snprintf(client.https_url, sizeof(client.https_url), "http://127.0.0.1:8443/d.json");
+    char host[64] = {0};
+    uint16_t port = 0;
+    if (iot_client_resolve_atop_host(&client, host, sizeof(host), &port) == OPRT_OK || host[0])
+        return -1;
+    return 0;
+}
+
+static int test_empty_ca_does_not_enable_non443_https(void)
+{
+    iot_client_t client = g_client;
+    memcpy(client.registration_key, "pr_0", sizeof(client.registration_key));
+    client.cacert = "";
+    client.cert_bundle_attach = NULL;
+    char host[64] = {0};
+    uint16_t port = 0;
+    int ret = iot_client_resolve_atop_host(&client, host, sizeof(host), &port);
+    if (ret == OPRT_OK || host[0]) {
+        printf("  empty CA incorrectly enabled non-443 HTTPS\n");
+        return -1;
+    }
+    return 0;
+}
+
+static int test_unterminated_keyed_https_is_rejected(void)
+{
+    iot_client_t client = g_client;
+    memcpy(client.registration_key, "pr_0", sizeof(client.registration_key));
+    memset(client.https_url, 'a', sizeof(client.https_url));
+    char host[64] = {0};
+    uint16_t port = 0;
+    return iot_client_resolve_atop_host(&client, host, sizeof(host), &port) == OPRT_OK ? -1 : 0;
 }
 
 /* The _ex variant guards the same way, and a rejection buffer must not be a
@@ -328,6 +413,12 @@ int main(void)
 
     /* Guards — no network needed */
     RUN_TEST(test_null_params);
+    RUN_TEST(test_keyed_client_without_https_never_uses_default_host);
+    RUN_TEST(test_keyed_client_uses_self_https_for_session_token);
+    RUN_TEST(test_legacy_client_keeps_region_fallback);
+    RUN_TEST(test_invalid_keyed_https_does_not_fall_back);
+    RUN_TEST(test_empty_ca_does_not_enable_non443_https);
+    RUN_TEST(test_unterminated_keyed_https_is_rejected);
     RUN_TEST(test_ex_null_params);
 
     /* Round trips */

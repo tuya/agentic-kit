@@ -30,7 +30,7 @@ PORT = int(os.getenv("ONBOARDING_MQTT_MOCK_PORT", "11884"))
 
 EXPECTED_AUTHKEY = "ci_authkey_1234567890abcdef"
 
-ACTIVATION_JSON = '{"data":{"httpsUrl":"https://127.0.0.1:%s","region":"AY","token":"mock_activation_token_12345"}}' % os.getenv("ATOP_MOCK_PORT", "8443")
+ACTIVATION_JSON = '{"data":{"httpsUrl":"https://127.0.0.1:%s","region":"AY","token":"mock_activation_token_12345","env":"pre"}}' % os.getenv("ATOP_MOCK_PORT", "8443")
 
 
 def compute_mqtt_password(authkey):
@@ -162,7 +162,12 @@ def handle_client(client_sock, addr):
                 # MQTT 3.1.1 SUBACK: pkt_id(2) + return_code(1)
                 suback = bytes([MQTT_SUBACK, 3]) + struct.pack(">H", pkt_id) + bytes([0])
 
-                activation_pkt = build_publish_packet(subscribe_topic, ACTIVATION_JSON)
+                message_file = os.getenv("ONBOARDING_MESSAGE_FILE", "")
+                activation_json = ACTIVATION_JSON
+                if message_file:
+                    with open(message_file, encoding="utf-8") as stream:
+                        activation_json = stream.read() or ACTIVATION_JSON
+                activation_pkt = build_publish_packet(subscribe_topic, activation_json)
 
                 # Send SUBACK + activation message together
                 client_sock.sendall(suback + activation_pkt)

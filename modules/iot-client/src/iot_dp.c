@@ -896,7 +896,8 @@ int iot_dp_schema_check_update(iot_client_t *client)
 
     char host[64] = {0};
     uint16_t port = IOT_DEFAULT_PORT;
-    iot_client_resolve_atop_host(client, host, sizeof(host), &port);
+    int host_ret = iot_client_resolve_atop_host(client, host, sizeof(host), &port);
+    if (host_ret != OPRT_OK) return host_ret;
 
     schema_newest_request_t req = {
         .devid     = client->devid,
@@ -906,8 +907,10 @@ int iot_dp_schema_check_update(iot_client_t *client)
         .node_id   = NULL,
         .host      = host[0] ? host : NULL,
         .port      = port,
-        .cacert    = client->cacert,
-        .cert_bundle_attach = client->cert_bundle_attach,
+        .cacert    = client->registration_key[0] != '\0' && client->self_cacert
+                         ? client->self_cacert : client->cacert,
+        .cert_bundle_attach = client->registration_key[0] != '\0' && client->self_cacert
+                                  ? NULL : client->cert_bundle_attach,
     };
     schema_newest_response_t resp = {0};
     int rt = atop_schema_newest_get(pal, &req, &resp);

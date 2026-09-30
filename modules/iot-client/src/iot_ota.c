@@ -23,7 +23,9 @@ int iot_ota_report_version(iot_client_t *client, const char *sw_ver)
 
     char host[64] = {0};
     uint16_t port = IOT_DEFAULT_PORT;
-    iot_client_resolve_atop_host(client, host, sizeof(host), &port);
+    int host_ret = iot_client_resolve_atop_host(client, host, sizeof(host), &port);
+    if (host_ret != OPRT_OK) return host_ret;
+    bool has_self_ca = client->registration_key[0] != '\0' && client->self_cacert;
 
     ota_version_update_request_t req = {
         .devid   = client->devid,
@@ -34,8 +36,8 @@ int iot_ota_report_version(iot_client_t *client, const char *sw_ver)
         .channel = 0,
         .host    = host[0] ? host : NULL,
         .port    = port,
-        .cacert  = client->cacert,
-        .cert_bundle_attach = client->cert_bundle_attach,
+        .cacert  = has_self_ca ? client->self_cacert : client->cacert,
+        .cert_bundle_attach = has_self_ca ? NULL : client->cert_bundle_attach,
     };
 
     return atop_version_update(client->pal, &req);
@@ -52,7 +54,9 @@ int iot_ota_check_upgrade(iot_client_t *client, int channel,
 
     char host[64] = {0};
     uint16_t port = IOT_DEFAULT_PORT;
-    iot_client_resolve_atop_host(client, host, sizeof(host), &port);
+    int host_ret = iot_client_resolve_atop_host(client, host, sizeof(host), &port);
+    if (host_ret != OPRT_OK) return host_ret;
+    bool has_self_ca = client->registration_key[0] != '\0' && client->self_cacert;
 
     ota_upgrade_request_t req = {
         .devid   = client->devid,
@@ -60,8 +64,8 @@ int iot_ota_check_upgrade(iot_client_t *client, int channel,
         .channel = channel,
         .host    = host[0] ? host : NULL,
         .port    = port,
-        .cacert  = client->cacert,
-        .cert_bundle_attach = client->cert_bundle_attach,
+        .cacert  = has_self_ca ? client->self_cacert : client->cacert,
+        .cert_bundle_attach = has_self_ca ? NULL : client->cert_bundle_attach,
     };
 
     ota_upgrade_response_t resp = {0};
@@ -91,7 +95,9 @@ int iot_ota_report_status(iot_client_t *client, int channel, iot_ota_status_t st
 
     char host[64] = {0};
     uint16_t port = IOT_DEFAULT_PORT;
-    iot_client_resolve_atop_host(client, host, sizeof(host), &port);
+    int host_ret = iot_client_resolve_atop_host(client, host, sizeof(host), &port);
+    if (host_ret != OPRT_OK) return host_ret;
+    bool has_self_ca = client->registration_key[0] != '\0' && client->self_cacert;
 
     ota_status_update_request_t req = {
         .devid   = client->devid,
@@ -100,8 +106,8 @@ int iot_ota_report_status(iot_client_t *client, int channel, iot_ota_status_t st
         .status  = status,
         .host    = host[0] ? host : NULL,
         .port    = port,
-        .cacert  = client->cacert,
-        .cert_bundle_attach = client->cert_bundle_attach,
+        .cacert  = has_self_ca ? client->self_cacert : client->cacert,
+        .cert_bundle_attach = has_self_ca ? NULL : client->cert_bundle_attach,
     };
 
     return atop_upgrade_status_update(client->pal, &req);

@@ -11,6 +11,7 @@ Listens on http://127.0.0.1:8198 (plain HTTP) by default.
 """
 
 import json
+import base64
 import os
 import ssl
 import sys
@@ -29,12 +30,10 @@ class ReusableHTTPServer(HTTPServer):
 MOCK_HOST = "127.0.0.1"
 MOCK_PORT = 8198
 
-FAKE_CA_CERT = (
-    "MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh"
-    "MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3"
-    "d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBH"
-    "MjAeFw0xMzA4MDExMjAwMDBaFw0zODAxMTUxMjAwMDBa"
-)
+_root_ca_pem_path = os.path.join(os.path.dirname(__file__), "..", "config", "root_cert.pem")
+with open(_root_ca_pem_path, encoding="ascii") as _root_ca_file:
+    _root_ca_pem = _root_ca_file.read()
+FAKE_CA_CERT = base64.b64encode(ssl.PEM_cert_to_DER_cert(_root_ca_pem)).decode("ascii")
 
 DNS_DB = {
     "a1.tuyacn.com": {
@@ -84,6 +83,14 @@ URL_CONFIG_ENDPOINTS = {
     "httpsStdUrl": {
         "addr": "https://a1-test.example.com/d.json",
         "ips": ["10.0.0.1", "10.0.0.2"],
+    },
+    "httpsSelfUrl": {
+        "addr": f"https://127.0.0.1:{os.getenv('ATOP_MOCK_PORT', '8443')}/d.json",
+        "ips": ["127.0.0.1"],
+    },
+    "mqttsSelfUrl": {
+        "addr": f"127.0.0.1:{os.getenv('ONBOARDING_MQTT_MOCK_PORT', '11884')}",
+        "ips": ["127.0.0.1"],
     },
 }
 
@@ -148,6 +155,26 @@ class DNSMockHandler(BaseHTTPRequestHandler):
             return
 
         config = req.get("config", [])
+        requested = {item.get("key") for item in config}
+        self_keys = {"httpsSelfUrl", "mqttsSelfUrl"}
+        if requested & self_keys:
+            # The C test updates this file before each activation, so the mock
+            # rejects a wrong on-wire env even if it is another valid key.
+            expected_file = os.getenv("DNS_MOCK_EXPECTED_ENV_FILE", "")
+            try:
+                with open(expected_file, encoding="ascii") as stream:
+                    expected_env = stream.read().strip()
+            except OSError:
+                expected_env = ""
+            need_ca_keys = {
+                item.get("key")
+                for item in config
+                if item.get("need_ca") is True
+            }
+            if (req.get("env") != expected_env or not self_keys <= requested or
+                    not self_keys <= need_ca_keys):
+                self._send_json({"ttl": 600})
+                return
         result = {
             "ttl": 600,
             "psk_key": "",
@@ -164,8 +191,32 @@ class DNSMockHandler(BaseHTTPRequestHandler):
         for item in config:
             key = item.get("key", "")
             ep = URL_CONFIG_ENDPOINTS.get(key)
+            if req.get("env") == "MSHT" and key == "httpsSelfUrl":
+                continue
+            if req.get("env") == "MSMQ" and key == "mqttsSelfUrl":
+                continue
             if ep:
                 entry = {"addr": ep["addr"], "ips": ep["ips"]}
+                if req.get("env") == "MALF" and key == "httpsSelfUrl":
+                    entry["addr"] = "not-a-https-url"
+                if req.get("env") == "LONG" and key == "httpsSelfUrl":
+                    entry["addr"] = "https://" + "x" * 80 + "/d.json"
+                if req.get("env") == "BADP" and key == "httpsSelfUrl":
+                    entry["addr"] = "https://127.0.0.1:8443/other"
+                if req.get("env") == "WSPC" and key == "httpsSelfUrl":
+                    entry["addr"] = "https://127.0.0.1:8443/d.json "
+                if req.get("env") == "QURY" and key == "httpsSelfUrl":
+                    entry["addr"] = "https://127.0.0.1:8443/d.json?env=prod"
+                if req.get("env") == "FRAG" and key == "httpsSelfUrl":
+                    entry["addr"] = "https://127.0.0.1:8443/d.json#other"
+                if req.get("env") == "WHAU" and key == "httpsSelfUrl":
+                    entry["addr"] = "https://127.0.0.1 :8443/d.json"
+                if req.get("env") == "NOPA" and key == "httpsSelfUrl":
+                    entry["addr"] = "https://127.0.0.1:8443"
+                if req.get("env") == "P080" and key == "httpsSelfUrl":
+                    entry["addr"] = "https://127.0.0.1:80/d.json"
+                if req.get("env") == "OVFL" and key == "httpsSelfUrl":
+                    entry["addr"] = "https://127.0.0.1:4294967739/d.json"
                 if item.get("need_ip6"):
                     entry["ip6s"] = ["fe80::1"]
                 result[key] = entry

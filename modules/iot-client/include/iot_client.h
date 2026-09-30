@@ -214,6 +214,7 @@ typedef struct {
     char local_key[32];            // Local key
     iot_region_t region;           // Region
     iot_env_t env;                 // Environment
+    char registration_key[5];     // Opaque App key: 1-4 printable bytes, zero-padded; empty = legacy env
     bool mqtt_disable_tls;         // false = mqtts (TLS, default), true = mqtt (TCP)
     bool mqtt_disable_auto_connect; // false (default) = connect MQTT after init/activation; true = caller invokes iot_client_connect() manually
     bool skip_version_report;       // false (default) = report both; true = skip both during init (set only when cloud already has current version)
@@ -244,7 +245,7 @@ typedef struct {
     const char *feature;
     const char *skill_param;
     int timeout_ms;
-    iot_env_t env;                 // PROD (default) or PRE
+    iot_env_t env;                 // Bootstrap/legacy enum; raw App key determines Self routing
     bool mqtt_disable_tls;         // false = mqtts (TLS, default), true = mqtt (TCP)
     bool mqtt_disable_auto_connect; // false (default) = connect MQTT after init/activation; true = caller invokes iot_client_connect() manually
     bool skip_version_report;       // false (default) = report both; true = skip both during init (only when cloud already has current version)
@@ -283,10 +284,13 @@ struct iot_dp_context;
 
     iot_region_t region;           // Server region (AY/AZ/UEAZ/EU/WEAZ/IN/SG)
     iot_env_t env;                 // Environment (PROD or PRE)
+    char registration_key[5];     // Opaque App key; persist with credentials; empty = legacy env
     bool mqtt_disable_tls;         // false = mqtts (TLS), true = mqtt (TCP)
     const pal_t *pal;             // PAL adapter
 
-    const char *cacert;           // CA certificate for all TLS (MQTT/HTTPS/IoT-DNS) (caller-owned, points to user buffer/flash)
+    const char *cacert;           // Caller-owned CA for IoT-DNS and legacy service TLS
+    const char *self_cacert;      // IoT-DNS CA for App-selected Self endpoints
+    char *owned_self_cacert;      // SDK-owned decoded Self CA certificate
     tls_cert_bundle_attach_fn cert_bundle_attach; // Platform cert-bundle callback (borrowed, NULL = none)
     struct mqtt_client *mqtt;     // Internal MQTT client handle
     iot_message_callback_t message_callback;  // User callback for incoming messages
@@ -305,10 +309,14 @@ struct iot_dp_context;
  * @brief Initialize IoT client with existing device credentials.
  *
  * Resolves MQTT/HTTPS endpoints via IoT DNS and establishes the MQTT
- * connection automatically when devid is set.
+ * connection automatically when devid is set. A client with a registration
+ * key stays valid (but disconnected) after a transient DNS/MQTT failure, so
+ * callers can preserve its credentials and retry with iot_client_connect().
+ * An empty registration key retains legacy environment routing.
  *
  * @param config Client configuration (devid, secret_key, local_key, region, etc.)
- * @return Pointer to iot_client_t on success, NULL on error
+ * @return Client on success or keyed transient network failure; NULL for invalid
+ *         configuration, allocation failure, or legacy fatal connect failure.
  */
 IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config);
 
@@ -316,9 +324,13 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config);
  * @brief Initialize IoT client via QR code on-boarding (first-time activation).
  *
  * Blocks until a user scans the QR code and the device is activated, or
- * until the configured timeout expires.  On success the returned client is
- * fully connected; persist its devid / secret_key / local_key for future
- * calls to iot_client_init().
+ * until the configured timeout expires. MQTT activation data.env is an opaque
+ * 1-4 byte registration key (default "pro" when absent), passed unchanged to
+ * IoT DNS for Self endpoints and CA. Both onboarding paths require MQTT TLS
+ * and a trusted bootstrap CA or certificate bundle. The client may remain
+ * disconnected after a transient post-activation network failure; persist
+ * devid / secret_key / local_key / region / env / registration_key together
+ * for future calls to iot_client_init(). Restore runtime TLS trust separately.
  *
  * @param config On-boarding configuration (uuid, authkey, product_key, timeout_ms, etc.)
  * @return Pointer to iot_client_t on success (contains devid, secret_key, local_key, schema_id), NULL on error or timeout
@@ -329,13 +341,17 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
  * @brief Initialize IoT client via token on-boarding (first-time activation).
  *
  * Skips the QR-code MQTT activation wait and directly sends the activation
- * request using the provided token. Region is derived from the first two
- * characters of the token; env is taken from @p config.
- * Does not require DNS/MQTT — calls ATOP directly.
+ * request using the provided token. The App token contains a two-byte region,
+ * eight-byte activation token and opaque four-byte registration key. The key
+ * is passed unchanged to IoT DNS for Self HTTPS/MQTT endpoints; it is not
+ * mapped to PRE or PROD. Activation requires DNS and uses the Self HTTPS host.
+ * Persist devid / secret_key / local_key / region / env / registration_key
+ * together and restore them in iot_client_config_t on subsequent boots.
  *
  * @param config On-boarding configuration (uuid, authkey, product_key, etc.)
- * @param token  Activation token: [region:2][activation_token][secret:4]
- * @return Pointer to iot_client_t on success, NULL on error
+ * @param token  App token: [region:2][activation_token:8][registration_key:4]
+ * @return Activated client, possibly disconnected after a transient post-activation
+ *         DNS/MQTT failure; NULL if activation itself failed.
  */
 IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boarding_config_t *config, const char *token);
 
@@ -425,8 +441,12 @@ IOT_API void iot_client_deinit(iot_client_t *client);
  * the same doomed handshake forever after a broker cert rotation. See
  * examples/posix/dp-management/ for the shape of that loop.
  *
- * @param client Pointer to iot_client_t instance (must have mqtt_url and devid set)
- * @return OPRT_OK on success, OPRT_INVALID_PARAMETER if client/url/devid is missing
+ * Keyed clients re-resolve Self endpoints before reconnecting; legacy clients
+ * use their existing MQTT URL. No production fallback is used for a missing
+ * keyed endpoint.
+ *
+ * @param client Pointer to iot_client_t instance with device credentials
+ * @return OPRT_OK on success, or a DNS/MQTT/parameter error
  */
 IOT_API int iot_client_connect(iot_client_t *client);
 

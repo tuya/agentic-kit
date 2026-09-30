@@ -149,6 +149,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | `local_key` | `char[32]` | 本地加密密钥 |
 | `region` | `iot_region_t` | 数据中心区域 |
 | `env` | `iot_env_t` | 环境 |
+| `registration_key` | `char[5]` | App 原始注册 key，1～4 个可打印字节，末尾及剩余空间补零；全空时沿用旧 `env` 路由。须随激活凭据持久化、重启恢复 |
 | `mqtt_disable_tls` | `bool` | `false`（默认）使用 MQTTS，`true` 使用明文 MQTT |
 | `mqtt_disable_auto_connect` | `bool` | `false`（默认）初始化后自动连接 MQTT；`true` 需手动调用 [`iot_client_connect()`](#iot_client_connect) |
 | `skip_version_report` | `bool` | `false`（默认）初始化时上报 SDK meta 和固件版本；`true` 跳过这两次上报（仅在云端已有当前版本时设置） |
@@ -178,7 +179,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | `feature` | `const char *` | Feature 信息（可为 NULL） |
 | `skill_param` | `const char *` | Skill 参数（可为 NULL） |
 | `timeout_ms` | `int` | 激活超时时间（毫秒） |
-| `env` | `iot_env_t` | 环境：`PROD`（默认）或 `PRE` |
+| `env` | `iot_env_t` | 激活消息监听的引导环境枚举（默认 `PROD`）；收到 App 注册 key 后，Self 地址由 DNS 决定，不改写此枚举 |
 | `mqtt_disable_tls` | `bool` | TLS 开关 |
 | `mqtt_disable_auto_connect` | `bool` | `false`（默认）激活后自动连接 MQTT；`true` 需手动调用 [`iot_client_connect()`](#iot_client_connect) |
 | `skip_version_report` | `bool` | `false`（默认）激活后上报 SDK meta 和固件版本；`true` 跳过这两次上报（仅在云端已有当前版本时设置） |
@@ -202,6 +203,7 @@ IoT Client 模块（CMake 目标 `tuya_iot_client`，产物 `libtuya_iot_client.
 | `local_key` | `char[32]` | 本地加密密钥 |
 | `region` | `iot_region_t` | 服务器区域 |
 | `env` | `iot_env_t` | 环境 |
+| `registration_key` | `char[5]` | App 原始注册 key；须随激活凭据保存，重启时恢复到 `iot_client_config_t` |
 
 ## API 函数 {#api-函数}
 
@@ -237,6 +239,9 @@ iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t *config
 ```
 
 阻塞等待 App 扫码激活。内部通过 MQTT 监听激活事件，激活成功后返回包含 `devid`、`secret_key`、`local_key` 的客户端实例。
+与 TuyaOpen 一致，MQTT 激活消息的 `data.env` 原样作为注册 key 保存，缺省为 `pro`，接受 1～4 个可打印字节（如 `pr_0`、`da_0`、`pro`、`x_ab`）。设备不把它映射为环境枚举。用该 key 查询 IoT DNS 的 `httpsSelfUrl`、`mqttsSelfUrl` 及 CA，激活和后续连接均走 DNS 返回的 Self 地址；不采用消息中的 `httpsUrl`。`client->env` 保持 `config.env`。
+
+两种 App 配网入口均需保持 `mqtt_disable_tls=false`，并配置可信的引导 CA 或证书包。DNS 无有效 Self 地址或 CA 时返回失败，不回退线上。
 
 **返回值：** 成功返回 `iot_client_t *`；超时或失败返回 `NULL`。
 
@@ -250,13 +255,34 @@ iot_client_t *iot_client_init_on_boarding_with_token(
     const char *token);
 ```
 
-使用预知的激活 Token 直接发起激活请求，跳过 MQTT 等待。Region 由 token 前两个字符自动推导。
+使用预知的激活 Token 直接发起激活请求，跳过 MQTT 等待。Region 由 token 前两个字符自动推导。涂鸦 App 的 BLE 配网 Token 固定为 `[区域码:2][激活 token:8][secret:4]`，例如 `AYH73H8u7Apr_0`。末尾 4 字节 `secret` 是不透明值，设备原样作为 IoT DNS 请求的 `env` 参数，用于获取该环境对应的 Self HTTPS/MQTT 地址和 CA；设备不把它映射成 `pre`、`pro` 或 `prod`，也不根据它设置 `client->env`。`config.env` 只保留为客户端环境枚举，不决定这条 App token 路由。QR/MQTT 激活也使用原始注册 key，但其 `data.env` 可以是三字节的 `pro`，不改变 BLE 的固定 14 字节格式。
 
 **参数：**
 - `config` — 配网配置
-- `token` — 激活 Token（格式：`{region}{token}{secret}`，如 `AYH73H8u7Ap4pX`）
+- `token` — App BLE 配网 Token，格式为 `[区域码:2][激活 token:8][secret:4]`，例如 `AYH73H8u7Apr_0`
 
 **返回值：** 成功返回 `iot_client_t *`；失败返回 `NULL`。
+
+#### 持久化与重启恢复 {#registration-key-persistence}
+
+两种激活入口都返回 `client->registration_key`。应用须把 `devid`、`secret_key`、`local_key`、`region`、`env` 和 `registration_key` 一起安全保存；仅保存三个设备凭据会丢失 App 选择的 DNS 路由。SDK 不代管 NVS 或文件存储。
+
+```c
+/* 激活成功后，构造应用要保存的字段；不要直接序列化含指针的配置结构。 */
+iot_client_config_t restored = {0};
+snprintf(restored.devid, sizeof(restored.devid), "%s", client->devid);
+snprintf(restored.secret_key, sizeof(restored.secret_key), "%s", client->secret_key);
+snprintf(restored.local_key, sizeof(restored.local_key), "%s", client->local_key);
+restored.region = client->region;
+restored.env = client->env;
+memcpy(restored.registration_key, client->registration_key,
+       sizeof(restored.registration_key));
+/* 用应用自己的持久化接口保存以上字段，并在下次启动时读取。 */
+restored.cacert = bootstrap_ca_pem; /* 每次启动配置可信 CA，或 cert_bundle_attach。 */
+iot_client_t *reconnected = iot_client_init(&restored);
+```
+
+无需持久化 DNS 地址或 Self CA，SDK 在连接时重新查询。旧存储记录若没有 `registration_key`，保持该字段全零并恢复原 `env`，无需清除绑定或重新配网；不要自动补成 `pro`。非空但损坏的 key 应报错，不能清空后静默回退线上。新激活后即使暂时断网，也应保存已返回客户端的绑定信息，再调用 `iot_client_connect()` 重试。
 
 ---
 

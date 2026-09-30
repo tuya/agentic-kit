@@ -148,6 +148,7 @@ Initialization configuration for an activated device.
 | `local_key` | `char[32]` | Local encryption key |
 | `region` | `iot_region_t` | Data-center region |
 | `env` | `iot_env_t` | Environment |
+| `registration_key` | `char[5]` | Raw App registration key: 1-4 printable bytes with zero-filled termination/padding; all zeros retain legacy `env` routing. Persist with credentials and restore on reboot |
 | `mqtt_disable_tls` | `bool` | `false` (default) uses MQTTS; `true` uses plaintext MQTT |
 | `mqtt_disable_auto_connect` | `bool` | `false` (default) connects to MQTT automatically after initialization; when `true`, you must call [`iot_client_connect()`](#iot_client_connect) manually |
 | `skip_version_report` | `bool` | `false` (default) reports the SDK metadata and firmware version during initialization; `true` skips these two reports (set only when the cloud already has the current version) |
@@ -177,7 +178,7 @@ Configuration for device provisioning and Activation.
 | `feature` | `const char *` | Feature information (can be NULL) |
 | `skill_param` | `const char *` | Skill parameters (can be NULL) |
 | `timeout_ms` | `int` | Activation timeout in milliseconds |
-| `env` | `iot_env_t` | Environment: `PROD` (default) or `PRE` |
+| `env` | `iot_env_t` | Bootstrap environment enum for listening to Activation messages (default `PROD`); after receiving the App key, DNS determines Self endpoints without rewriting this enum |
 | `mqtt_disable_tls` | `bool` | TLS switch |
 | `mqtt_disable_auto_connect` | `bool` | `false` (default) connects to MQTT automatically after Activation; when `true`, you must call [`iot_client_connect()`](#iot_client_connect) manually |
 | `skip_version_report` | `bool` | `false` (default) reports the SDK metadata and firmware version after Activation; `true` skips these two reports (set only when the cloud already has the current version) |
@@ -201,6 +202,7 @@ The client instance returned by `iot_client_init()` or a provisioning API contai
 | `local_key` | `char[32]` | Local encryption key |
 | `region` | `iot_region_t` | Server region |
 | `env` | `iot_env_t` | Environment |
+| `registration_key` | `char[5]` | Raw App registration key; persist with Activation credentials and restore in `iot_client_config_t` on reboot |
 
 ## API Functions {#api-函数}
 
@@ -236,6 +238,9 @@ iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t *config
 ```
 
 Blocks while waiting for App QR-code Activation. Internally, it listens for the Activation event over MQTT and, after successful Activation, returns a client instance containing `devid`, `secret_key`, and `local_key`.
+As in TuyaOpen, the MQTT Activation message's `data.env` is saved unchanged as the registration key, defaults to `pro` when absent, and accepts 1-4 printable bytes (such as `pr_0`, `da_0`, `pro`, or `x_ab`). The device does not map it to an environment enum. It uses this key to query IoT DNS for `httpsSelfUrl`, `mqttsSelfUrl`, and CA; Activation and later connections use these Self endpoints, not the message's `httpsUrl`. `client->env` remains `config.env`.
+
+Both App onboarding paths require `mqtt_disable_tls=false` and a trusted bootstrap CA or certificate bundle. Missing or invalid Self endpoints or CA cause failure, not fallback to production.
 
 **Return value:** An `iot_client_t *` on success; `NULL` on timeout or failure.
 
@@ -249,13 +254,34 @@ iot_client_t *iot_client_init_on_boarding_with_token(
     const char *token);
 ```
 
-Starts Activation directly with a known Activation Token, skipping the MQTT wait. The Region is derived automatically from the token's first two characters.
+Starts Activation directly with a known Activation Token, skipping the MQTT wait. The Region is derived from the first two characters. Tuya App BLE provisioning tokens have the fixed format `[region:2][activation token:8][secret:4]`, for example `AYH73H8u7Apr_0`. The trailing four-byte `secret` is opaque and is passed unchanged as the IoT DNS request's `env` parameter to obtain Self HTTPS/MQTT endpoints and CA for that environment. The device does not map it to `pre`, `pro`, or `prod`, nor use it to set `client->env`. `config.env` remains the client environment enum and does not determine this App-token route. QR/MQTT Activation also uses a raw registration key, but `data.env` may be the three-byte `pro`; this does not relax BLE's fixed 14-byte format.
 
 **Parameters:**
 - `config` - Provisioning configuration
-- `token` - Activation Token (format: `{region}{token}{secret}`, for example `AYH73H8u7Ap4pX`)
+- `token` - Tuya App BLE provisioning token in `[region:2][activation token:8][secret:4]` format, for example `AYH73H8u7Apr_0`
 
 **Return value:** An `iot_client_t *` on success; `NULL` on failure.
+
+#### Persistence and restart recovery {#registration-key-persistence}
+
+Both Activation paths return `client->registration_key`. The application must securely persist `devid`, `secret_key`, `local_key`, `region`, `env`, and `registration_key` together. Saving only the three device credentials loses the App-selected DNS route. The SDK does not manage NVS or file storage.
+
+```c
+/* After Activation, prepare the fields to save; do not serialize a config with pointers. */
+iot_client_config_t restored = {0};
+snprintf(restored.devid, sizeof(restored.devid), "%s", client->devid);
+snprintf(restored.secret_key, sizeof(restored.secret_key), "%s", client->secret_key);
+snprintf(restored.local_key, sizeof(restored.local_key), "%s", client->local_key);
+restored.region = client->region;
+restored.env = client->env;
+memcpy(restored.registration_key, client->registration_key,
+       sizeof(restored.registration_key));
+/* Save these fields using application storage, then read them on the next boot. */
+restored.cacert = bootstrap_ca_pem; /* Configure trusted CA or cert_bundle_attach each boot. */
+iot_client_t *reconnected = iot_client_init(&restored);
+```
+
+DNS endpoints and Self CA need not be persisted; the SDK queries them again when connecting. For older records without a `registration_key`, keep that field all-zero and restore the original `env`; do not clear the binding, re-activate, or automatically fill in `pro`. A corrupt nonempty key must be treated as an error, not cleared to silently fall back to production. Even if the network fails after new Activation, persist the returned client's binding information and retry with `iot_client_connect()`.
 
 ---
 

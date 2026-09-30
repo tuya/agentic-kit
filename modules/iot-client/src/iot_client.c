@@ -36,6 +36,80 @@ static const char *iot_env_to_string(iot_env_t env)
     return env == PRE ? "pre" : "prod";
 }
 
+/* Never read beyond a caller-provided five-byte public field. Empty means the
+ * legacy routing path; a key is 1-4 printable bytes with zero-filled padding. */
+static bool registration_key_empty(const char key[5])
+{
+    for (size_t i = 0; i < 5; i++) if (key[i] != '\0') return false;
+    return true;
+}
+
+static bool registration_key_valid(const char key[5])
+{
+    if (registration_key_empty(key)) return true;
+    if (key[4] != '\0') return false;
+    size_t len = 0;
+    while (len < 4 && key[len] != '\0') {
+        unsigned char c = (unsigned char)key[len++];
+        if (c < 0x21 || c > 0x7e) return false;
+    }
+    if (len == 0) return false;
+    for (size_t i = len; i < 5; i++) {
+        if (key[i] != '\0') return false;
+    }
+    return true;
+}
+
+static bool client_has_https_trust(const iot_client_t *client)
+{
+    return (client->self_cacert != NULL && client->self_cacert[0] != '\0') ||
+           (client->cacert != NULL && client->cacert[0] != '\0') ||
+           client->cert_bundle_attach != NULL;
+}
+
+/* Self endpoints are authority-only (HTTPS has the exact ATOP path). Reject
+ * malformed, truncated or insecure routes before they enter the client. */
+static bool valid_self_endpoint(const char *addr, bool https, bool has_tls_trust)
+{
+    if (!addr) return false;
+    size_t limit = https ? 64u : 56u;
+    size_t len = 0;
+    while (len < limit && addr[len] != '\0') len++;
+    if (len == 0 || len == limit) return false;
+    const char *start = addr;
+    if (https) {
+        if (strncmp(addr, "https://", 8) != 0) return false;
+        start += 8;
+    }
+    const char *end = addr + len;
+    const char *authority_end = https ? strchr(start, '/') : end;
+    if (!authority_end) authority_end = end;
+    if (https && authority_end != end && strcmp(authority_end, "/d.json") != 0) return false;
+    const char *colon = memchr(start, ':', (size_t)(authority_end - start));
+    const char *host_end = colon ? colon : authority_end;
+    if (host_end == start || (!https && !colon)) return false;
+    for (const char *p = start; p < host_end; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+              (c >= '0' && c <= '9') || c == '.' || c == '-')) return false;
+    }
+    unsigned int port = https ? 443u : 0u;
+    if (colon) {
+        port = 0;
+        if (colon + 1 == authority_end) return false;
+        for (const char *p = colon + 1; p < authority_end; p++) {
+            unsigned char c = (unsigned char)*p;
+            if (c < '0' || c > '9') return false;
+            unsigned int digit = (unsigned int)(c - '0');
+            if (port > (65535u - digit) / 10u) return false;
+            port = port * 10u + digit;
+        }
+        if (port == 0) return false;
+    }
+    if (https && (port == 80u || (port != 443u && !has_tls_trust))) return false;
+    return true;
+}
+
 static int parse_host_port(const char *url, char *host_out, size_t host_len, uint16_t *port_out)
 {
     const char *p = url;
@@ -75,13 +149,19 @@ static int parse_host_port(const char *url, char *host_out, size_t host_len, uin
 
 /* Resolve the ATOP host/port for this client. Shared by iot_client_get_session_token()
  * and the DP-layer schema-update query (declared in iot_dp_internal.h). */
-void iot_client_resolve_atop_host(iot_client_t *client, char *host_out, size_t host_len, uint16_t *port_out)
+int iot_client_resolve_atop_host(iot_client_t *client, char *host_out, size_t host_len, uint16_t *port_out)
 {
+    if (!client || !host_out || !port_out || host_len == 0) return OPRT_INVALID_PARAMETER;
     *port_out = IOT_DEFAULT_PORT;
-    if (host_len == 0) return;
     host_out[0] = '\0';
+    if (!registration_key_valid(client->registration_key)) return OPRT_INVALID_PARAMETER;
+    bool keyed = !registration_key_empty(client->registration_key);
+    if (keyed && !valid_self_endpoint(client->https_url, true,
+                                     client_has_https_trust(client)))
+        return OPRT_UNINITIALIZED;
     if (client->https_url[0] != '\0') {
-        parse_host_port(client->https_url, host_out, host_len, port_out);
+        int ret = parse_host_port(client->https_url, host_out, host_len, port_out);
+        if (ret != OPRT_OK || (keyed && host_out[0] == '\0')) return OPRT_INVALID_RESULT;
     } else {
         const char *h = iot_region_to_host(client->region, client->env);
         if (h) {
@@ -89,23 +169,38 @@ void iot_client_resolve_atop_host(iot_client_t *client, char *host_out, size_t h
             host_out[host_len - 1] = '\0';
         }
     }
+    return OPRT_OK;
 }
 
-static int iot_client_dns_resolve(iot_client_t *client)
+int iot_client_dns_resolve(iot_client_t *client, const char *dns_host, uint16_t dns_port)
 {
+    if (!client || !registration_key_valid(client->registration_key)) return OPRT_INVALID_PARAMETER;
+    bool keyed = !registration_key_empty(client->registration_key);
+    if (keyed) {
+        client->mqtt_url[0] = '\0';
+        client->https_url[0] = '\0';
+        /* The App's Self route is currently defined only for mqttsSelfUrl. */
+        if (client->mqtt_disable_tls) return OPRT_NOT_SUPPORTED;
+        if ((!client->cacert || client->cacert[0] == '\0') &&
+            !client->cert_bundle_attach) {
+            IOT_LOGE("App-selected IoT DNS lookup requires a trusted TLS CA");
+            return OPRT_INVALID_PARAMETER;
+        }
+    }
     const char *mqtt_dns_key = client->mqtt_disable_tls ? IOT_DNS_KEY_MQTT
-                                                        : IOT_DNS_KEY_MQTTS;
+                                : keyed ? "mqttsSelfUrl" : IOT_DNS_KEY_MQTTS;
+    const char *https_dns_key = keyed ? "httpsSelfUrl" : IOT_DNS_KEY_HTTPS;
     iot_dns_config_item_t dns_keys[] = {
-        { .key = mqtt_dns_key },
-        { .key = IOT_DNS_KEY_HTTPS },
+        { .key = mqtt_dns_key, .need_ca = keyed },
+        { .key = https_dns_key, .need_ca = keyed },
     };
     iot_dns_url_config_request_t dns_req = {
         .cacert = client->cacert,
         .cert_bundle_attach = client->cert_bundle_attach,
-        .host = NULL,
-        .port = 0,
+        .host = dns_host,
+        .port = dns_port,
         .region = iot_region_to_string(client->region),
-        .env = iot_env_to_string(client->env),
+        .env = keyed ? client->registration_key : iot_env_to_string(client->env),
         .uuid = client->devid,
         .config = dns_keys,
         .config_count = 2,
@@ -114,7 +209,53 @@ static int iot_client_dns_resolve(iot_client_t *client)
     int ret = iot_dns_url_config(client->pal, &dns_req, &dns_resp);
     if (ret != OPRT_OK) {
         IOT_LOGW("Failed to query IoT DNS for service URLs: %d", ret);
+        iot_dns_url_config_response_free(client->pal, &dns_resp);
         return ret;
+    }
+
+    if (keyed) {
+        char *self_cacert = NULL;
+        ret = iot_dns_url_config_first_ca_pem(client->pal, &dns_resp, &self_cacert);
+        if (ret != OPRT_OK) {
+            iot_dns_url_config_response_free(client->pal, &dns_resp);
+            IOT_LOGW("IoT DNS did not return a usable CA for Self endpoints");
+            return ret;
+        }
+        const char *mqtt_addr = NULL;
+        const char *https_addr = NULL;
+        for (int i = 0; i < dns_resp.endpoint_count; i++) {
+            if (strcmp(dns_resp.endpoints[i].key, mqtt_dns_key) == 0)
+                mqtt_addr = dns_resp.endpoints[i].addr;
+            else if (strcmp(dns_resp.endpoints[i].key, https_dns_key) == 0)
+                https_addr = dns_resp.endpoints[i].addr;
+        }
+        if (!valid_self_endpoint(https_addr, true, true) ||
+            !valid_self_endpoint(mqtt_addr, false, true)) {
+            client->pal->free(self_cacert);
+            iot_dns_url_config_response_free(client->pal, &dns_resp);
+            IOT_LOGW("IoT DNS did not return valid Self endpoints");
+            return OPRT_INVALID_RESULT;
+        }
+        int mqtt_len = snprintf(client->mqtt_url, sizeof(client->mqtt_url),
+                                "mqtts://%s", mqtt_addr);
+        int https_len = snprintf(client->https_url, sizeof(client->https_url),
+                                 "%s", https_addr);
+        if (mqtt_len >= 0 && (size_t)mqtt_len < sizeof(client->mqtt_url) &&
+            https_len >= 0 && (size_t)https_len < sizeof(client->https_url)) {
+            if (client->owned_self_cacert) client->pal->free(client->owned_self_cacert);
+            client->owned_self_cacert = self_cacert;
+            client->self_cacert = self_cacert;
+        } else {
+            client->pal->free(self_cacert);
+        }
+        iot_dns_url_config_response_free(client->pal, &dns_resp);
+        if (mqtt_len < 0 || (size_t)mqtt_len >= sizeof(client->mqtt_url) ||
+            https_len < 0 || (size_t)https_len >= sizeof(client->https_url)) {
+            client->mqtt_url[0] = '\0';
+            client->https_url[0] = '\0';
+            return OPRT_INVALID_RESULT;
+        }
+        return OPRT_OK;
     }
 
     for (int i = 0; i < dns_resp.endpoint_count; i++) {
@@ -203,21 +344,19 @@ int iot_client_report_init_versions(iot_client_t *client,
     {
         char meta_host[64] = {0};
         uint16_t meta_port = IOT_DEFAULT_PORT;
-        const char *host;
-        if (client->https_url[0] != '\0') {
-            parse_host_port(client->https_url, meta_host, sizeof(meta_host), &meta_port);
-            host = meta_host;
-        } else {
-            host = iot_region_to_host(client->region, client->env);
-        }
+        int host_ret = iot_client_resolve_atop_host(client, meta_host,
+                                                    sizeof(meta_host), &meta_port);
+        if (host_ret != OPRT_OK) return host_ret;
         device_meta_save_request_t meta_req = {
             .devid       = client->devid,
             .key         = client->secret_key,
             .sdk_version = SDK_VERSION,
-            .host        = host,
+            .host        = meta_host[0] ? meta_host : NULL,
             .port        = meta_port,
-            .cacert      = client->cacert,
-            .cert_bundle_attach = client->cert_bundle_attach,
+            .cacert      = client->registration_key[0] != '\0' && client->self_cacert
+                               ? client->self_cacert : client->cacert,
+            .cert_bundle_attach = client->registration_key[0] != '\0' && client->self_cacert
+                                      ? NULL : client->cert_bundle_attach,
         };
         device_meta_save_response_t meta_resp = {0};
         int meta_ret = atop_device_meta_save(client->pal, &meta_req, &meta_resp);
@@ -250,6 +389,14 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
         IOT_LOGE("Invalid config for iot_client_init");
         return NULL;
     }
+    if (!registration_key_valid(config->registration_key)) {
+        IOT_LOGE("iot_client_init: invalid registration key");
+        return NULL;
+    }
+    if (!registration_key_empty(config->registration_key) && config->mqtt_disable_tls) {
+        IOT_LOGE("iot_client_init: Self routing requires MQTT over TLS");
+        return NULL;
+    }
 
     const pal_t *pal = get_pal();
     if (!pal) {
@@ -272,6 +419,8 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
     client->local_key[sizeof(client->local_key) - 1] = '\0';
     client->region = config->region;
     client->env = config->env;
+    memcpy(client->registration_key, config->registration_key,
+           sizeof(client->registration_key));
     client->mqtt_disable_tls = config->mqtt_disable_tls;
     client->cacert = config->cacert;
     client->cert_bundle_attach = config->cert_bundle_attach;
@@ -292,15 +441,17 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config)
     }
 
     if (client->devid[0] != '\0') {
-        iot_client_dns_resolve(client);
+        iot_client_dns_resolve(client, NULL, 0);
     }
 
     if (client->mqtt_url[0] != '\0' && !config->mqtt_disable_auto_connect) {
         int ret = iot_client_message_connect(client);
         if (ret != OPRT_OK) {
             IOT_LOGE("MQTT connect failed: %d", ret);
-            iot_client_deinit(client);
-            return NULL;
+            if (registration_key_empty(client->registration_key)) {
+                iot_client_deinit(client);
+                return NULL;
+            }
         }
     }
 
@@ -330,6 +481,9 @@ IOT_API void iot_client_deinit(iot_client_t *client)
         client->pal->free(client->schema);
     }
     const pal_t *pal = client->pal;
+    if (client->owned_self_cacert) {
+        pal->free(client->owned_self_cacert);
+    }
     /* Wipe before freeing: devid, secret_key and local_key are plaintext in this
      * struct, and on an embedded allocator the next malloc of a similar size
      * hands the block -- keys included -- to unrelated code. Matters most on the
@@ -418,6 +572,11 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
         IOT_LOGE("Invalid config for iot_client_init_on_boarding");
         return NULL;
     }
+    /* QR activation also returns an App key and will use Self MQTT routing. */
+    if (config->mqtt_disable_tls) {
+        IOT_LOGE("QR on-boarding requires MQTT over TLS");
+        return NULL;
+    }
 
     const pal_t *pal = get_pal();
     if (!pal) {
@@ -481,6 +640,8 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
     strncpy(client_config.local_key, ob_resp.local_key, sizeof(client_config.local_key) - 1);
     client_config.region = ob_resp.region;
     client_config.env = ob_resp.env;
+    memcpy(client_config.registration_key, ob_resp.registration_key,
+           sizeof(client_config.registration_key));
     client_config.mqtt_disable_tls = config->mqtt_disable_tls;
     client_config.mqtt_disable_auto_connect = config->mqtt_disable_auto_connect;
     client_config.skip_version_report = config->skip_version_report;
@@ -536,6 +697,13 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
         return NULL;
     }
 
+    /* Token on-boarding always carries an App registration key.  Reject a
+     * plaintext MQTT configuration before activation can issue credentials. */
+    if (config->mqtt_disable_tls) {
+        IOT_LOGE("token on-boarding requires MQTT over TLS");
+        return NULL;
+    }
+
     IOT_LOGI("iot_client_init_on_boarding_with_token: uuid=%s", config->uuid);
 
     on_boarding_config_t ob_cfg = {0};
@@ -581,6 +749,8 @@ IOT_API iot_client_t *iot_client_init_on_boarding_with_token(const iot_on_boardi
     strncpy(client_config.local_key, ob_resp.local_key, sizeof(client_config.local_key) - 1);
     client_config.region = ob_resp.region;
     client_config.env = ob_resp.env;
+    memcpy(client_config.registration_key, ob_resp.registration_key,
+           sizeof(client_config.registration_key));
     client_config.mqtt_disable_tls = config->mqtt_disable_tls;
     client_config.mqtt_disable_auto_connect = config->mqtt_disable_auto_connect;
     client_config.skip_version_report = config->skip_version_report;
@@ -633,7 +803,9 @@ IOT_API int iot_client_get_session_token_ex(iot_client_t *client, const char *ag
 
     char parsed_host[64] = {0};
     uint16_t parsed_port = IOT_DEFAULT_PORT;
-    iot_client_resolve_atop_host(client, parsed_host, sizeof(parsed_host), &parsed_port);
+    int host_ret = iot_client_resolve_atop_host(client, parsed_host,
+                                                sizeof(parsed_host), &parsed_port);
+    if (host_ret != OPRT_OK) return host_ret;
     const char *host = parsed_host[0] ? parsed_host : NULL;
     ai_token_request_t req = {
         .devid = client->devid,
@@ -641,8 +813,10 @@ IOT_API int iot_client_get_session_token_ex(iot_client_t *client, const char *ag
         .agent_code = agent_code,
         .host = host,
         .port = parsed_port,
-        .cacert = client->cacert,
-        .cert_bundle_attach = client->cert_bundle_attach,
+        .cacert = client->registration_key[0] != '\0' && client->self_cacert
+                      ? client->self_cacert : client->cacert,
+        .cert_bundle_attach = client->registration_key[0] != '\0' && client->self_cacert
+                                  ? NULL : client->cert_bundle_attach,
     };
 
     ai_token_response_t resp = {0};
@@ -668,9 +842,12 @@ IOT_API int iot_client_get_session_token_ex(iot_client_t *client, const char *ag
 
 IOT_API int iot_client_connect(iot_client_t *client)
 {
-    /* No NULL guard, like its neighbour below: iot_client_message_connect()
-     * already rejects NULL (along with a missing url/devid) with the same
-     * OPRT_INVALID_PARAMETER, so a guard here could only duplicate it. */
+    if (!client) return OPRT_INVALID_PARAMETER;
+    if (!registration_key_valid(client->registration_key)) return OPRT_INVALID_PARAMETER;
+    if (!registration_key_empty(client->registration_key) && !client->mqtt) {
+        int ret = iot_client_dns_resolve(client, NULL, 0);
+        if (ret != OPRT_OK) return ret;
+    }
     return iot_client_message_connect(client);
 }
 

@@ -125,6 +125,13 @@ int iot_dns_url_config(const pal_t *pal, const iot_dns_url_config_request_t *req
 
 void iot_dns_url_config_response_free(const pal_t *pal, iot_dns_url_config_response_t *response);
 
+/** Decode the first CA in a url_config response's base64 DER caArr to PEM.
+ * The returned buffer is allocated with pal->malloc and belongs to the caller.
+ */
+int iot_dns_url_config_first_ca_pem(const pal_t *pal,
+                                    const iot_dns_url_config_response_t *response,
+                                    char **pem_out);
+
 /* ============================================================================
  * GET /api/v1/ca-certificate
  * ============================================================================ */

@@ -205,6 +205,21 @@ static int test_requires_device_credentials(void)
     return 0;
 }
 
+static int test_keyed_generic_atop_requires_self_https(void)
+{
+    iot_client_t client = g_client;
+    memcpy(client.registration_key, "pr_0", 5);
+    client.https_url[0] = '\0';
+    iot_atop_request_t req = { .api = "tuya.device.meta.save", .version = "1.0" };
+    iot_atop_response_t resp = {0};
+    int ret = iot_atop_call(&client, &req, &resp);
+    if (ret != OPRT_UNINITIALIZED || resp.result != NULL) {
+        iot_atop_response_free(&client, &resp);
+        return -1;
+    }
+    return 0;
+}
+
 /* A malformed body is caught locally, before spending an HTTPS round trip. */
 static int test_body_must_be_json_object(void)
 {
@@ -575,6 +590,7 @@ int main(void)
     RUN_TEST(test_null_params);
     RUN_TEST(test_api_and_version_required);
     RUN_TEST(test_requires_device_credentials);
+    RUN_TEST(test_keyed_generic_atop_requires_self_https);
     RUN_TEST(test_body_must_be_json_object);
 
     /* Round trips */

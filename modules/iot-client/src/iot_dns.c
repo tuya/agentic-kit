@@ -7,6 +7,8 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <mbedtls/base64.h>
+#include <mbedtls/pem.h>
 
 static void parse_ip_array(cJSON *arr, char out[][64], int *count, int max) {
     *count = 0;
@@ -302,6 +304,63 @@ void iot_dns_url_config_response_free(const pal_t *pal, iot_dns_url_config_respo
     }
     response->endpoint_count = 0;
     response->ttl = 0;
+}
+
+int iot_dns_url_config_first_ca_pem(const pal_t *pal,
+                                    const iot_dns_url_config_response_t *response,
+                                    char **pem_out)
+{
+    if (!pal || !response || !pem_out) return OPRT_INVALID_PARAMETER;
+    *pem_out = NULL;
+    if (!response->ca_arr || response->ca_count < 1 || !response->ca_arr[0]) {
+        IOT_LOGE("iot_dns: url_config response did not include a CA certificate");
+        return OPRT_INVALID_RESULT;
+    }
+
+    const char *base64 = response->ca_arr[0];
+    size_t base64_len = strlen(base64);
+    if (base64_len == 0 || base64_len > 16384) {
+        IOT_LOGE("iot_dns: invalid CA certificate length (%zu)", base64_len);
+        return OPRT_INVALID_RESULT;
+    }
+
+    size_t der_len = 0;
+    int ret = mbedtls_base64_decode(NULL, 0, &der_len,
+                                   (const unsigned char *)base64, base64_len);
+    if (ret != MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL || der_len == 0 || der_len > 12288) {
+        IOT_LOGE("iot_dns: invalid base64 CA certificate (ret=%d)", ret);
+        return OPRT_INVALID_RESULT;
+    }
+
+    unsigned char *der = pal->malloc(der_len);
+    if (!der) return OPRT_MALLOC_FAILED;
+    ret = mbedtls_base64_decode(der, der_len, &der_len,
+                                (const unsigned char *)base64, base64_len);
+    if (ret != 0 || der_len == 0) {
+        pal->free(der);
+        IOT_LOGE("iot_dns: failed to decode CA certificate (ret=%d)", ret);
+        return OPRT_INVALID_RESULT;
+    }
+
+    size_t pem_capacity = der_len * 2 + 256;
+    char *pem = pal->malloc(pem_capacity);
+    if (!pem) {
+        pal->free(der);
+        return OPRT_MALLOC_FAILED;
+    }
+    size_t pem_len = 0;
+    ret = mbedtls_pem_write_buffer("-----BEGIN CERTIFICATE-----\n",
+                                   "-----END CERTIFICATE-----\n",
+                                   der, der_len, (unsigned char *)pem,
+                                   pem_capacity, &pem_len);
+    pal->free(der);
+    if (ret != 0 || pem_len == 0 || pem_len > pem_capacity) {
+        pal->free(pem);
+        IOT_LOGE("iot_dns: failed to encode CA certificate as PEM (ret=%d)", ret);
+        return OPRT_INVALID_RESULT;
+    }
+    *pem_out = pem;
+    return OPRT_OK;
 }
 
 /* ============================================================================
