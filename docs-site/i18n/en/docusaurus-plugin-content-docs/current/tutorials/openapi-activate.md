@@ -2,6 +2,11 @@
 title: OpenAPI Provisioning
 sidebar_label: OpenAPI Provisioning
 sidebar_position: 6
+toc_labels:
+  1-用户同步--post-v10appsschemauser: User sync
+  2-生成配网-token--post-v10deviceparingtoken: Generate token
+  3-查询配网结果--get-v10deviceparingtokenstoken: Query provisioning result
+  4-设备重置恢复出厂设置--post-v20cloudthingdevice_idreset: Reset device
 ---
 
 # OpenAPI Provisioning
@@ -12,7 +17,7 @@ sidebar_position: 6
 OpenAPI Provisioning requires creating a new cloud project and associating an App. First follow [Create an App and a cloud project](../guides/create-cloud-project.md) to complete the cloud-side configuration.
 :::
 
-This chapter introduces the third Provisioning method: **without relying on the Tuya App, use the Tuya OpenAPI (Cloud API) to create the user and generate the Provisioning token on the server side, then pass the token to the device to complete Activation**.
+This chapter introduces the third Provisioning method: **without relying on the Tuya App**, use the Tuya OpenAPI (Cloud API) to create the user and generate the Provisioning token on the server side, then pass the token to the device to complete Activation.
 
 The first two Provisioning methods both require users to install and use the Tuya App to complete scan-based Provisioning. However, in some scenarios, device manufacturers may:
 

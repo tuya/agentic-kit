@@ -111,14 +111,14 @@
   color: #c6421b;
 }
 
-.theme-doc-markdown a[href^="http"]:not(.hash-link) {
-  border-bottom: 1px solid #edb5a3;
+.reference-docs .article :where(p, li, td, blockquote) a:not(.hash-link) {
   color: #c6421b;
-  text-decoration: none;
+  text-decoration: underline;
+  text-underline-offset: .18em;
+  border-bottom: 0;
 }
 
-.theme-doc-markdown a[href^="http"]:not(.hash-link):hover {
-  border-bottom-color: #9f2f10;
+.reference-docs .article :where(p, li, td, blockquote) a:not(.hash-link):hover {
   color: #9f2f10;
 }
 
@@ -141,17 +141,17 @@
 
 /* Sidebar details/summary for nested categories */
 .reference-docs .sidebar details { padding: 0; margin: 0; }
-.reference-docs .sidebar details summary { display: block; padding: 7px 11px; border-radius: 4px; color: #626b76; font-size: 14px; cursor: pointer; list-style: none; position: relative; }
+.reference-docs .sidebar details summary { display: block; padding: 7px 11px; border-radius: 4px; color: var(--sub); font-size: 15px; cursor: pointer; list-style: none; position: relative; }
 .reference-docs .sidebar details summary::-webkit-details-marker { display: none; }
 .reference-docs .sidebar details summary::after { content: "›"; position: absolute; right: 11px; top: 50%; transform: translateY(-50%) rotate(0deg); transition: transform 0.2s; color: #a5adb7; font-size: 12px; }
 .reference-docs .sidebar details[open] summary::after { transform: translateY(-50%) rotate(90deg); }
 .reference-docs .sidebar details summary:hover { background: #eceff2; color: #1b1d21; }
-.reference-docs .sidebar details > a { display: block; padding: 7px 11px 7px 22px; border-radius: 4px; color: #626b76; font-size: 13px; }
+.reference-docs .sidebar details > a { display: block; padding: 7px 11px 7px 22px; border-radius: 4px; color: var(--sub); font-size: 14px; }
 .reference-docs .sidebar details > a:hover { background: #eceff2; color: #1b1d21; }
 .reference-docs .sidebar details > a.active { background: #fff1eb; color: #c83f17; font-weight: 600; }
 .reference-docs .sidebar details > details { margin-left: 11px; }
-.reference-docs .sidebar details > details > summary { padding-left: 11px; font-size: 13px; }
-.reference-docs .sidebar details > details > a { padding-left: 33px; font-size: 13px; }
+.reference-docs .sidebar details > details > summary { padding-left: 11px; font-size: 14px; }
+.reference-docs .sidebar details > details > a { padding-left: 33px; font-size: 14px; }
 
 /* Topnav doc-directory dropdown */
 .reference-docs .doc-directory { position: relative; }
@@ -160,7 +160,7 @@
 .reference-docs .doc-directory summary::after { content: "▾"; margin-left: 4px; font-size: 11px; }
 .reference-docs .doc-directory summary:hover { color: #ed5024; }
 .reference-docs .all-docs { position: absolute; top: 100%; right: 0; background: #fff; border: 1px solid #dfe3e8; border-radius: 6px; box-shadow: 0 8px 30px rgba(0,0,0,0.12); padding: 8px; min-width: 220px; max-height: 70vh; overflow-y: auto; z-index: 50; }
-.reference-docs .all-docs a { display: block; padding: 7px 11px; border-radius: 4px; color: #626b76; font-size: 13px; }
+.reference-docs .all-docs a { display: block; padding: 7px 11px; border-radius: 4px; color: var(--sub); font-size: 14px; }
 .reference-docs .all-docs a:hover { background: #eceff2; color: #1b1d21; }
 .reference-docs .all-docs a.active { background: #fff1eb; color: #c83f17; }
 .reference-docs .all-docs details summary { padding: 7px 11px; border-radius: 4px; color: #343a43; font-size: 13px; font-weight: 600; cursor: pointer; list-style: none; }
@@ -204,8 +204,8 @@
   border-left: 4px solid var(--orange);
   background: var(--orange-soft);
   color: var(--ink);
-  font-size: 14px;
-  line-height: 1.75;
+  font-size: 16px;
+  line-height: 1.7;
 }
 .reference-docs .article .theme-admonition p { margin-bottom: 8px; }
 .reference-docs .article .theme-admonition p:last-child { margin-bottom: 0; }

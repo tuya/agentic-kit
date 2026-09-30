@@ -2,6 +2,11 @@
 title: OpenAPI 配网
 sidebar_label: OpenAPI 配网
 sidebar_position: 6
+toc_labels:
+  1-用户同步--post-v10appsschemauser: 用户同步
+  2-生成配网-token--post-v10deviceparingtoken: 生成配网 Token
+  3-查询配网结果--get-v10deviceparingtokenstoken: 查询配网结果
+  4-设备重置恢复出厂设置--post-v20cloudthingdevice_idreset: 设备重置
 ---
 
 # OpenAPI 配网
@@ -12,8 +17,8 @@ sidebar_position: 6
 OpenAPI配网需要新建云项目并关联App，请先参考 [创建 App 和云项目](../guides/create-cloud-project.md) 完成云端配置。
 :::
 
-本章介绍第三种配网方式：**不依赖涂鸦 App，通过涂鸦 OpenAPI（Cloud API）在
-服务端完成用户创建和配网 Token 生成，再将 Token 传给设备完成激活**。
+本章介绍第三种配网方式：**不依赖涂鸦 App**，通过涂鸦 OpenAPI（Cloud API）在
+服务端完成用户创建和配网 Token 生成，再将 Token 传给设备完成激活。
 
 前两种配网方式都需要用户安装并使用涂鸦 App 来完成扫码配网。但在某些场景下，
 设备厂商可能：
