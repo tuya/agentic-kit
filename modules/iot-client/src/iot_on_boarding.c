@@ -16,7 +16,6 @@ typedef struct {
     char *https_url;
     iot_region_t region;
     iot_env_t env;
-    bool env_from_app;
     char token[64];
     char registration_key[5];
 } activation_message_t;
@@ -35,23 +34,8 @@ static volatile bool g_on_boarding_in_progress = false;
 
 static void activate_context_destroy(void);
 
-/* The QR/MQTT activation message's env field still uses the legacy enum.
- * Direct BLE authToken registration keys never pass through this mapping. */
-static int activation_data_env_to_iot_env(const char *key, iot_env_t *env)
-{
-    if (!key || !env) return OPRT_INVALID_PARAMETER;
-    if (strcmp(key, "pre") == 0) {
-        *env = PRE;
-    } else if (strcmp(key, "pro") == 0 || strcmp(key, "prod") == 0) {
-        *env = PROD;
-    } else {
-        return OPRT_INVALID_PARAMETER;
-    }
-    return OPRT_OK;
-}
-
-// Parse activation response JSON and extract URLs
-static void parse_activation_message(const pal_t *pal, const char *json_str, activation_message_t *message) {
+// Parse the App-selected region, activation token and opaque registration key.
+static void parse_activation_message(const char *json_str, activation_message_t *message) {
     cJSON *root = cJSON_Parse(json_str);
     if (!root) {
         IOT_LOGE("Failed to parse activation response JSON");
@@ -60,31 +44,37 @@ static void parse_activation_message(const pal_t *pal, const char *json_str, act
 
     // Get data object
     cJSON *data = cJSON_GetObjectItem(root, "data");
-    if (!data) {
+    if (!cJSON_IsObject(data)) {
         IOT_LOGE("Activation response missing 'data' field");
         cJSON_Delete(root);
         return;
     }
 
     cJSON *env = cJSON_GetObjectItemCaseSensitive(data, "env");
+    const char *registration_key = "pro"; /* Same missing-field default as TuyaOpen. */
     if (env) {
-        if (!cJSON_IsString(env) ||
-            activation_data_env_to_iot_env(env->valuestring, &message->env) != OPRT_OK) {
-            IOT_LOGE("Activation message contains an unsupported environment");
+        if (!cJSON_IsString(env)) {
+            IOT_LOGE("Activation message contains an invalid registration key");
             cJSON_Delete(root);
             return;
         }
-        message->env_from_app = true;
+        registration_key = env->valuestring;
     }
-
-    // Extract httpsUrl
-    cJSON *https_url = cJSON_GetObjectItem(data, "httpsUrl");
-    if (https_url && cJSON_IsString(https_url)) {
-        message->https_url = pal_strdup(pal, https_url->valuestring);
-        if (message->https_url) {
-            IOT_LOGI("Activation httpsUrl: %s", message->https_url);
+    size_t key_len = strlen(registration_key);
+    if (key_len == 0 || key_len >= sizeof(message->registration_key)) {
+        IOT_LOGE("Activation message registration key must be 1 to 4 bytes");
+        cJSON_Delete(root);
+        return;
+    }
+    for (size_t i = 0; i < key_len; i++) {
+        unsigned char c = (unsigned char)registration_key[i];
+        if (c < 0x21 || c > 0x7e) {
+            IOT_LOGE("Activation message registration key contains an invalid byte");
+            cJSON_Delete(root);
+            return;
         }
     }
+    memcpy(message->registration_key, registration_key, key_len + 1);
 
     // Extract region
     cJSON *region = cJSON_GetObjectItem(data, "region");
@@ -199,13 +189,13 @@ static void internal_message_callback(const char *topic, size_t topic_len,
     }
 
     activation_message_t message = {0};
-    // Step 3: Parse JSON and extract activation URLs
+    // Step 3: Parse JSON; activation endpoints come from trusted IoT DNS.
     if (final_len > 0) {
         char *json_str = (char *)pal->malloc(final_len + 1);
         if (json_str) {
             memcpy(json_str, final_payload, final_len);
             json_str[final_len] = '\0';
-            parse_activation_message(pal, json_str, &message);
+            parse_activation_message(json_str, &message);
             pal->free(json_str);
         }
     }
@@ -216,18 +206,8 @@ static void internal_message_callback(const char *topic, size_t topic_len,
         if (g_activate_ctx->message) {
             memcpy(g_activate_ctx->message, &message, sizeof(activation_message_t));
             g_activate_ctx->received_activation_message = true;
-            if (message.https_url) {
-                g_activate_ctx->message->https_url = pal_strdup(pal, message.https_url);
-            } else {
-                g_activate_ctx->message->https_url = NULL;
-            }
             IOT_LOGI("Activation message stored in context");
         }
-    }
-
-    if (message.https_url) {
-        pal->free(message.https_url);
-        message.https_url = NULL;
     }
 
     if (decrypted) {
@@ -483,53 +463,17 @@ static bool valid_self_authority(const char *addr, bool https, bool has_tls_trus
     return true;
 }
 
-int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
-                           const char *token, on_boarding_response_t *response)
+/* Both App onboarding transports use the opaque registration key for Self
+ * endpoint discovery. Never let the payload httpsUrl select a different route. */
+static int activate_with_registration_key(const pal_t *pal, on_boarding_config_t *on_boarding,
+                                         const activation_message_t *message,
+                                         on_boarding_response_t *response)
 {
-    if (!on_boarding || !token || token[0] == '\0' || !response) {
-        IOT_LOGE("Invalid parameters for on_boarding_with_token");
-        return OPRT_INVALID_PARAMETER;
-    }
-
-    /* App authToken: region(2) + activation token(8) + opaque key(4). */
-    enum { REGION_LEN = 2, ACTIVATION_TOKEN_LEN = 8, REGISTRATION_KEY_LEN = 4 };
-    size_t token_len = strlen(token);
-    if (token_len != REGION_LEN + ACTIVATION_TOKEN_LEN + REGISTRATION_KEY_LEN) {
-        IOT_LOGE("Invalid App activation token length: %zu", token_len);
-        return OPRT_INVALID_PARAMETER;
-    }
-    for (size_t i = 0; i < token_len; i++) {
-        unsigned char c = (unsigned char)token[i];
-        if (c < 0x21 || c > 0x7e) {
-            IOT_LOGE("App activation token contains an invalid byte");
-            return OPRT_INVALID_PARAMETER;
-        }
-        if (i >= REGION_LEN && i < REGION_LEN + ACTIVATION_TOKEN_LEN &&
-            (c == '"' || c == '\\')) {
-            IOT_LOGE("App activation token contains an unsafe JSON byte");
-            return OPRT_INVALID_PARAMETER;
-        }
-    }
-
     if ((!on_boarding->cacert || on_boarding->cacert[0] == '\0') &&
         !on_boarding->cert_bundle_attach) {
         IOT_LOGE("App-selected IoT DNS lookup requires a trusted TLS CA");
         return OPRT_INVALID_PARAMETER;
     }
-
-    iot_region_t region;
-    int ret = __token_to_region(token, &region);
-    if (ret != OPRT_OK) {
-        IOT_LOGE("Failed to parse region from token prefix");
-        return ret;
-    }
-
-    activation_message_t act_msg = {0};
-    memcpy(act_msg.token, token + REGION_LEN, ACTIVATION_TOKEN_LEN);
-    memcpy(act_msg.registration_key, token + REGION_LEN + ACTIVATION_TOKEN_LEN,
-           REGISTRATION_KEY_LEN);
-    act_msg.region = region;
-    act_msg.env = on_boarding->env; /* legacy enum remains for non-keyed clients */
 
     const iot_dns_config_item_t keys[] = {
         { .key = "httpsSelfUrl", .need_ca = true },
@@ -540,14 +484,14 @@ int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
         .port = on_boarding->dns_port,
         .cacert = on_boarding->cacert,
         .cert_bundle_attach = on_boarding->cert_bundle_attach,
-        .region = iot_region_to_string(region),
-        .env = act_msg.registration_key,
+        .region = iot_region_to_string(message->region),
+        .env = message->registration_key,
         .uuid = on_boarding->uuid,
         .config = keys,
         .config_count = 2,
     };
     iot_dns_url_config_response_t dns_resp = {0};
-    ret = iot_dns_url_config(pal, &dns_req, &dns_resp);
+    int ret = iot_dns_url_config(pal, &dns_req, &dns_resp);
     if (ret != OPRT_OK) {
         IOT_LOGE("App-selected IoT DNS lookup failed: %d", ret);
         return ret;
@@ -578,6 +522,7 @@ int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
         return ret;
     }
 
+    activation_message_t act_msg = *message;
     act_msg.https_url = (char *)https_addr; /* borrowed until DNS response is freed */
     on_boarding_config_t activation_config = *on_boarding;
     activation_config.cacert = self_cacert;
@@ -586,6 +531,49 @@ int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
     pal->free(self_cacert);
     iot_dns_url_config_response_free(pal, &dns_resp);
     return ret;
+}
+
+int on_boarding_with_token(const pal_t *pal, on_boarding_config_t *on_boarding,
+                           const char *token, on_boarding_response_t *response)
+{
+    if (!on_boarding || !token || token[0] == '\0' || !response) {
+        IOT_LOGE("Invalid parameters for on_boarding_with_token");
+        return OPRT_INVALID_PARAMETER;
+    }
+
+    /* App authToken: region(2) + activation token(8) + opaque key(4). */
+    enum { REGION_LEN = 2, ACTIVATION_TOKEN_LEN = 8, REGISTRATION_KEY_LEN = 4 };
+    size_t token_len = strlen(token);
+    if (token_len != REGION_LEN + ACTIVATION_TOKEN_LEN + REGISTRATION_KEY_LEN) {
+        IOT_LOGE("Invalid App activation token length: %zu", token_len);
+        return OPRT_INVALID_PARAMETER;
+    }
+    for (size_t i = 0; i < token_len; i++) {
+        unsigned char c = (unsigned char)token[i];
+        if (c < 0x21 || c > 0x7e) {
+            IOT_LOGE("App activation token contains an invalid byte");
+            return OPRT_INVALID_PARAMETER;
+        }
+        if (i >= REGION_LEN && i < REGION_LEN + ACTIVATION_TOKEN_LEN &&
+            (c == '"' || c == '\\')) {
+            IOT_LOGE("App activation token contains an unsafe JSON byte");
+            return OPRT_INVALID_PARAMETER;
+        }
+    }
+
+    iot_region_t region;
+    int ret = __token_to_region(token, &region);
+    if (ret != OPRT_OK) {
+        IOT_LOGE("Failed to parse region from token prefix");
+        return ret;
+    }
+    activation_message_t act_msg = {0};
+    memcpy(act_msg.token, token + REGION_LEN, ACTIVATION_TOKEN_LEN);
+    memcpy(act_msg.registration_key, token + REGION_LEN + ACTIVATION_TOKEN_LEN,
+           REGISTRATION_KEY_LEN);
+    act_msg.region = region;
+    act_msg.env = on_boarding->env; /* Retain the legacy enum without rewriting it. */
+    return activate_with_registration_key(pal, on_boarding, &act_msg, response);
 }
 
 static int activate_context_init(const pal_t *pal) {
@@ -621,6 +609,12 @@ static void activate_context_destroy() {
 int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding, on_boarding_response_t *response) {
     if (!on_boarding || !response) {
         IOT_LOGE("Invalid parameters for on boarding");
+        return OPRT_INVALID_PARAMETER;
+    }
+    if (on_boarding->mqtt_disable_tls ||
+        ((!on_boarding->cacert || on_boarding->cacert[0] == '\0') &&
+         !on_boarding->cert_bundle_attach)) {
+        IOT_LOGE("QR on-boarding requires MQTT TLS and trusted bootstrap CA/bundle");
         return OPRT_INVALID_PARAMETER;
     }
 
@@ -820,10 +814,8 @@ int on_boarding_with_qrcode(const pal_t *pal, on_boarding_config_t *on_boarding,
         goto end;
     }
 
-    if (!g_activate_ctx->message->env_from_app) {
-        g_activate_ctx->message->env = on_boarding->env;
-    }
-    ret = activate_device(pal, on_boarding, g_activate_ctx->message, response);
+    g_activate_ctx->message->env = on_boarding->env;
+    ret = activate_with_registration_key(pal, on_boarding, g_activate_ctx->message, response);
     if (ret != OPRT_OK) {
         IOT_LOGE("Failed to activate device: %d", ret);
     }

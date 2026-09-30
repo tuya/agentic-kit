@@ -14,6 +14,8 @@
 #include "iot_on_boarding.h"
 #include "iot_client.h"
 #include "iot_internal.h"
+#include "iot_dns.h"
+#include "iot_dp_internal.h"
 #include "test_log.h"
 
 
@@ -39,6 +41,7 @@ static int tests_passed = 0;
 static char *g_cacert = NULL;
 static char g_expected_env_file[] = "/tmp/agentic-kit-dns-env-XXXXXX";
 static char g_activation_record_file[] = "/tmp/agentic-kit-atop-record-XXXXXX";
+static char g_qr_message_file[] = "/tmp/agentic-kit-qr-message-XXXXXX";
 static pal_t g_no_network_pal;
 static int g_network_attempts;
 
@@ -91,6 +94,7 @@ static void remove_test_files(void)
 {
     unlink(g_expected_env_file);
     unlink(g_activation_record_file);
+    unlink(g_qr_message_file);
 }
 
 static int create_test_files(void)
@@ -104,6 +108,12 @@ static int create_test_files(void)
         return -1;
     }
     close(record_fd);
+    int message_fd = mkstemp(g_qr_message_file);
+    if (message_fd < 0) {
+        remove_test_files();
+        return -1;
+    }
+    close(message_fd);
     atexit(remove_test_files);
     return 0;
 }
@@ -166,6 +176,7 @@ static int start_mqtt_mock(void)
 {
     mqtt_mock_pid = fork();
     if (mqtt_mock_pid == 0) {
+        setenv("ONBOARDING_MESSAGE_FILE", g_qr_message_file, 1);
         execlp(PYTHON3_EXEC, PYTHON3_EXEC, ONBOARDING_MQTT_MOCK_PATH, NULL);
         perror("execlp mqtt mock failed");
         _exit(1);
@@ -288,7 +299,7 @@ static int test_on_boarding_null_params(void)
 
 /* ---------- Test: full on_boarding_with_qrcode flow ---------- */
 
-static int test_on_boarding_qrcode_flow(void)
+static int run_qrcode_case(const char *env_field, const char *expected_key)
 {
     const pal_t *pal = get_default_pal();
     on_boarding_config_t cfg = {0};
@@ -298,33 +309,106 @@ static int test_on_boarding_qrcode_flow(void)
     strncpy(cfg.product_key, TEST_PK, sizeof(cfg.product_key) - 1);
     strncpy(cfg.pv, TEST_PV, sizeof(cfg.pv) - 1);
     strncpy(cfg.bv, TEST_BV, sizeof(cfg.bv) - 1);
-    cfg.timeout_ms = 10000;
+    cfg.timeout_ms = 300;
+    cfg.env = TEST; /* A raw App key must not rewrite the legacy enum. */
     cfg.dns_host = MOCK_DNS_HOST;
     cfg.dns_port = MOCK_DNS_PORT;
     cfg.cacert = g_cacert;
 
+    char message[256];
+    snprintf(message, sizeof(message),
+             "{\"data\":{\"region\":\"AY\",\"token\":\"H73H8u7A\","
+             "\"httpsUrl\":\"https://127.0.0.1:1/d.json\"%s}}", env_field);
+    if (write_test_file(g_qr_message_file, message) != 0 ||
+        write_test_file(g_expected_env_file, expected_key ? expected_key : "pro") != 0 ||
+        write_test_file(g_activation_record_file, "") != 0) return -1;
     on_boarding_response_t resp = {0};
     int ret = on_boarding_with_qrcode(pal, &cfg, &resp);
-
-    if (ret != OPRT_OK) {
-        printf("  on_boarding_with_qrcode failed: %d\n", ret);
-        return -1;
+    int ok;
+    if (!expected_key) {
+        ok = ret != OPRT_OK && resp.devid[0] == '\0' && no_activation_recorded();
+    } else {
+        ok = ret == OPRT_OK && resp.devid[0] != '\0' && resp.env == cfg.env &&
+             strcmp(resp.registration_key, expected_key) == 0 &&
+             strcmp(resp.schema_id, "H73H8u7A") == 0;
     }
-
-    if (resp.devid[0] == '\0') {
-        printf("  response missing devid\n");
-        return -1;
+    pal->free(resp.schema);
+    if (!ok) {
+        printf("  QR App key %s: ret=%d key=%s env=%d schema=%s\n",
+               expected_key ? expected_key : "(invalid)", ret,
+               resp.registration_key, resp.env, resp.schema_id);
     }
-    if (resp.env != PRE) {
-        printf("  App selected PRE, response env=%d\n", resp.env);
-        return -1;
-    }
+    return ok ? 0 : -1;
+}
 
-    printf("  devid      : %s\n", resp.devid);
-    printf("  secret_key : %s\n", resp.secret_key);
-    printf("  local_key  : %s\n", resp.local_key);
-    printf("  region     : %d\n", resp.region);
-    return OPRT_OK;
+static int test_on_boarding_qrcode_flow(void)
+{
+    const char *keys[] = {"pr_0", "da_0", "pro", "TlAB", "x_ab", "pre", "prod"};
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        char field[32];
+        snprintf(field, sizeof(field), ",\"env\":\"%s\"", keys[i]);
+        if (run_qrcode_case(field, keys[i]) != 0) return -1;
+    }
+    return 0;
+}
+
+static int test_on_boarding_qrcode_missing_env_defaults_to_pro(void)
+{
+    return run_qrcode_case("", "pro");
+}
+
+static int test_on_boarding_qrcode_invalid_env_never_activates(void)
+{
+    const char *fields[] = {",\"env\":null", ",\"env\":5", ",\"env\":\"\"", ",\"env\":\"abcde\""};
+    for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++)
+        if (run_qrcode_case(fields[i], NULL) != 0) return -1;
+    return 0;
+}
+
+static int test_token_activation_restart_keeps_registration_route(void)
+{
+    const pal_t *pal = get_default_pal();
+    on_boarding_config_t cfg = {0};
+    snprintf(cfg.uuid, sizeof(cfg.uuid), "%s", TEST_UUID);
+    snprintf(cfg.authkey, sizeof(cfg.authkey), "%s", TEST_AUTHKEY);
+    snprintf(cfg.product_key, sizeof(cfg.product_key), "%s", TEST_PK);
+    snprintf(cfg.sw_ver, sizeof(cfg.sw_ver), "1.0.0");
+    snprintf(cfg.pv, sizeof(cfg.pv), "%s", TEST_PV);
+    snprintf(cfg.bv, sizeof(cfg.bv), "%s", TEST_BV);
+    cfg.cacert = g_cacert;
+    cfg.dns_host = MOCK_DNS_HOST;
+    cfg.dns_port = MOCK_DNS_PORT;
+    on_boarding_response_t resp = {0};
+    if (write_test_file(g_expected_env_file, "pr_0") != 0 ||
+        on_boarding_with_token(pal, &cfg, "AYH73H8u7Apr_0", &resp) != OPRT_OK) return -1;
+
+    /* Emulate the application's persisted activation record, then boot with
+     * unavailable DNS before resolving against the local TLS mock. */
+    iot_client_config_t saved = {0};
+    snprintf(saved.devid, sizeof(saved.devid), "%s", resp.devid);
+    snprintf(saved.secret_key, sizeof(saved.secret_key), "%s", resp.secret_key);
+    snprintf(saved.local_key, sizeof(saved.local_key), "%s", resp.local_key);
+    memcpy(saved.registration_key, resp.registration_key, sizeof(saved.registration_key));
+    saved.region = resp.region;
+    saved.env = resp.env;
+    saved.cacert = g_cacert;
+    saved.skip_version_report = true;
+    saved.mqtt_disable_auto_connect = true;
+    pal->free(resp.schema);
+    pal_t restart_pal = *pal;
+    restart_pal.tcp_connect = count_and_reject_tcp_connect;
+    iot_init(&restart_pal);
+    iot_client_t *client = iot_client_init(&saved);
+    restart_pal.tcp_connect = pal->tcp_connect;
+    int ret = client ? iot_client_dns_resolve(client, MOCK_DNS_HOST, MOCK_DNS_PORT) : -1;
+    int ok = client && ret == OPRT_OK && client->env == PROD &&
+             strcmp(client->registration_key, "pr_0") == 0 &&
+             strcmp(client->https_url, "https://127.0.0.1:8443/d.json") == 0 &&
+             strcmp(client->mqtt_url, "mqtts://127.0.0.1:11884") == 0 && client->self_cacert;
+    if (client) iot_client_deinit(client);
+    iot_init(pal);
+    if (!ok) printf("  Restart lost raw key/Self route: ret=%d\n", ret);
+    return ok ? 0 : -1;
 }
 
 /* ---------- Test: on_boarding_with_token NULL/empty parameter validation ---------- */
@@ -395,11 +479,13 @@ static int test_public_token_onboarding_rejects_plaintext_before_network(void)
 
     iot_client_t *client = iot_client_init_on_boarding_with_token(
         &cfg, "AY12345678pr_0");
+    iot_client_t *qr_client = iot_client_init_on_boarding(&cfg);
     int attempts = g_network_attempts;
     iot_init(get_default_pal());
     if (client) iot_client_deinit(client);
+    if (qr_client) iot_client_deinit(qr_client);
 
-    if (client || attempts != 0 || !no_activation_recorded()) {
+    if (client || qr_client || attempts != 0 || !no_activation_recorded()) {
         printf("  unsupported plaintext config reached network before rejection (%d attempts)\n",
                attempts);
         return -1;
@@ -798,6 +884,9 @@ int main(void)
     RUN_TEST(test_on_boarding_token_rejects_invalid_input);
     RUN_TEST(test_on_boarding_token_rejects_incomplete_dns);
     RUN_TEST(test_on_boarding_qrcode_flow);
+    RUN_TEST(test_on_boarding_qrcode_missing_env_defaults_to_pro);
+    RUN_TEST(test_on_boarding_qrcode_invalid_env_never_activates);
+    RUN_TEST(test_token_activation_restart_keeps_registration_route);
 
     stop_mock(&dns_mock_pid, "DNS mock");
     stop_mock(&dns_plain_mock_pid, "plain DNS mock");

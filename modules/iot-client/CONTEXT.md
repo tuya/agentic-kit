@@ -50,9 +50,13 @@ _Avoid_: pairing, registration, binding (those are app/cloud-side terms).
 
 **Registration key**:
 The opaque four-byte secret appended to the App's BLE authToken after the
-two-byte region and eight-byte activation token. The device passes it unchanged
+two-byte region and eight-byte activation token, or the 1-4 byte `data.env`
+from QR/MQTT activation (default `pro` when absent). The device passes it unchanged
 as IoT DNS `env` to discover the Self HTTPS/MQTT endpoints before activation;
 it is not the device credential `secret_key` and is not an `iot_env_t` value.
+Applications persist it together with credentials and region, then restore
+`iot_client_config_t.registration_key` on reboot. Older records without a key
+retain their legacy `env` routing; do not force them to `pro` or re-activate them.
 _Avoid_: mapping its spelling to production/pre-production enum values.
 
 **Schema upgrade**:

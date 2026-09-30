@@ -37,7 +37,7 @@ static const char *iot_env_to_string(iot_env_t env)
 }
 
 /* Never read beyond a caller-provided five-byte public field. Empty means the
- * legacy routing path; any partially filled or unterminated field is invalid. */
+ * legacy routing path; a key is 1-4 printable bytes with zero-filled padding. */
 static bool registration_key_empty(const char key[5])
 {
     for (size_t i = 0; i < 5; i++) if (key[i] != '\0') return false;
@@ -48,9 +48,14 @@ static bool registration_key_valid(const char key[5])
 {
     if (registration_key_empty(key)) return true;
     if (key[4] != '\0') return false;
-    for (size_t i = 0; i < 4; i++) {
-        unsigned char c = (unsigned char)key[i];
+    size_t len = 0;
+    while (len < 4 && key[len] != '\0') {
+        unsigned char c = (unsigned char)key[len++];
         if (c < 0x21 || c > 0x7e) return false;
+    }
+    if (len == 0) return false;
+    for (size_t i = len; i < 5; i++) {
+        if (key[i] != '\0') return false;
     }
     return true;
 }
@@ -565,6 +570,11 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
 {
     if (!config) {
         IOT_LOGE("Invalid config for iot_client_init_on_boarding");
+        return NULL;
+    }
+    /* QR activation also returns an App key and will use Self MQTT routing. */
+    if (config->mqtt_disable_tls) {
+        IOT_LOGE("QR on-boarding requires MQTT over TLS");
         return NULL;
     }
 

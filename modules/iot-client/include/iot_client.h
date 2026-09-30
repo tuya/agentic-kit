@@ -193,7 +193,7 @@ typedef struct {
     char local_key[32];            // Local key
     iot_region_t region;           // Region
     iot_env_t env;                 // Environment
-    char registration_key[5];     // Opaque App BLE key: four printable bytes + NUL; empty = legacy env
+    char registration_key[5];     // Opaque App key: 1-4 printable bytes, zero-padded; empty = legacy env
     bool mqtt_disable_tls;         // false = mqtts (TLS, default), true = mqtt (TCP)
     bool mqtt_disable_auto_connect; // false (default) = connect MQTT after init/activation; true = caller invokes iot_client_connect() manually
     bool skip_version_report;       // false (default) = report both; true = skip both during init (set only when cloud already has current version)
@@ -224,7 +224,7 @@ typedef struct {
     const char *feature;
     const char *skill_param;
     int timeout_ms;
-    iot_env_t env;                 // QR fallback environment; App-provided env wins when present
+    iot_env_t env;                 // Bootstrap/legacy enum; raw App key determines Self routing
     bool mqtt_disable_tls;         // false = mqtts (TLS, default), true = mqtt (TCP)
     bool mqtt_disable_auto_connect; // false (default) = connect MQTT after init/activation; true = caller invokes iot_client_connect() manually
     bool skip_version_report;       // false (default) = report both; true = skip both during init (only when cloud already has current version)
@@ -263,7 +263,7 @@ struct iot_dp_context;
 
     iot_region_t region;           // Server region (AY/AZ/UEAZ/EU/WEAZ/IN/SG)
     iot_env_t env;                 // Environment (PROD or PRE)
-    char registration_key[5];     // Opaque App BLE key; empty = legacy env
+    char registration_key[5];     // Opaque App key; persist with credentials; empty = legacy env
     bool mqtt_disable_tls;         // false = mqtts (TLS), true = mqtt (TCP)
     const pal_t *pal;             // PAL adapter
 
@@ -301,9 +301,13 @@ IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config);
  * @brief Initialize IoT client via QR code on-boarding (first-time activation).
  *
  * Blocks until a user scans the QR code and the device is activated, or
- * until the configured timeout expires.  On success the returned client is
- * fully connected; persist its devid / secret_key / local_key for future
- * calls to iot_client_init().
+ * until the configured timeout expires. MQTT activation data.env is an opaque
+ * 1-4 byte registration key (default "pro" when absent), passed unchanged to
+ * IoT DNS for Self endpoints and CA. Both onboarding paths require MQTT TLS
+ * and a trusted bootstrap CA or certificate bundle. The client may remain
+ * disconnected after a transient post-activation network failure; persist
+ * devid / secret_key / local_key / region / env / registration_key together
+ * for future calls to iot_client_init(). Restore runtime TLS trust separately.
  *
  * @param config On-boarding configuration (uuid, authkey, product_key, timeout_ms, etc.)
  * @return Pointer to iot_client_t on success (contains devid, secret_key, local_key, schema_id), NULL on error or timeout
@@ -318,6 +322,8 @@ IOT_API iot_client_t *iot_client_init_on_boarding(const iot_on_boarding_config_t
  * eight-byte activation token and opaque four-byte registration key. The key
  * is passed unchanged to IoT DNS for Self HTTPS/MQTT endpoints; it is not
  * mapped to PRE or PROD. Activation requires DNS and uses the Self HTTPS host.
+ * Persist devid / secret_key / local_key / region / env / registration_key
+ * together and restore them in iot_client_config_t on subsequent boots.
  *
  * @param config On-boarding configuration (uuid, authkey, product_key, etc.)
  * @param token  App token: [region:2][activation_token:8][registration_key:4]

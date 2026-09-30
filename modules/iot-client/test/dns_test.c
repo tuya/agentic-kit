@@ -154,12 +154,12 @@ static int test_keyed_dns_overflowed_port_is_rejected(void)
     return 0;
 }
 
-static int test_registration_key_is_exactly_four_printable_bytes(void)
+static int test_registration_key_is_bounded_printable_string(void)
 {
     iot_client_config_t cfg = {0};
     cfg.skip_version_report = true;
     const char bad[][5] = {
-        {'a', 'b', 'c', '\0', '\0'},
+        {'a', 'b', 'c', '\0', 'x'},
         {'a', 'b', 'c', 'd', 'e'},
         {'a', '\0', 'c', 'd', '\0'},
         {'a', 'b', '\n', 'd', '\0'},
@@ -178,6 +178,24 @@ static int test_registration_key_is_exactly_four_printable_bytes(void)
     iot_client_t *legacy = iot_client_init(&cfg);
     if (!legacy) return -1;
     iot_client_deinit(legacy);
+    return 0;
+}
+
+static int test_keyed_dns_accepts_qr_registration_keys(void)
+{
+    const char keys[][5] = {"pro", "pre", "prod", "a", "ab", "abc"};
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        iot_client_t client;
+        init_keyed_client(&client, keys[i]);
+        if (expect_dns_env(keys[i]) != 0) return -1;
+        int ret = iot_client_dns_resolve(&client, MOCK_HOST, 8199);
+        int ok = ret == OPRT_OK && client.https_url[0] && client.mqtt_url[0];
+        client.pal->free(client.owned_self_cacert);
+        if (!ok) {
+            printf("  Raw QR key %s was rejected/rewritten: %d\n", keys[i], ret);
+            return -1;
+        }
+    }
     return 0;
 }
 
@@ -1108,8 +1126,9 @@ int main(void)
     RUN_TEST(test_keyed_dns_oversize_clears_both);
     RUN_TEST(test_keyed_dns_missing_https_clears_both);
     RUN_TEST(test_keyed_dns_overflowed_port_is_rejected);
+    RUN_TEST(test_keyed_dns_accepts_qr_registration_keys);
     stop_tls_mock();
-    RUN_TEST(test_registration_key_is_exactly_four_printable_bytes);
+    RUN_TEST(test_registration_key_is_bounded_printable_string);
     RUN_TEST(test_keyed_client_rejects_plaintext_mqtt_configuration);
     RUN_TEST(test_keyed_init_retains_credentials_and_retries_dns);
     RUN_TEST(test_keyed_init_retains_credentials_after_mqtt_failure);

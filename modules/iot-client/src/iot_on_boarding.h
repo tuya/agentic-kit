@@ -39,7 +39,7 @@ typedef struct {
     char *schema;               // Device schema JSON (caller must free via pal->free)
     iot_region_t region;
     iot_env_t env;
-    char registration_key[5];   // Opaque four-byte App key; empty for QR activation
+    char registration_key[5];   // Opaque App key: BLE four bytes, QR data.env 1-4 bytes (default pro)
 } on_boarding_response_t;
 
 /**

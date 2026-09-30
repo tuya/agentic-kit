@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- iot-client — route App-selected Self activation and later TLS requests with the registration key and DNS-provided CA.
+- iot-client — route BLE and QR/MQTT Self activation and later TLS requests with the opaque registration key and DNS-provided CA; document credential/key persistence and preserve legacy records without a key (#43).
 - tuya-ble — accept incoming Trsmitr versions >= 2 for app Pairing compatibility while keeping TX at version 4 (#39).
 - Docs — the pair-by-ble callback sample no longer claims credentials are never logged; the
   demo's DEBUG protocol log prints the credential JSON on purpose, for device bring-up.
