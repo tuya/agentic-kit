@@ -29,6 +29,8 @@ required when using `iot_client_init()` and the AI SDK interfaces later.
 
 ## App-side steps {#app-侧操作流程}
 
+<div className="app-screenshots">
+
 **Step 1:** On the Tuya App home page, click the **"+"** in the top-right corner and select **"Add Device"**.
 
 ![On the App home page, tap the plus sign and choose Add Device, not Scan](../images/pair_device_start.png)
@@ -44,6 +46,8 @@ Wi-Fi).
 15-20 cm, and wait for the device to beep.
 
 ![Hold the live App code 15-20 cm from the device camera and confirm the beep; QR code omitted](../images/pair_device_qrcode.png)
+
+</div>
 
 The QR code content is a fixed-format JSON string:
 

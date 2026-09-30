@@ -194,6 +194,10 @@
   background: var(--soft);
 }
 
+.reference-docs .article .app-screenshots img {
+  max-width: min(100%, 360px);
+}
+
 /* Admonitions (:::tip etc.): the revert strips Docusaurus' alert styles too.
    Keep them compact and readable inside the reference article. */
 .reference-docs .article .theme-admonition {

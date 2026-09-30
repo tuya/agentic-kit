@@ -29,6 +29,8 @@ sidebar_position: 4
 
 ## App 侧操作流程 {#app-侧操作流程}
 
+<div className="app-screenshots">
+
 **第一步：** 在涂鸦 App 首页点击右上角 **"+"**，选择 **"添加设备"**。
 
 ![添加设备入口](../images/pair_device_start.jpg)
@@ -42,6 +44,8 @@ Wi-Fi）。
 15-20cm 距离，等待设备发出提示音。
 
 ![配网二维码](../images/pair_device_qrcode.jpg)
+
+</div>
 
 二维码内容是一段固定格式的 JSON 字符串：
 
