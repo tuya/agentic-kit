@@ -22,8 +22,10 @@ the combined production build instead:
 ```bash
 npm run test:i18n
 npm run build
-npm run serve -- --port 3000
+npm run serve
 ```
+
+Both `npm run start` and `npm run serve` default to `http://localhost:3005/`.
 
 `npm run build` runs TypeScript and localization parity checks through `prebuild`,
 then builds both locales into `build/`. To run the checks separately:

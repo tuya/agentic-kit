@@ -1,3 +1,4 @@
+import {dirname, resolve} from 'node:path';
 import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
@@ -46,6 +47,27 @@ const config: Config = {
     },
   },
   themes: ['@docusaurus/theme-mermaid'],
+
+  plugins: [
+    function languageServerTypesEsm() {
+      return {
+        name: 'language-server-types-esm',
+        configureWebpack() {
+          return {
+            resolve: {
+              alias: {
+                // Mermaid's UMD dependency passes require as a value, confusing the server bundler.
+                'vscode-languageserver-types$': resolve(
+                  dirname(require.resolve('vscode-languageserver-types')),
+                  '../esm/main.js',
+                ),
+              },
+            },
+          };
+        },
+      };
+    },
+  ],
 
   presets: [
     [
