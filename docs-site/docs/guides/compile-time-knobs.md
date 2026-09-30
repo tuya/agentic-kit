@@ -2,17 +2,55 @@
 title: 编译期旋钮配置
 sidebar_label: 编译期旋钮
 sidebar_position: 9
+toc_labels:
+  三种覆盖方式任选其一: 覆盖方式
+  方式一推荐自建-agentic_kit_configh: 配置头文件（推荐）
+  方式二逐个-d: 编译宏
+  方式三-agentic_kit_user_config-指定任意文件名: 指定配置文件名
+  一条铁律对所有编译-sdk-源码的-target-保持一致: 所有 target 保持一致
+  日志编译期闸门单层: 日志配置
+  改写日志分发agentic_kit_log: 自定义日志输出
+  这些名字故意不在-config-文件里: 配置范围
+  怎么确认覆盖生效了: 验证覆盖
 ---
 
 # 编译期旋钮配置
 
-SDK 的全部编译期旋钮——TAI 收发缓冲与调度、MQTT 超时与包大小、ATOP HTTP 缓冲、FreeRTOS 任务栈、日志级别（全局一条 + 模块级三条，每模块一条）——共 22 个，默认值按**所属子系统**存放：全局日志上限 `AGENTIC_KIT_LOG_LEVEL` 在 `common/log.h`（这个头同时承载集成方覆盖的统一挂载点，原因见下文）；FreeRTOS 任务旋钮在 `pal/pal_config_defaults.h`；模块旋钮在各自 include/ 目录——`modules/iot-client/include/iot_client_config_defaults.h`（MQTT + ATOP HTTP + 模块日志上限）、`modules/rtc-tcp-client/include/tai_config_defaults.h`（TAI 缓冲、调度与模块日志上限）、`modules/tuya-ble/include/tuya_ble_config_defaults.h`（模块日志上限；tuya-ble 目前仅此一个旋钮，原因见下文）。每个旋钮的完整说明（单位、联动、踩过的坑）在各自文件的注释里；本页讲怎么按产品覆盖它们、这套机制为什么长这样，并给出速查表。
+SDK 提供 **22 个编译期旋钮**，用于调整缓冲大小、超时、任务调度与日志级别。本页介绍如何按产品覆盖默认值，并提供设计说明和旋钮速查表。
+
+**推荐方式：** 将需要修改的旋钮统一写入 `agentic_kit_config.h`，无需修改 SDK 源文件，也无需按模块拆分覆盖文件。
+
+## 默认值在哪里 {#默认值在哪里}
+
+默认值按所属子系统存放。各文件的注释包含完整的单位、联动关系和注意事项：
+
+- **全局日志** — `AGENTIC_KIT_LOG_LEVEL`，以及集成方配置的统一加载入口。
+
+  文件：`common/log.h`
+- **PAL / FreeRTOS** — 任务栈、优先级与任务名。
+
+  文件：`pal/pal_config_defaults.h`
+- **iot-client** — MQTT 超时与包大小、ATOP HTTP 缓冲、模块日志上限。
+
+  文件：`modules/iot-client/include/iot_client_config_defaults.h`
+- **rtc-tcp-client** — TAI 收发缓冲、调度与模块日志上限。
+
+  文件：`modules/rtc-tcp-client/include/tai_config_defaults.h`
+- **tuya-ble** — 模块日志上限，目前仅此一个旋钮。
+
+  文件：`modules/tuya-ble/include/tuya_ble_config_defaults.h`
+
+统一加载入口的原因见[设计说明](#为什么这样设计)；BLE 布局常量为何不属于旋钮，见[配置范围](#这些名字故意不在-config-文件里)。
 
 ## 三种覆盖方式（任选其一） {#三种覆盖方式任选其一}
 
 ### 方式一（推荐）：自建 `agentic_kit_config.h` {#方式一推荐自建-agentic_kit_configh}
 
-只写要改的旋钮（普通 `#define`，不用 `#ifndef`），把文件所在目录放进**编译 SDK 源码的 target** 的 include 路径——SDK 编译每个源文件时会自动捡起它，不需要任何 `-D`。无论旋钮属于哪个子系统，都写在这**一个**文件里（`common/log.h` 的捡起逻辑会在所有 `#ifndef` 默认值之前应用它），不需要按模块建多个覆盖文件：
+1. 创建 `agentic_kit_config.h`，只写要改的旋钮，使用普通 `#define`，不用 `#ifndef`。
+2. 把文件所在目录加入**每个编译 SDK 源码的 target** 的 include 路径。
+3. 重新编译 SDK。每个源文件会自动加载配置，不需要额外的 `-D`。
+
+所有子系统共用这**一个**覆盖文件。`common/log.h` 会在所有 `#ifndef` 默认值之前加载它：
 
 ```c
 /* agentic_kit_config.h —— 只写要改的，其余用 SDK 默认 */
@@ -61,7 +99,9 @@ target_compile_definitions(my_sdk_target PRIVATE
 
 ## 为什么这样设计 {#为什么这样设计}
 
-**为什么默认值分散在各子系统、覆盖挂载点却只有一个。** 这些默认值原本散落在各调用点，缓冲大小实际是**产品属性**（schema 多大、有没有 PSRAM、音频帧长多少），选型时需要按内存预算逐项审；生产事故复盘时也要能一眼回答"这块内存是哪个旋钮、为什么是这个值"。现在默认值跟着所属子系统走——日志在 `common/log.h`、FreeRTOS 任务在 `pal/pal_config_defaults.h`、模块旋钮在各自 include/——审预算、做评审时对着所属文件即可。而集成方覆盖的**捡起逻辑**只存在于 `common/log.h` 一处：SDK 每个编译单元都包含这个头，各 `*_config_defaults.h` 也都先包含它，因此任何 `#ifndef` 默认值生效前，你的覆盖一定已经就位——一份 `agentic_kit_config.h` 打动全部 22 个旋钮，不需要按子系统拆多个覆盖文件。
+**为什么默认值分散在各子系统、覆盖挂载点却只有一个。** 这些默认值原本散落在各调用点，缓冲大小实际是**产品属性**（schema 多大、有没有 PSRAM、音频帧长多少），选型时需要按内存预算逐项审；生产事故复盘时也要能一眼回答"这块内存是哪个旋钮、为什么是这个值"。现在默认值跟着所属子系统走——日志在 `common/log.h`、FreeRTOS 任务在 `pal/pal_config_defaults.h`、模块旋钮在各自 include/——审预算、做评审时对着所属文件即可。
+
+集成方覆盖的**捡起逻辑**只存在于 `common/log.h` 一处：SDK 每个编译单元都包含这个头，各 `*_config_defaults.h` 也都先包含它，因此任何 `#ifndef` 默认值生效前，你的覆盖一定已经就位——一份 `agentic_kit_config.h` 打动全部 22 个旋钮，不需要按子系统拆多个覆盖文件。
 
 **为什么都加 `AGENTIC_KIT_` 前缀。** 撞名不是假设出来的风险：coreMQTT 自带的 `core_mqtt_config_defaults.h` 定义了同名 `MQTT_SEND_TIMEOUT_MS`（默认 20000U），与 SDK 的 2000U 谁生效取决于包含顺序；`LOG_LEVEL` 也被多个平台 SDK 占用。前缀把这些名字搬进 SDK 自己的命名空间——你的 `-D` 不会再打到别人的宏，别人的也不会打到你的。
 
@@ -71,11 +111,27 @@ target_compile_definitions(my_sdk_target PRIVATE
 
 ## 日志：编译期闸门，单层 {#日志编译期闸门单层}
 
-`AGENTIC_KIT_LOG_LEVEL` 是所有从源码编译的 SDK 模块的全局日志开关（预编译的 rtc-client 除外——它的日志走自己的运行时接口，见其参考页 §3.5），且只在编译期起作用：**0 = 全关，1 = error，2 = +warn，3 = +info，4 = +debug（默认）**。高于上限的日志在编译期整体消失——没有函数调用、不求值参数、格式字符串也不进固件（直接省 flash/RAM）；上限以下的日志无条件输出。**没有运行时级别，编译进什么就出什么。**
+`AGENTIC_KIT_LOG_LEVEL` 是所有从源码编译的 SDK 模块的全局日志开关，只在编译期起作用。预编译的 rtc-client 除外：它使用自己的运行时接口，见其参考页 §3.5。
 
-需要按模块区分级别时（比如 iot-client 只要 info、rtc-tcp-client 要 debug），用**每模块上限**：`AGENTIC_KIT_IOT_LOG_LEVEL`、`AGENTIC_KIT_TAI_LOG_LEVEL`、`AGENTIC_KIT_TUYA_BLE_LOG_LEVEL`，默认都等于全局上限，且**只能把单个模块再压低**——有效上限 = 两者取小，设得比全局高没有效果（超出部分会在模块的 config 文件里被钳回全局值，块级门控看到的就是有效上限）。它们门控在各自模块词汇表的定义处（`IOT_LOG*` / `TAI_LOG*` / `TUYA_BLE_HAL_LOG*`，外加 rtc-tcp-client 的包日志格式化器），与全局上限走同一条覆盖捡起通道。上面那个"iot 只要 info、rtc 要 debug"就是：全局保持默认 4，再加一行 `-DAGENTIC_KIT_IOT_LOG_LEVEL=3`。注意上限按**行实际输出的级别**判断：tuya-ble 的 `TUYA_BLE_HAL_LOGI` 派发在 debug，想保留它得给 4 而不是 3。
+| 值 | 编译保留的日志 |
+|---|---|
+| 0 | 全关 |
+| 1 | error |
+| 2 | error + warn |
+| 3 | error + warn + info |
+| 4（默认） | error + warn + info + debug |
 
-因此日志量是构建决策：量产固件用 `-DAGENTIC_KIT_LOG_LEVEL=2` 编译，error + warn 之外的一切（代码与字符串）都不进镜像；开发构建保持默认 4 拿到全部日志。运行时层已整体移除（`log_set_level()`/`log_get_level()`/`tai_set_log_level()` 均已删除），级别不再有第二个开关。**日志去哪儿同样是构建决策**：默认输出到 stderr；定义 `AGENTIC_KIT_LOG`（见下节）把每行分发进你自己的宏——需要"运行时收放"的场合（比如测试里捕获/静默），把模式做进你宏的目标函数即可，SDK 不持有任何日志状态。
+高于上限的日志在编译期整体消失：没有函数调用、不求值参数、格式字符串也不进固件，直接节省 flash/RAM。
+
+**没有运行时级别，编译进什么就出什么。** 上限以内的日志无条件输出。
+
+需要按模块区分级别时（比如 iot-client 只要 info、rtc-tcp-client 要 debug），用**每模块上限**：`AGENTIC_KIT_IOT_LOG_LEVEL`、`AGENTIC_KIT_TAI_LOG_LEVEL`、`AGENTIC_KIT_TUYA_BLE_LOG_LEVEL`，默认都等于全局上限，且**只能把单个模块再压低**——有效上限 = 两者取小，设得比全局高没有效果（超出部分会在模块的 config 文件里被钳回全局值，块级门控看到的就是有效上限）。它们门控在各自模块词汇表的定义处（`IOT_LOG*` / `TAI_LOG*` / `TUYA_BLE_HAL_LOG*`，外加 rtc-tcp-client 的包日志格式化器），与全局上限走同一条覆盖捡起通道。
+
+上面那个"iot 只要 info、rtc 要 debug"就是：全局保持默认 4，再加一行 `-DAGENTIC_KIT_IOT_LOG_LEVEL=3`。注意上限按**行实际输出的级别**判断：tuya-ble 的 `TUYA_BLE_HAL_LOGI` 派发在 debug，想保留它得给 4 而不是 3。
+
+因此日志量是构建决策：量产固件用 `-DAGENTIC_KIT_LOG_LEVEL=2` 编译，error + warn 之外的一切（代码与字符串）都不进镜像；开发构建保持默认 4 拿到全部日志。运行时层已整体移除（`log_set_level()`/`log_get_level()`/`tai_set_log_level()` 均已删除），级别不再有第二个开关。
+
+**日志去哪儿同样是构建决策**：默认输出到 stderr；定义 `AGENTIC_KIT_LOG`（见下节）把每行分发进你自己的宏——需要"运行时收放"的场合（比如测试里捕获/静默），把模式做进你宏的目标函数即可，SDK 不持有任何日志状态。
 
 > **迁移**：原来的 per-module `-DTAI_LOG_LEVEL=N` 现在是 `-DAGENTIC_KIT_TAI_LOG_LEVEL=N`（仍只作用于 rtc-tcp-client，语义变化：只能在全局上限**之下**再压低本模块；要把整个 SDK 一起压低用 `-DAGENTIC_KIT_LOG_LEVEL=N`）。原来在启动时调 `log_set_level(N)` 的代码：删除调用，改用 `-DAGENTIC_KIT_LOG_LEVEL=N` 编译，或在你 `AGENTIC_KIT_LOG` 的目标里按 level 过滤。原来用 `log_set_handler()` 安装 handler 的代码：把那个函数变成 `AGENTIC_KIT_LOG` 的目标（它现在直接拿到 level 和裸 tag，连格式串里的 tag 前缀都不用再剥）。
 
@@ -120,7 +176,7 @@ void my_sink(log_level_t level, const char *fmt, ...)
 
 ## 旋钮速查 {#旋钮速查}
 
-默认值与详细理由以各 config 文件的注释为准；"何时调整"是最常见的场景提示。各表所在文件：全局日志上限在 `common/log.h`；三个模块日志上限在各自模块的 config 文件（见本页开头的文件清单）；PAL 表在 `pal/pal_config_defaults.h`；iot-client 三表在 `modules/iot-client/include/iot_client_config_defaults.h`；TAI 表在 `modules/rtc-tcp-client/include/tai_config_defaults.h`；tuya-ble 表在 `modules/tuya-ble/include/tuya_ble_config_defaults.h`。
+各子系统的文件路径见[默认值在哪里](#默认值在哪里)。默认值与详细理由以这些文件的注释为准；下表的“何时调整”列给出常见场景。
 
 ### 全 SDK {#全-sdk}
 
