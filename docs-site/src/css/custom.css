@@ -53,11 +53,11 @@
 /* Table styles matching reference docs.css */
 .table-wrap { overflow: auto; margin: 19px 0 30px; border: 1px solid #dfe3e8; border-radius: 6px; }
 .table-wrap table { width: 100%; border-collapse: collapse; min-width: 620px; text-align: left; }
-.table-wrap th { background: #f5f6f8; font-size: 12px; color: #5f6874; font-weight: 650; }
-.table-wrap th, .table-wrap td { padding: 13px 15px; border-bottom: 1px solid #dfe3e8; vertical-align: top; }
+.table-wrap th { background: #f5f6f8; font-size: 16px; color: #24292f; font-weight: 650; }
+.table-wrap th, .table-wrap td { padding: 15px 16px; line-height: 1.65; border-bottom: 1px solid #dfe3e8; vertical-align: top; }
 .table-wrap tr:last-child td { border-bottom: 0; }
-.table-wrap td { font-size: 13px; color: #4f5966; }
-.table-wrap td code { font-size: 12px; color: #b33b18; background: #fff0ea; padding: 2px 5px; border-radius: 3px; }
+.table-wrap td { font-size: 16px; color: #24292f; }
+.table-wrap td code { font-size: .94em; color: #b33b18; background: #fff0ea; padding: 2px 5px; border-radius: 3px; }
 
 .theme-doc-sidebar-menu {
   padding: 24px 12px;
