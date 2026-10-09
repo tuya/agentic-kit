@@ -666,6 +666,54 @@ IOT_API int iot_client_get_session_token_ex(iot_client_t *client, const char *ag
     return OPRT_OK;
 }
 
+IOT_API int iot_client_get_binding_status(iot_client_t *client, iot_binding_status_t *status)
+{
+    if (client == NULL || status == NULL) {
+        return OPRT_INVALID_PARAMETER;
+    }
+
+    char body[32];
+    int body_len = snprintf(body, sizeof(body), "{\"t\":%" PRIu32 "}", (uint32_t)time(NULL));
+    if (body_len < 0 || (size_t)body_len >= sizeof(body)) {
+        return OPRT_INVALID_RESULT;
+    }
+
+    iot_atop_request_t request = {
+        .api = "tuya.device.info.sync",
+        .version = "1.0",
+        .data = body,
+    };
+    iot_atop_response_t response = {0};
+    int rt = iot_atop_call(client, &request, &response);
+    if (rt != OPRT_OK) {
+        iot_atop_response_free(client, &response);
+        return rt;
+    }
+
+    /* A successful Envelope without a known status is not evidence that the
+     * device is still bound. Keep the caller's output untouched on failure. */
+    rt = OPRT_INVALID_RESULT;
+    cJSON *result = response.result ? cJSON_ParseWithOpts(response.result, NULL, 1) : NULL;
+    if (cJSON_IsObject(result)) {
+        cJSON *value = cJSON_GetObjectItemCaseSensitive(result, "status");
+        if (cJSON_IsString(value) && value->valuestring != NULL) {
+            if (strcmp(value->valuestring, "enable") == 0) {
+                *status = IOT_BINDING_STATUS_BOUND;
+                rt = OPRT_OK;
+            } else if (strcmp(value->valuestring, "reset") == 0) {
+                *status = IOT_BINDING_STATUS_UNBOUND;
+                rt = OPRT_OK;
+            } else if (strcmp(value->valuestring, "reset_factory") == 0) {
+                *status = IOT_BINDING_STATUS_FACTORY_RESET;
+                rt = OPRT_OK;
+            }
+        }
+    }
+    cJSON_Delete(result);
+    iot_atop_response_free(client, &response);
+    return rt;
+}
+
 IOT_API int iot_client_connect(iot_client_t *client)
 {
     /* No NULL guard, like its neighbour below: iot_client_message_connect()

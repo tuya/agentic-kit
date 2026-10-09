@@ -55,6 +55,13 @@ First-time provisioning that authenticates the device and returns its credential
 (devid / secret_key / local_key) together with its schema and schema id.
 _Avoid_: pairing, registration, binding (those are app/cloud-side terms).
 
+**Device binding status**:
+The cloud's current verdict for an activated device: `enable` (still bound),
+`reset` (binding removed), or `reset_factory` (factory reset requested). Queried
+through `tuya.device.info.sync` when an application needs to check after missed
+MQTT notices. This is distinct from DP state and MQTT connection state.
+_Avoid_: device state, sync state.
+
 **Schema upgrade**:
 Replacing the device's schema with a newer version for the same Schema ID, fetched by
 the application polling the cloud (there is no MQTT schema-change notification).

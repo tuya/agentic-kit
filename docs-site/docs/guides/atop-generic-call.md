@@ -26,6 +26,13 @@ SDK 为其中一部分接口提供了**具名接口**（`iot_ota_*`、`iot_dp_*`
 | `tuya.device.qrcode.info.get` | 1.1 | `iot_get_qrcode_info()` |
 | `thing.device.opensdk.active` | 2.0 | `iot_client_init_on_boarding()` |
 | `tuya.device.meta.save` | 1.0 | 激活流程内部调用 |
+| `tuya.device.info.sync` | 1.0 | `iot_client_get_binding_status()`，查询设备绑定状态 |
+
+`iot_client_get_binding_status(client, &status)` 返回 `IOT_BINDING_STATUS_BOUND`（仍绑定）、
+`IOT_BINDING_STATUS_UNBOUND`（已解绑）或 `IOT_BINDING_STATUS_FACTORY_RESET`（云端要求恢复出厂设置）。
+只有返回 `OPRT_OK` 时才读取 `status`；云端未提供可识别的 `status` 时返回
+`OPRT_INVALID_RESULT`，云端拒绝或网络失败时返回对应错误码。调用会阻塞等待 HTTPS 响应，
+请从应用主循环调用；清除本地凭证和重新配网由应用负责。
 
 ## 什么时候该要一个具名接口 {#什么时候该要一个具名接口}
 

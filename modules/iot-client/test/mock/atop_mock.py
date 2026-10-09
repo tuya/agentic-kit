@@ -32,6 +32,7 @@ Supported APIs:
     - thing.ai.agent.token.get: AI token retrieval
     - tuya.device.qrcode.info.get: QR code info retrieval
     - tuya.device.meta.save: Device metadata save
+    - tuya.device.info.sync: Device binding status query
 """
 
 import json
@@ -373,6 +374,30 @@ def handle_device_meta_save_request(request_data, config):
             "errorMsg": str(e)
         }
         return json.dumps(response, separators=(',', ':'))
+
+
+def handle_device_info_sync(request_data, url_params):
+    """Return a selectable binding status for named-wrapper integration tests."""
+    try:
+        body = json.loads(request_data)
+    except (TypeError, ValueError):
+        body = None
+    if (url_params.get('v') != '1.0' or not isinstance(body, dict) or
+            not isinstance(body.get('t'), int)):
+        return json.dumps({"success": False, "t": int(time.time()),
+                           "errorCode": "ILLEGAL_PARAM", "errorMsg": "invalid sync request"})
+
+    status = 'enable'
+    status_file = os.getenv('ATOP_MOCK_SYNC_STATUS_FILE')
+    if status_file:
+        with open(status_file, 'r') as f:
+            status = f.read().strip()
+    if status == '__reject__':
+        return json.dumps({"success": False, "t": int(time.time()),
+                           "errorCode": "GATEWAY_NOT_EXISTS", "errorMsg": "device removed"})
+    result = {} if status == '__missing__' else {"status": 1 if status == '__number__' else status}
+    return json.dumps({"success": True, "t": int(time.time()), "result": result},
+                      separators=(',', ':'))
 
 
 def handle_device_reset(request_data, config, url_params=None):
@@ -720,6 +745,8 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
                 response_json = handle_qrcode_info_request(decrypted_data, self.config, url_params)
             elif api == 'tuya.device.meta.save':
                 response_json = handle_device_meta_save_request(decrypted_data, self.config)
+            elif api == 'tuya.device.info.sync':
+                response_json = handle_device_info_sync(decrypted_data, url_params)
             elif api == 'tuya.device.reset':
                 response_json = handle_device_reset(decrypted_data, self.config, url_params)
             elif api == 'tuya.device.schema.newest.get':
