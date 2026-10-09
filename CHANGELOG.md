@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - iot-client — `iot_client_get_binding_status()` queries `tuya.device.info.sync` for device binding status (#44).
+- Examples — `unbind_demo` checks cloud binding status before connecting and reconnecting (#44).
 
 ## [0.5.0] - 2026-09-24
 

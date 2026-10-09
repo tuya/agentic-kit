@@ -7,17 +7,16 @@
  * undoes, in pair/api-activate under --release: binding and unbinding are the
  * two ends of one lifecycle, and splitting them across programs hides that.
  *
- * What arrives here is a different mechanism entirely: the cloud pushing a
- * protocol-11 notice because a user removed the device from the app. Nothing
- * local triggers it, and there is no return code to inspect -- only a callback.
+ * The cloud can push a protocol-11 notice when a user removes the device from
+ * the app. If the device was offline, query its binding status over ATOP
+ * before (re)connecting so a missed notice is still detected.
  *
  * Flow:
  *   1. Initialize iot_client with activated device credentials.
  *   2. Register a reset_callback that sets a flag and prints the type.
- *   3. Connect to MQTT and pump the receive loop.
- *   4. When the cloud pushes protocol 11 (user removes the device from
- *      the app), the callback fires, the flag breaks the loop, and the
- *      demo exits.
+ *   3. Query the cloud for binding status, then connect to MQTT and pump the
+ *      receive loop. Query again before each reconnect.
+ *   4. On an unbound status or protocol-11 notice, leave the loop and exit.
  *
  * No storage is wiped here — the demo only demonstrates the calls.
  * See dp_management_demo for the full teardown + state-wipe pattern.
@@ -42,6 +41,40 @@ static void on_signal(int sig)
     g_running = 0;
 }
 
+static void print_removal_guidance(void)
+{
+    printf("[%s] On a real device: wipe credentials, clear stored state,\n", TAG);
+    printf("[%s] and re-enter pairing mode.\n", TAG);
+}
+
+static bool binding_was_removed(iot_client_t *client)
+{
+    iot_binding_status_t status;
+    int rc = iot_client_get_binding_status(client, &status);
+    if (rc != OPRT_OK) {
+        fprintf(stderr, "[%s] binding status query failed: %d; status is unknown\n", TAG, rc);
+        return false;
+    }
+
+    switch (status) {
+    case IOT_BINDING_STATUS_BOUND:
+        printf("[%s] cloud binding status: bound\n", TAG);
+        return false;
+    case IOT_BINDING_STATUS_UNBOUND:
+        printf("[%s] cloud binding status: unbound\n", TAG);
+        break;
+    case IOT_BINDING_STATUS_FACTORY_RESET:
+        printf("[%s] cloud binding status: factory_reset\n", TAG);
+        break;
+    default:
+        fprintf(stderr, "[%s] unrecognized binding status; status is unknown\n", TAG);
+        return false;
+    }
+
+    print_removal_guidance();
+    return true;
+}
+
 static void on_reset(iot_reset_type_t type, void *user_data)
 {
     (void)user_data;
@@ -49,8 +82,7 @@ static void on_reset(iot_reset_type_t type, void *user_data)
     printf("[%s]    type : %s\n", TAG,
            type == IOT_RESET_REMOTE_FACTORY ? "factory_reset" : "remote_unbind");
     printf("[%s] The device was removed from the cloud.\n", TAG);
-    printf("[%s] On a real device: wipe credentials, clear stored state,\n", TAG);
-    printf("[%s] and re-enter pairing mode.\n", TAG);
+    print_removal_guidance();
     g_running = 0;
 }
 
@@ -93,7 +125,12 @@ int demo_unbind_run(const char *devid, const char *secret_key,
     }
     printf("[%s] client initialized (devid=%s)\n", TAG, client->devid);
 
-    int ret = iot_client_connect(client);
+    int ret;
+    if (binding_was_removed(client) || !g_running) {
+        goto shutdown;
+    }
+
+    ret = iot_client_connect(client);
     if (ret != OPRT_OK) {
         fprintf(stderr, "[%s] MQTT connect failed: %d\n", TAG, ret);
         iot_client_deinit(client);
@@ -103,6 +140,7 @@ int demo_unbind_run(const char *devid, const char *secret_key,
 
     printf("[%s] waiting for device-remove notice\n", TAG);
     printf("[%s] Remove the device from the app to trigger the callback.\n", TAG);
+    printf("[%s] Binding status will be queried again before reconnecting.\n", TAG);
     printf("[%s] (Ctrl-C to quit without unbinding)\n\n", TAG);
 
     while (g_running) {
@@ -111,6 +149,9 @@ int demo_unbind_run(const char *devid, const char *secret_key,
             fprintf(stderr, "[%s] link error %d; reconnecting...\n", TAG, rc);
             iot_client_disconnect(client);
             sleep(2);
+            if (!g_running || binding_was_removed(client)) {
+                break;
+            }
             ret = iot_client_connect(client);
             if (ret != OPRT_OK) {
                 fprintf(stderr, "[%s] reconnect failed: %d\n", TAG, ret);
@@ -120,6 +161,7 @@ int demo_unbind_run(const char *devid, const char *secret_key,
         }
     }
 
+shutdown:
     printf("\n[%s] shutting down\n", TAG);
     iot_client_disconnect(client);
     iot_client_deinit(client);
