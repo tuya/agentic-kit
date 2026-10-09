@@ -164,6 +164,13 @@ typedef enum {
     IOT_RESET_FACTORY,
 } iot_reset_scope_t;
 
+/** Device binding status returned by tuya.device.info.sync v1.0. */
+typedef enum {
+    IOT_BINDING_STATUS_BOUND = 0,        /**< Device remains bound (`enable`) */
+    IOT_BINDING_STATUS_UNBOUND,          /**< Binding was removed (`reset`) */
+    IOT_BINDING_STATUS_FACTORY_RESET,    /**< Factory reset requested (`reset_factory`) */
+} iot_binding_status_t;
+
 /**
  * @brief Callback fired when the cloud pushes a device-remove (protocol 11)
  * notice over MQTT.
@@ -515,6 +522,22 @@ IOT_API int iot_client_get_session_token(iot_client_t *client, const char *agent
 IOT_API int iot_client_get_session_token_ex(iot_client_t *client, const char *agent_code,
                                             char *token, size_t token_len,
                                             iot_atop_rejection_t *rejection);
+
+/**
+ * @brief Query the cloud for this device's binding status.
+ *
+ * Calls tuya.device.info.sync v1.0 with the activated device credentials.
+ * BOUND means still bound; UNBOUND and FACTORY_RESET mean the binding was
+ * removed. The SDK does not erase local credentials or change client state.
+ * Call from the application loop, not from an iot_client_process() callback:
+ * this is a blocking HTTPS request.
+ *
+ * @param client Activated IoT client.
+ * @param status Written only when a recognized status is returned.
+ * @return OPRT_OK on a recognized status, OPRT_INVALID_RESULT if the cloud
+ *         omits or changes it, or the ATOP/transport error otherwise.
+ */
+IOT_API int iot_client_get_binding_status(iot_client_t *client, iot_binding_status_t *status);
 
 /**
  * @brief Get CA certificate for a target host via IoT DNS service.

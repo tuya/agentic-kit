@@ -26,6 +26,14 @@ Do not reimplement an interface through the generic call when it already has a n
 | `tuya.device.qrcode.info.get` | 1.1 | `iot_get_qrcode_info()` |
 | `thing.device.opensdk.active` | 2.0 | `iot_client_init_on_boarding()` |
 | `tuya.device.meta.save` | 1.0 | Called internally during Activation |
+| `tuya.device.info.sync` | 1.0 | `iot_client_get_binding_status()`, device binding status query |
+
+`iot_client_get_binding_status(client, &status)` returns `IOT_BINDING_STATUS_BOUND` (still bound),
+`IOT_BINDING_STATUS_UNBOUND` (binding removed), or `IOT_BINDING_STATUS_FACTORY_RESET` (factory reset requested).
+Read `status` only after `OPRT_OK`. An absent or unknown cloud status returns
+`OPRT_INVALID_RESULT`; cloud rejections and transport failures return their own error codes.
+Call it from the application loop because the HTTPS request blocks. The application owns
+credential erasure and provisioning after removal.
 
 ## When to Request a Named Wrapper {#什么时候该要一个具名接口}
 

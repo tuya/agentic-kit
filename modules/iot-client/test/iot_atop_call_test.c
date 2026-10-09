@@ -45,6 +45,17 @@ static int tests_run = 0;
 static int tests_passed = 0;
 static char *g_cacert = NULL;
 static iot_client_t g_client;
+static char g_sync_status_file[96];
+
+static int set_sync_status(const char *status)
+{
+    FILE *f = fopen(g_sync_status_file, "w");
+    if (f == NULL) return -1;
+    int wrote = fputs(status, f) >= 0;
+    int closed = fclose(f) == 0;
+    int ok = wrote && closed;
+    return ok ? 0 : -1;
+}
 
 static char *load_file(const pal_t *pal, const char *path)
 {
@@ -118,6 +129,7 @@ static int start_mock_server(void)
     mock_pid = fork();
     if (mock_pid == 0) {
         setenv("ATOP_MOCK_USE_SSL", "1", 1);
+        setenv("ATOP_MOCK_SYNC_STATUS_FILE", g_sync_status_file, 1);
         execlp(PYTHON3_EXEC, PYTHON3_EXEC, MOCK_SCRIPT_PATH, NULL);
         perror("execlp failed");
         _exit(1);
@@ -541,6 +553,60 @@ static int test_response_free_is_repeatable(void)
     return 0;
 }
 
+static int test_sync_check_guards(void)
+{
+    iot_binding_status_t status = IOT_BINDING_STATUS_UNBOUND;
+    if (iot_client_get_binding_status(NULL, &status) != OPRT_INVALID_PARAMETER ||
+        iot_client_get_binding_status(&g_client, NULL) != OPRT_INVALID_PARAMETER ||
+        status != IOT_BINDING_STATUS_UNBOUND) {
+        return -1;
+    }
+    iot_client_t bare = g_client;
+    bare.devid[0] = '\0';
+    return iot_client_get_binding_status(&bare, &status) == OPRT_UNINITIALIZED &&
+           status == IOT_BINDING_STATUS_UNBOUND ? 0 : -1;
+}
+
+static int test_sync_check_statuses(void)
+{
+    const struct {
+        const char *wire;
+        iot_binding_status_t expected;
+    } cases[] = {
+        {"enable", IOT_BINDING_STATUS_BOUND},
+        {"reset", IOT_BINDING_STATUS_UNBOUND},
+        {"reset_factory", IOT_BINDING_STATUS_FACTORY_RESET},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        if (set_sync_status(cases[i].wire) != 0) return -1;
+        iot_binding_status_t status = IOT_BINDING_STATUS_BOUND;
+        int rt = iot_client_get_binding_status(&g_client, &status);
+        if (rt != OPRT_OK || status != cases[i].expected) {
+            printf("  status %s: returned %d, value %d\n", cases[i].wire, rt, status);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int test_sync_check_rejects_bad_results(void)
+{
+    const char *bad[] = {"__missing__", "__number__", "unknown"};
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        if (set_sync_status(bad[i]) != 0) return -1;
+        iot_binding_status_t status = IOT_BINDING_STATUS_FACTORY_RESET;
+        int rt = iot_client_get_binding_status(&g_client, &status);
+        if (rt != OPRT_INVALID_RESULT || status != IOT_BINDING_STATUS_FACTORY_RESET) {
+            printf("  bad result %s: returned %d, value %d\n", bad[i], rt, status);
+            return -1;
+        }
+    }
+    if (set_sync_status("__reject__") != 0) return -1;
+    iot_binding_status_t status = IOT_BINDING_STATUS_FACTORY_RESET;
+    int rt = iot_client_get_binding_status(&g_client, &status);
+    return rt == OPRT_ATOP_BUSINESS_ERROR && status == IOT_BINDING_STATUS_FACTORY_RESET ? 0 : -1;
+}
+
 int main(void)
 {
     printf("========== ATOP Generic Call Test Suite ==========\n");
@@ -565,9 +631,17 @@ int main(void)
              "https://%s:%u", MOCK_HOST, MOCK_PORT);
     g_client.cacert = g_cacert;
 
+    snprintf(g_sync_status_file, sizeof(g_sync_status_file),
+             "/tmp/atop_sync_status_%ld", (long)getpid());
+    if (set_sync_status("enable") != 0) {
+        pal->free(g_cacert);
+        return 1;
+    }
+
     if (start_mock_server() != 0) {
         fprintf(stderr, "Failed to start mock server\n");
         pal->free(g_cacert);
+        unlink(g_sync_status_file);
         return 1;
     }
 
@@ -588,9 +662,13 @@ int main(void)
     RUN_TEST(test_response_zeroed_on_bad_request);
     RUN_TEST(test_oversized_response_is_explained);
     RUN_TEST(test_response_free_is_repeatable);
+    RUN_TEST(test_sync_check_guards);
+    RUN_TEST(test_sync_check_statuses);
+    RUN_TEST(test_sync_check_rejects_bad_results);
 
     stop_mock_server();
     pal->free(g_cacert);
+    unlink(g_sync_status_file);
 
     printf("\n========== Results: %d/%d passed ==========\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
