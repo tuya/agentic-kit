@@ -12,10 +12,10 @@
  * before (re)connecting so a missed notice is still detected.
  *
  * Flow:
- *   1. Initialize iot_client with activated device credentials.
- *   2. Register a reset_callback that sets a flag and prints the type.
- *   3. Query the cloud for binding status, then connect to MQTT and pump the
- *      receive loop. Query again before each reconnect.
+ *   1. Query binding status with saved device credentials before creating a
+ *      client, so a failed client initialization does not prevent the query.
+ *   2. Initialize iot_client and register a reset_callback that sets a flag.
+ *   3. Connect to MQTT and pump the receive loop. Query before each reconnect.
  *   4. On an unbound status or protocol-11 notice, leave the loop. After a
  *      notice, query binding status once more outside the callback, then exit.
  *
@@ -49,10 +49,10 @@ static void print_removal_guidance(void)
     printf("[%s] and re-enter pairing mode.\n", TAG);
 }
 
-static bool binding_was_removed(iot_client_t *client, const char *stage)
+static bool binding_was_removed(const iot_binding_status_request_t *request, const char *stage)
 {
     iot_binding_status_t status;
-    int rc = iot_client_get_binding_status(client, &status);
+    int rc = iot_get_binding_status(request, &status);
     if (rc != OPRT_OK) {
         fprintf(stderr, "[%s] %s: binding status query failed: %d; status is unknown\n", TAG, stage, rc);
         return false;
@@ -120,6 +120,22 @@ int demo_unbind_run(const char *devid, const char *secret_key,
     strncpy(cfg.secret_key, secret_key, sizeof(cfg.secret_key) - 1);
     strncpy(cfg.local_key,  local_key,  sizeof(cfg.local_key) - 1);
 
+    iot_binding_status_request_t query_request = {
+        .devid = devid,
+        .secret_key = secret_key,
+        .region = cfg.region,
+        .env = cfg.env,
+        .cacert = cfg.cacert,
+        .cert_bundle_attach = cfg.cert_bundle_attach,
+    };
+    if (binding_was_removed(&query_request, "before unbind")) {
+        print_removal_guidance();
+        return 0;
+    }
+    if (!g_running) {
+        return 0;
+    }
+
     iot_client_t *client = iot_client_init(&cfg);
     if (!client) {
         fprintf(stderr, "[%s] iot_client_init failed\n", TAG);
@@ -127,16 +143,7 @@ int demo_unbind_run(const char *devid, const char *secret_key,
     }
     printf("[%s] client initialized (devid=%s)\n", TAG, client->devid);
 
-    int ret;
-    if (binding_was_removed(client, "before unbind")) {
-        print_removal_guidance();
-        goto shutdown;
-    }
-    if (!g_running) {
-        goto shutdown;
-    }
-
-    ret = iot_client_connect(client);
+    int ret = iot_client_connect(client);
     if (ret != OPRT_OK) {
         fprintf(stderr, "[%s] MQTT connect failed: %d\n", TAG, ret);
         iot_client_deinit(client);
@@ -158,7 +165,7 @@ int demo_unbind_run(const char *devid, const char *secret_key,
             if (!g_running) {
                 break;
             }
-            if (binding_was_removed(client, "before reconnect")) {
+            if (binding_was_removed(&query_request, "before reconnect")) {
                 print_removal_guidance();
                 break;
             }
@@ -171,12 +178,11 @@ int demo_unbind_run(const char *devid, const char *secret_key,
         }
     }
 
-shutdown:
     printf("\n[%s] shutting down\n", TAG);
     iot_client_disconnect(client);
     if (g_reset_received) {
         /* The callback has returned; a blocking HTTPS query is safe here. */
-        binding_was_removed(client, "after unbind");
+        binding_was_removed(&query_request, "after unbind");
     }
     iot_client_deinit(client);
     return 0;

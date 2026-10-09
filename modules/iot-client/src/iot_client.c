@@ -12,6 +12,7 @@
 #include "rng.h"
 
 #include "atop.h"
+#include "atop_base.h"
 #include "cJSON.h"
 #include <string.h>
 #include <stdlib.h>
@@ -666,34 +667,54 @@ IOT_API int iot_client_get_session_token_ex(iot_client_t *client, const char *ag
     return OPRT_OK;
 }
 
-IOT_API int iot_client_get_binding_status(iot_client_t *client, iot_binding_status_t *status)
+IOT_API int iot_get_binding_status(const iot_binding_status_request_t *request,
+                                  iot_binding_status_t *status)
 {
-    if (client == NULL || status == NULL) {
+    if (request == NULL || status == NULL ||
+        request->devid == NULL || request->devid[0] == '\0' ||
+        request->secret_key == NULL || strlen(request->secret_key) < 16) {
         return OPRT_INVALID_PARAMETER;
     }
 
+    const pal_t *pal = get_pal();
+    if (pal == NULL) {
+        return OPRT_UNINITIALIZED;
+    }
+
+    uint32_t timestamp = (uint32_t)time(NULL);
     char body[32];
-    int body_len = snprintf(body, sizeof(body), "{\"t\":%" PRIu32 "}", (uint32_t)time(NULL));
+    int body_len = snprintf(body, sizeof(body), "{\"t\":%" PRIu32 "}", timestamp);
     if (body_len < 0 || (size_t)body_len >= sizeof(body)) {
         return OPRT_INVALID_RESULT;
     }
 
-    iot_atop_request_t request = {
+    const char *host = (request->host != NULL && request->host[0] != '\0')
+                           ? request->host : iot_region_to_host(request->region, request->env);
+    atop_base_request_t atop_request = {
         .api = "tuya.device.info.sync",
         .version = "1.0",
-        .data = body,
+        .path = "/d.json",
+        .devid = request->devid,
+        .key = request->secret_key,
+        .timestamp = timestamp,
+        .data = (void *)body,
+        .datalen = (size_t)body_len,
+        .host = host,
+        .port = request->port ? request->port : IOT_DEFAULT_PORT,
+        .cacert = request->cacert,
+        .cert_bundle_attach = request->cert_bundle_attach,
     };
-    iot_atop_response_t response = {0};
-    int rt = iot_atop_call(client, &request, &response);
+    atop_base_response_t response = {0};
+    int rt = atop_base_request(pal, &atop_request, &response);
     if (rt != OPRT_OK) {
-        iot_atop_response_free(client, &response);
+        atop_base_response_free(pal, &response);
         return rt;
     }
 
     /* A successful Envelope without a known status is not evidence that the
      * device is still bound. Keep the caller's output untouched on failure. */
     rt = OPRT_INVALID_RESULT;
-    cJSON *result = response.result ? cJSON_ParseWithOpts(response.result, NULL, 1) : NULL;
+    cJSON *result = response.result;
     if (cJSON_IsObject(result)) {
         cJSON *value = cJSON_GetObjectItemCaseSensitive(result, "status");
         if (cJSON_IsString(value) && value->valuestring != NULL) {
@@ -709,9 +730,33 @@ IOT_API int iot_client_get_binding_status(iot_client_t *client, iot_binding_stat
             }
         }
     }
-    cJSON_Delete(result);
-    iot_atop_response_free(client, &response);
+    atop_base_response_free(pal, &response);
     return rt;
+}
+
+IOT_API int iot_client_get_binding_status(iot_client_t *client, iot_binding_status_t *status)
+{
+    if (client == NULL || client->pal == NULL || status == NULL) {
+        return OPRT_INVALID_PARAMETER;
+    }
+    if (client->devid[0] == '\0' || client->secret_key[0] == '\0') {
+        return OPRT_UNINITIALIZED;
+    }
+
+    char host[64] = {0};
+    uint16_t port = IOT_DEFAULT_PORT;
+    iot_client_resolve_atop_host(client, host, sizeof(host), &port);
+    iot_binding_status_request_t request = {
+        .devid = client->devid,
+        .secret_key = client->secret_key,
+        .region = client->region,
+        .env = client->env,
+        .host = host,
+        .port = port,
+        .cacert = client->cacert,
+        .cert_bundle_attach = client->cert_bundle_attach,
+    };
+    return iot_get_binding_status(&request, status);
 }
 
 IOT_API int iot_client_connect(iot_client_t *client)

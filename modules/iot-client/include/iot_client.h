@@ -523,19 +523,55 @@ IOT_API int iot_client_get_session_token_ex(iot_client_t *client, const char *ag
                                             char *token, size_t token_len,
                                             iot_atop_rejection_t *rejection);
 
+/** Parameters for querying binding status without an IoT client instance. */
+typedef struct {
+    const char *devid;              /**< Device ID from activation (required) */
+    const char *secret_key;         /**< Device secret key from activation (required) */
+    iot_region_t region;            /**< Region; zero initializes to AY */
+    iot_env_t env;                  /**< Environment; zero initializes to PROD */
+    const char *host;               /**< Optional ATOP hostname; NULL/"" uses the region endpoint */
+    uint16_t port;                  /**< Optional ATOP port; 0 uses 443 */
+    const char *cacert;             /**< Caller-owned CA certificate PEM */
+    tls_cert_bundle_attach_fn cert_bundle_attach; /**< Platform cert-bundle callback */
+} iot_binding_status_request_t;
+
 /**
- * @brief Query the cloud for this device's binding status.
+ * @brief Query cloud binding status using device credentials directly.
  *
  * Calls tuya.device.info.sync v1.0 with the activated device credentials.
  * BOUND means still bound; UNBOUND and FACTORY_RESET mean the binding was
- * removed. The SDK does not erase local credentials or change client state.
- * Call from the application loop, not from an iot_client_process() callback:
- * this is a blocking HTTPS request.
+ * removed. Call iot_init() / iot_init_default() first. No iot_client_t or MQTT
+ * connection is needed, so persisted credentials can be used when client
+ * initialization fails or after iot_client_reset() destroys the client.
+ * First activation must have provided devid + secret_key; uuid + authkey
+ * cannot replace them. local_key is not required for this ATOP interface.
  *
- * @param client Activated IoT client.
+ * Uses the supplied host or the compile-time region endpoint; performs no
+ * IoT-DNS lookup. This is a blocking HTTPS request: call outside SDK callbacks.
+ * The SDK does not erase credentials or change local device state.
+ *
+ * @param request Device credentials, endpoint selection, and TLS settings.
  * @param status Written only when a recognized status is returned.
- * @return OPRT_OK on a recognized status, OPRT_INVALID_RESULT if the cloud
- *         omits or changes it, or the ATOP/transport error otherwise.
+ * @return OPRT_OK on a recognized status, OPRT_UNINITIALIZED if iot_init() has
+ *         not run, OPRT_INVALID_PARAMETER for bad arguments or a secret key
+ *         shorter than 16 bytes, OPRT_INVALID_RESULT for an absent/unknown
+ *         cloud status, or the ATOP/transport error otherwise.
+ */
+IOT_API int iot_get_binding_status(const iot_binding_status_request_t *request,
+                                  iot_binding_status_t *status);
+
+/**
+ * @brief Query cloud binding status using an existing IoT client's settings.
+ *
+ * Convenience wrapper for iot_get_binding_status(). Uses the client's device
+ * credentials, resolved ATOP endpoint, and TLS settings; MQTT need not be
+ * connected. If client initialization failed, call iot_get_binding_status()
+ * with persisted credentials instead. Call outside SDK callbacks.
+ *
+ * @param client Initialized IoT client with device credentials.
+ * @param status Written only when a recognized status is returned.
+ * @return As for iot_get_binding_status(); OPRT_UNINITIALIZED also indicates
+ *         that the client has no device credentials.
  */
 IOT_API int iot_client_get_binding_status(iot_client_t *client, iot_binding_status_t *status);
 

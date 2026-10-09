@@ -153,6 +153,8 @@ python3 ./build/tuya_openapi.py pairing-token --uid "ay..." --paring-type BLE \
 `enable` (still bound), `reset` (unbound), or `reset_factory` (factory reset requested).
 A failed query prints its error code. After unbinding, the cloud may reject the old device
 credentials; the demo reports that query failure as returned.
+The final query calls `iot_get_binding_status()` with credentials saved before reset destroyed
+the original client. It does not create another client.
 
 ## Notes {#注意事项}
 

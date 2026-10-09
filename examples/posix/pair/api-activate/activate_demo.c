@@ -48,10 +48,10 @@ static void demo_dp_save_callback(const char *dp_state_json, void *user_data)
     /* e.g. write dp_state_json to a file / flash / NVS keyed by devid. */
 }
 
-static void print_binding_status(iot_client_t *client, const char *stage)
+static void print_binding_status(const iot_binding_status_request_t *request, const char *stage)
 {
     iot_binding_status_t status;
-    int rc = iot_client_get_binding_status(client, &status);
+    int rc = iot_get_binding_status(request, &status);
     if (rc != OPRT_OK) {
         printf("[%s] %s: binding status query failed (rc=%d)\n", TAG, stage, rc);
         return;
@@ -149,32 +149,22 @@ int demo_activate_run(const char *token,
      * must not be touched afterwards. On failure the client survives, which is
      * why the error path below can still tear it down normally.
      *
-     * A separate initialized client retains the credentials for both status
-     * queries; it does not connect MQTT or report versions. Reset and the
-     * status queries travel over ATOP HTTPS. */
+     * Save the device credentials for the final status query, which needs no
+     * client instance. Reset and the status queries travel over ATOP HTTPS. */
     if (release) {
-        iot_client_config_t query_cfg = {
+        char query_devid[sizeof(client->devid)];
+        char query_secret_key[sizeof(client->secret_key)];
+        memcpy(query_devid, client->devid, sizeof(query_devid));
+        memcpy(query_secret_key, client->secret_key, sizeof(query_secret_key));
+        iot_binding_status_request_t query_request = {
+            .devid = query_devid,
+            .secret_key = query_secret_key,
             .region = client->region,
             .env = client->env,
-            .mqtt_disable_tls = client->mqtt_disable_tls,
-            .mqtt_disable_auto_connect = true,
-            .skip_version_report = true,
             .cacert = client->cacert,
             .cert_bundle_attach = client->cert_bundle_attach,
         };
-        memcpy(query_cfg.devid, client->devid, sizeof(query_cfg.devid));
-        memcpy(query_cfg.secret_key, client->secret_key, sizeof(query_cfg.secret_key));
-        memcpy(query_cfg.local_key, client->local_key, sizeof(query_cfg.local_key));
-        iot_client_t *query_client = iot_client_init(&query_cfg);
-        if (query_client == NULL) {
-            fprintf(stderr, "[%s] could not initialize the binding status query client\n", TAG);
-            iot_client_deinit(client);
-            return -1;
-        }
-        /* Both queries use the same ATOP endpoint as the reset. TLS settings
-         * are caller-owned, so they remain valid after the original is freed. */
-        memcpy(query_client->https_url, client->https_url, sizeof(query_client->https_url));
-        print_binding_status(query_client, "before unbind");
+        print_binding_status(&query_request, "before unbind");
 
         char error_code[64] = {0};
         printf("[%s] releasing the binding (device-initiated reset)...\n", TAG);
@@ -188,13 +178,11 @@ int demo_activate_run(const char *token,
         if (rc == OPRT_OK) {
             client = NULL;
         }
-        print_binding_status(query_client, rc == OPRT_OK ? "after unbind" : "after unbind attempt");
-        iot_client_deinit(query_client);
+        print_binding_status(&query_request, rc == OPRT_OK ? "after unbind" : "after unbind attempt");
         if (rc == OPRT_OK) {
             /* `client` is gone from here on. A real device would now wipe the
              * credentials and schema it persisted and re-enter pairing. This
-             * demo writes no persisted state and has released the temporary
-             * query client after its final status check. */
+             * demo writes no persisted state. */
             printf("[%s] cloud accepted the reset — client destroyed\n", TAG);
             printf("[%s] activation and release both done; device is unbound\n", TAG);
             return 0;

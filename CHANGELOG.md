@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- iot-client — `iot_client_get_binding_status()` queries `tuya.device.info.sync` for device binding status (#44).
-- Examples — `unbind_demo` checks cloud binding status before connecting/reconnecting and after a removal notice (#44).
+- iot-client — `iot_get_binding_status()` queries `tuya.device.info.sync` with saved credentials, without an IoT client (#44).
+  - `iot_client_get_binding_status()` reuses an existing client's endpoint and TLS settings.
+- Examples — `unbind_demo` checks cloud binding status before client initialization/reconnect and after a removal notice (#44).
 - Examples — `activate_demo --release` prints cloud binding status before and after reset (#44).
 
 ## [0.5.0] - 2026-09-24

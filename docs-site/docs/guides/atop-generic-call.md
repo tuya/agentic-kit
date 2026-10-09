@@ -26,13 +26,32 @@ SDK 为其中一部分接口提供了**具名接口**（`iot_ota_*`、`iot_dp_*`
 | `tuya.device.qrcode.info.get` | 1.1 | `iot_get_qrcode_info()` |
 | `thing.device.opensdk.active` | 2.0 | `iot_client_init_on_boarding()` |
 | `tuya.device.meta.save` | 1.0 | 激活流程内部调用 |
-| `tuya.device.info.sync` | 1.0 | `iot_client_get_binding_status()`，查询设备绑定状态 |
+| `tuya.device.info.sync` | 1.0 | `iot_get_binding_status()`，无需 client 的绑定状态查询 |
 
-`iot_client_get_binding_status(client, &status)` 返回 `IOT_BINDING_STATUS_BOUND`（仍绑定）、
+`iot_get_binding_status(&request, &status)` 返回 `IOT_BINDING_STATUS_BOUND`（仍绑定）、
 `IOT_BINDING_STATUS_UNBOUND`（已解绑）或 `IOT_BINDING_STATUS_FACTORY_RESET`（云端要求恢复出厂设置）。
 只有返回 `OPRT_OK` 时才读取 `status`；云端未提供可识别的 `status` 时返回
 `OPRT_INVALID_RESULT`，云端拒绝或网络失败时返回对应错误码。调用会阻塞等待 HTTPS 响应，
 请从应用主循环调用；清除本地凭证和重新配网由应用负责。
+
+这个接口只需要先调用 `iot_init()` 或 `iot_init_default()`，再提供已保存的 `devid` 和
+`secret_key`，无需 `iot_client_t`、MQTT 连接或 `local_key`。因此 client 初始化失败时也能查询：
+
+```c
+iot_binding_status_request_t request = {
+    .devid = saved_devid,
+    .secret_key = saved_secret_key,
+    .region = AY,
+    .env = PROD,
+    .cacert = ca_certificate,
+};
+iot_binding_status_t status;
+int rc = iot_get_binding_status(&request, &status);
+```
+
+默认直接使用对应区域的 ATOP 域名，不查询 IoT-DNS；也可以通过 `host`（不带协议头的域名）和
+`port` 指定端点。已有 client 时可用 `iot_client_get_binding_status(client, &status)` 复用其已解析的
+端点和 TLS 配置。首次激活尚未返回设备凭证时，只有 `uuid / authkey` 仍无法调用此接口。
 
 ## 什么时候该要一个具名接口 {#什么时候该要一个具名接口}
 

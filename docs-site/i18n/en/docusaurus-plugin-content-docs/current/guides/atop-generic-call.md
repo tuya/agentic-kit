@@ -26,14 +26,35 @@ Do not reimplement an interface through the generic call when it already has a n
 | `tuya.device.qrcode.info.get` | 1.1 | `iot_get_qrcode_info()` |
 | `thing.device.opensdk.active` | 2.0 | `iot_client_init_on_boarding()` |
 | `tuya.device.meta.save` | 1.0 | Called internally during Activation |
-| `tuya.device.info.sync` | 1.0 | `iot_client_get_binding_status()`, device binding status query |
+| `tuya.device.info.sync` | 1.0 | `iot_get_binding_status()`, binding status query without a client |
 
-`iot_client_get_binding_status(client, &status)` returns `IOT_BINDING_STATUS_BOUND` (still bound),
+`iot_get_binding_status(&request, &status)` returns `IOT_BINDING_STATUS_BOUND` (still bound),
 `IOT_BINDING_STATUS_UNBOUND` (binding removed), or `IOT_BINDING_STATUS_FACTORY_RESET` (factory reset requested).
 Read `status` only after `OPRT_OK`. An absent or unknown cloud status returns
 `OPRT_INVALID_RESULT`; cloud rejections and transport failures return their own error codes.
 Call it from the application loop because the HTTPS request blocks. The application owns
 credential erasure and provisioning after removal.
+
+Call `iot_init()` or `iot_init_default()` first, then supply the saved `devid` and `secret_key`.
+No `iot_client_t`, MQTT connection, or `local_key` is required, so the query remains available
+when client initialization fails:
+
+```c
+iot_binding_status_request_t request = {
+    .devid = saved_devid,
+    .secret_key = saved_secret_key,
+    .region = AY,
+    .env = PROD,
+    .cacert = ca_certificate,
+};
+iot_binding_status_t status;
+int rc = iot_get_binding_status(&request, &status);
+```
+
+The query uses the region's ATOP hostname directly without an IoT-DNS lookup. Set `host`
+(a hostname without a scheme) and `port` to override it. With an existing client,
+`iot_client_get_binding_status(client, &status)` reuses its resolved endpoint and TLS settings.
+If first activation has not returned device credentials, `uuid / authkey` alone cannot call this interface.
 
 ## When to Request a Named Wrapper {#什么时候该要一个具名接口}
 

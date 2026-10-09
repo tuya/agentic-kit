@@ -553,6 +553,50 @@ static int test_response_free_is_repeatable(void)
     return 0;
 }
 
+static iot_binding_status_request_t binding_status_request(void)
+{
+    return (iot_binding_status_request_t){
+        .devid = TEST_DEVID,
+        .secret_key = TEST_SEC_KEY,
+        .host = MOCK_HOST,
+        .port = MOCK_PORT,
+        .cacert = g_cacert,
+    };
+}
+
+static int test_binding_status_requires_sdk_init(void)
+{
+    iot_binding_status_request_t request = binding_status_request();
+    iot_binding_status_t status = IOT_BINDING_STATUS_UNBOUND;
+    return iot_get_binding_status(&request, &status) == OPRT_UNINITIALIZED &&
+           status == IOT_BINDING_STATUS_UNBOUND ? 0 : -1;
+}
+
+static int test_binding_status_request_guards(void)
+{
+    iot_binding_status_request_t request = binding_status_request();
+    iot_binding_status_t status = IOT_BINDING_STATUS_UNBOUND;
+    if (iot_get_binding_status(NULL, &status) != OPRT_INVALID_PARAMETER ||
+        iot_get_binding_status(&request, NULL) != OPRT_INVALID_PARAMETER) {
+        return -1;
+    }
+    const char *bad_devid[] = {NULL, ""};
+    for (size_t i = 0; i < sizeof(bad_devid) / sizeof(bad_devid[0]); i++) {
+        request = binding_status_request();
+        request.devid = bad_devid[i];
+        if (iot_get_binding_status(&request, &status) != OPRT_INVALID_PARAMETER ||
+            status != IOT_BINDING_STATUS_UNBOUND) return -1;
+    }
+    const char *bad_key[] = {NULL, "", "short"};
+    for (size_t i = 0; i < sizeof(bad_key) / sizeof(bad_key[0]); i++) {
+        request = binding_status_request();
+        request.secret_key = bad_key[i];
+        if (iot_get_binding_status(&request, &status) != OPRT_INVALID_PARAMETER ||
+            status != IOT_BINDING_STATUS_UNBOUND) return -1;
+    }
+    return 0;
+}
+
 static int test_sync_check_guards(void)
 {
     iot_binding_status_t status = IOT_BINDING_STATUS_UNBOUND;
@@ -579,6 +623,14 @@ static int test_sync_check_statuses(void)
     };
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
         if (set_sync_status(cases[i].wire) != 0) return -1;
+        iot_binding_status_request_t request = binding_status_request();
+        iot_binding_status_t direct_status = IOT_BINDING_STATUS_BOUND;
+        int direct_rt = iot_get_binding_status(&request, &direct_status);
+        if (direct_rt != OPRT_OK || direct_status != cases[i].expected) {
+            printf("  credential-only query %s: returned %d, value %d\n",
+                   cases[i].wire, direct_rt, direct_status);
+            return -1;
+        }
         iot_binding_status_t status = IOT_BINDING_STATUS_BOUND;
         int rt = iot_client_get_binding_status(&g_client, &status);
         if (rt != OPRT_OK || status != cases[i].expected) {
@@ -594,6 +646,14 @@ static int test_sync_check_rejects_bad_results(void)
     const char *bad[] = {"__missing__", "__number__", "unknown"};
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
         if (set_sync_status(bad[i]) != 0) return -1;
+        iot_binding_status_request_t request = binding_status_request();
+        iot_binding_status_t direct_status = IOT_BINDING_STATUS_FACTORY_RESET;
+        int direct_rt = iot_get_binding_status(&request, &direct_status);
+        if (direct_rt != OPRT_INVALID_RESULT || direct_status != IOT_BINDING_STATUS_FACTORY_RESET) {
+            printf("  credential-only bad result %s: returned %d, value %d\n",
+                   bad[i], direct_rt, direct_status);
+            return -1;
+        }
         iot_binding_status_t status = IOT_BINDING_STATUS_FACTORY_RESET;
         int rt = iot_client_get_binding_status(&g_client, &status);
         if (rt != OPRT_INVALID_RESULT || status != IOT_BINDING_STATUS_FACTORY_RESET) {
@@ -602,14 +662,41 @@ static int test_sync_check_rejects_bad_results(void)
         }
     }
     if (set_sync_status("__reject__") != 0) return -1;
+    iot_binding_status_request_t request = binding_status_request();
+    iot_binding_status_t direct_status = IOT_BINDING_STATUS_FACTORY_RESET;
+    int direct_rt = iot_get_binding_status(&request, &direct_status);
+    if (direct_rt != OPRT_ATOP_BUSINESS_ERROR || direct_status != IOT_BINDING_STATUS_FACTORY_RESET) {
+        return -1;
+    }
     iot_binding_status_t status = IOT_BINDING_STATUS_FACTORY_RESET;
     int rt = iot_client_get_binding_status(&g_client, &status);
     return rt == OPRT_ATOP_BUSINESS_ERROR && status == IOT_BINDING_STATUS_FACTORY_RESET ? 0 : -1;
 }
 
+static int test_binding_status_after_reset_destroys_client(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *client = pal->malloc(sizeof(*client));
+    if (client == NULL) return -1;
+    *client = g_client;  /* no MQTT/DP/schema resources in the stack fixture */
+    int rt = iot_client_reset(client, IOT_RESET_UNBIND_ONLY, NULL, 0);
+    if (rt != OPRT_OK) {
+        iot_client_deinit(client);
+        return -1;
+    }
+    /* client was freed by reset. The saved credentials alone must suffice. */
+    if (set_sync_status("reset") != 0) return -1;
+    iot_binding_status_request_t request = binding_status_request();
+    iot_binding_status_t status = IOT_BINDING_STATUS_BOUND;
+    rt = iot_get_binding_status(&request, &status);
+    return rt == OPRT_OK && status == IOT_BINDING_STATUS_UNBOUND ? 0 : -1;
+}
+
 int main(void)
 {
     printf("========== ATOP Generic Call Test Suite ==========\n");
+
+    RUN_TEST(test_binding_status_requires_sdk_init);
 
     const pal_t *pal = get_default_pal();
     iot_init(pal);
@@ -650,6 +737,7 @@ int main(void)
     RUN_TEST(test_api_and_version_required);
     RUN_TEST(test_requires_device_credentials);
     RUN_TEST(test_body_must_be_json_object);
+    RUN_TEST(test_binding_status_request_guards);
 
     /* Round trips */
     RUN_TEST(test_call_returns_result_json);
@@ -665,6 +753,7 @@ int main(void)
     RUN_TEST(test_sync_check_guards);
     RUN_TEST(test_sync_check_statuses);
     RUN_TEST(test_sync_check_rejects_bad_results);
+    RUN_TEST(test_binding_status_after_reset_destroys_client);
 
     stop_mock_server();
     pal->free(g_cacert);

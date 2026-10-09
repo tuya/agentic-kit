@@ -6,8 +6,8 @@
  * @file unbind_demo.h
  * @brief Detect a cloud-initiated device removal.
  *
- * Check the cloud binding status of an activated device before connecting and
- * before each reconnect. While connected, listen for the cloud's protocol-11
+ * Query with saved device credentials before creating an IoT client and before
+ * each reconnect. While connected, listen for the cloud's protocol-11
  * device-remove notice, fired when a user removes the device from the app.
  * Query and print binding status again after the notice callback returns.
  *

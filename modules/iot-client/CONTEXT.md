@@ -60,6 +60,8 @@ The cloud's current verdict for an activated device: `enable` (still bound),
 `reset` (binding removed), or `reset_factory` (factory reset requested). Queried
 through `tuya.device.info.sync` when an application needs to check after missed
 MQTT notices. This is distinct from DP state and MQTT connection state.
+The query requires `devid` + `secret_key` from a prior Activation but no IoT client
+instance, so it remains available after a client initialization failure or reset.
 _Avoid_: device state, sync state.
 
 **Schema upgrade**:

@@ -158,6 +158,8 @@ python3 ./build/tuya_openapi.py pairing-token --uid "ay..." --paring-type BLE \
 `--release` 会在调用 `iot_client_reset()` 前后各查询一次云端绑定状态，输出
 `enable`（仍绑定）、`reset`（已解绑）或 `reset_factory`（恢复出厂请求）。
 查询失败时输出实际错误码；解绑后云端可能已不再接受旧设备凭证，此时也会如实输出查询失败。
+解绑后的查询使用提前保存的设备凭证调用 `iot_get_binding_status()`，原 client 已被 reset 释放，
+无需重新创建 client。
 
 ## 注意事项 {#注意事项}
 
