@@ -11,7 +11,8 @@
  *
  * --release runs the other half of the lifecycle: once activated, the device
  * hands the binding straight back via iot_client_reset(). Useful for checking
- * both directions in one run without touching the app.
+ * both directions in one run without touching the app. Binding status is
+ * queried and printed before and after the reset.
  */
 
 #include <stdbool.h>
@@ -46,7 +47,7 @@ int main(int argc, char *argv[])
             "Usage: %s <token> [uuid] [authkey] [product_key] [firmware_key] [--release]\n"
             "\n"
             "  --release   after activating, immediately reset (unbind) the device\n"
-            "              — the other end of the same lifecycle\n",
+            "              and print cloud binding status before and after reset\n",
             argv[0]);
         return 1;
     }

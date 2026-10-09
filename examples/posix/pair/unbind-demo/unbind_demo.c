@@ -16,7 +16,8 @@
  *   2. Register a reset_callback that sets a flag and prints the type.
  *   3. Query the cloud for binding status, then connect to MQTT and pump the
  *      receive loop. Query again before each reconnect.
- *   4. On an unbound status or protocol-11 notice, leave the loop and exit.
+ *   4. On an unbound status or protocol-11 notice, leave the loop. After a
+ *      notice, query binding status once more outside the callback, then exit.
  *
  * No storage is wiped here — the demo only demonstrates the calls.
  * See dp_management_demo for the full teardown + state-wipe pattern.
@@ -34,6 +35,7 @@
 #define TAG "unbind_demo"
 
 static volatile sig_atomic_t g_running = 1;
+static bool g_reset_received = false;
 
 static void on_signal(int sig)
 {
@@ -47,31 +49,30 @@ static void print_removal_guidance(void)
     printf("[%s] and re-enter pairing mode.\n", TAG);
 }
 
-static bool binding_was_removed(iot_client_t *client)
+static bool binding_was_removed(iot_client_t *client, const char *stage)
 {
     iot_binding_status_t status;
     int rc = iot_client_get_binding_status(client, &status);
     if (rc != OPRT_OK) {
-        fprintf(stderr, "[%s] binding status query failed: %d; status is unknown\n", TAG, rc);
+        fprintf(stderr, "[%s] %s: binding status query failed: %d; status is unknown\n", TAG, stage, rc);
         return false;
     }
 
     switch (status) {
     case IOT_BINDING_STATUS_BOUND:
-        printf("[%s] cloud binding status: bound\n", TAG);
+        printf("[%s] %s: cloud binding status: enable (bound)\n", TAG, stage);
         return false;
     case IOT_BINDING_STATUS_UNBOUND:
-        printf("[%s] cloud binding status: unbound\n", TAG);
+        printf("[%s] %s: cloud binding status: reset (unbound)\n", TAG, stage);
         break;
     case IOT_BINDING_STATUS_FACTORY_RESET:
-        printf("[%s] cloud binding status: factory_reset\n", TAG);
+        printf("[%s] %s: cloud binding status: reset_factory (factory reset requested)\n", TAG, stage);
         break;
     default:
-        fprintf(stderr, "[%s] unrecognized binding status; status is unknown\n", TAG);
+        fprintf(stderr, "[%s] %s: unrecognized binding status; status is unknown\n", TAG, stage);
         return false;
     }
 
-    print_removal_guidance();
     return true;
 }
 
@@ -83,6 +84,7 @@ static void on_reset(iot_reset_type_t type, void *user_data)
            type == IOT_RESET_REMOTE_FACTORY ? "factory_reset" : "remote_unbind");
     printf("[%s] The device was removed from the cloud.\n", TAG);
     print_removal_guidance();
+    g_reset_received = true;
     g_running = 0;
 }
 
@@ -126,7 +128,11 @@ int demo_unbind_run(const char *devid, const char *secret_key,
     printf("[%s] client initialized (devid=%s)\n", TAG, client->devid);
 
     int ret;
-    if (binding_was_removed(client) || !g_running) {
+    if (binding_was_removed(client, "before unbind")) {
+        print_removal_guidance();
+        goto shutdown;
+    }
+    if (!g_running) {
         goto shutdown;
     }
 
@@ -149,7 +155,11 @@ int demo_unbind_run(const char *devid, const char *secret_key,
             fprintf(stderr, "[%s] link error %d; reconnecting...\n", TAG, rc);
             iot_client_disconnect(client);
             sleep(2);
-            if (!g_running || binding_was_removed(client)) {
+            if (!g_running) {
+                break;
+            }
+            if (binding_was_removed(client, "before reconnect")) {
+                print_removal_guidance();
                 break;
             }
             ret = iot_client_connect(client);
@@ -164,6 +174,10 @@ int demo_unbind_run(const char *devid, const char *secret_key,
 shutdown:
     printf("\n[%s] shutting down\n", TAG);
     iot_client_disconnect(client);
+    if (g_reset_received) {
+        /* The callback has returned; a blocking HTTPS query is safe here. */
+        binding_was_removed(client, "after unbind");
+    }
     iot_client_deinit(client);
     return 0;
 }

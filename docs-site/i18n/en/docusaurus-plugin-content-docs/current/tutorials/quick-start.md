@@ -95,7 +95,7 @@ After a successful build, run the following from the `examples/posix/` directory
 # Device QR code Provisioning example (uses res/qr.jpg by default)
 ./build/scan_by_device_pair_demo
 
-# Query cloud binding status and receive removal / factory reset notices (protocol 11)
+# Query binding status before and after a cloud removal notice (protocol 11)
 ./build/unbind_demo <devid> <secret_key> <local_key>
 
 # Device-initiated unbinding: paired with Activation, placed alongside the Activation examples

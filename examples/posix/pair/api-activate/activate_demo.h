@@ -11,7 +11,8 @@
  * itself on Tuya cloud via iot_client_init_on_boarding_with_token().
  *
  * With @p release the demo also runs the other half of the pair: after
- * activating it immediately calls iot_client_reset() to give the binding back.
+ * activating it calls iot_client_reset() to give the binding back, querying
+ * and printing cloud binding status before and after the reset.
  * Activation and release are the two ends of one lifecycle -- a device that can
  * bind itself should be able to unbind itself -- so they are demonstrated
  * together rather than in separate programs.

@@ -95,7 +95,7 @@ idf.py flash monitor
 # 设备扫码配网示例（默认使用 res/qr.jpg）
 ./build/scan_by_device_pair_demo
 
-# 查询云端绑定状态，并接收云端移除设备 / 恢复出厂通知（protocol 11）
+# 查询绑定状态，接收解绑通知（protocol 11）后再次查询并输出结果
 ./build/unbind_demo <devid> <secret_key> <local_key>
 
 # 设备侧主动解绑：与激活成对，放在激活示例里

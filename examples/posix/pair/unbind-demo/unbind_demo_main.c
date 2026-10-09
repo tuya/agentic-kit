@@ -3,9 +3,9 @@
  * @brief Entry point for the cloud device-remove (unbind) demo.
  *
  * Queries the cloud's binding status before (re)connecting and waits for the
- * protocol-11 device-remove notice while connected. The device-initiated
- * direction -- resetting to hand the binding back -- is in pair/api-activate
- * under --release, next to the activation it undoes.
+ * protocol-11 device-remove notice while connected, then queries status again.
+ * The device-initiated direction -- resetting to hand the binding back -- is
+ * in pair/api-activate under --release, next to the activation it undoes.
  *
  * Get the credentials from the activation demo's output
  * (examples/posix/pair/api-activate) or from dp_management_demo.
@@ -31,8 +31,8 @@ static void usage(const char *prog)
         "\n"
         "The demo checks cloud binding status, then connects to MQTT and waits:\n"
         "remove the device from the Tuya app to trigger a device-remove notice.\n"
-        "It checks binding status again before reconnecting. To reset from the\n"
-        "device side instead, see pair/api-activate --release.\n",
+        "It checks status before reconnecting and after a removal notice.\n"
+        "To reset from the device side instead, see pair/api-activate --release.\n",
         prog);
 }
 

@@ -144,7 +144,15 @@ python3 ./build/tuya_openapi.py pairing-token --uid "ay..." --paring-type BLE \
     --time-zone-id "Asia/Shanghai"
 
 ./build/activate_demo "$PAIRING_TOKEN" <uuid> <authkey> <product_key>
+
+# Unbind after activation and print binding status before and after the reset
+./build/activate_demo "$PAIRING_TOKEN" <uuid> <authkey> <product_key> --release
 ```
+
+`--release` queries cloud binding status before and after `iot_client_reset()`, printing
+`enable` (still bound), `reset` (unbound), or `reset_factory` (factory reset requested).
+A failed query prints its error code. After unbinding, the cloud may reject the old device
+credentials; the demo reports that query failure as returned.
 
 ## Notes {#注意事项}
 
