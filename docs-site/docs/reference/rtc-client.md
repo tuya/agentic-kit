@@ -12,7 +12,7 @@ sidebar_position: 2
 
 **RTC Client SDK**（API 前缀 `stm_open_*`）面向外部开发者，在标准 STM SDK 的基础上做了流程简化，便于快速接入 AI 能力，无需理解 Connect、Stream、Event 等底层概念。
 
-以预编译库形式提供，支持多种平台架构。如需源码级集成或更简洁的 API，请考虑 [RTC TCP Client](./rtc-tcp-client)。
+以预编译库形式提供，支持多种平台架构。如需源码级集成或更简洁的 API，请考虑 [RTC TCP Client](./rtc-tcp-client.md)。
 
 ---
 
@@ -56,15 +56,15 @@ Session 表示**AI业务会话**，对应一个独立的对话或任务上下文
 
 ### 2.1 智能体配置 {#21-智能体配置}
 
-在 Tuya IoT 平台上创建产品并绑定或创建 AI Agent，详见 [创建 Agent](https://developer.tuya.com/cn/docs/iot/ai-agent-management?id=Kdxr4v7uv4fud)。如需自定义工作流，可参考[创建工作流](../guides/create-workflow)。
+在 Tuya IoT 平台上创建产品并绑定或创建 AI Agent，详见 [创建 Agent](https://developer.tuya.com/cn/docs/iot/ai-agent-management?id=Kdxr4v7uv4fud)。如需自定义工作流，可参考[创建工作流](../guides/create-workflow.md)。
 
 ### 2.2 设备激活 {#22-设备激活}
 
-通过配网操作激活并获取设备凭证（`devid`、`secret_key`、`local_key`）。详见[教程](../tutorials/scan-by-device)。
+通过配网操作激活并获取设备凭证（`devid`、`secret_key`、`local_key`）。详见[教程](../tutorials/scan-by-device.md)。
 
 ### 2.3 获取 session token {#23-获取-session-token}
 
-通过 `iot_client_init()` 初始化 IoT 客户端，再调用 `iot_client_get_session_token()` 获取 `session_token`。详见 [IoT Client API](./iot-client)。
+通过 `iot_client_init()` 初始化 IoT 客户端，再调用 `iot_client_get_session_token()` 获取 `session_token`。详见 [IoT Client API](./iot-client.md)。
 
 ---
 

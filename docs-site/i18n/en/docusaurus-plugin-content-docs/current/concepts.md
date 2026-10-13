@@ -108,6 +108,6 @@ For example, a voice flow can combine streaming ASR, dynamic hotwords, cloud VAD
 
 ## Next steps {#下一步}
 
-- [System architecture](./architecture) - Learn how the modules work together
-- [Quick start](./tutorials/quick-start) - Run the first example on your computer
-- [Create and configure an Agent](./guides/create-agent) - Prepare your product and Agent on the IoT Platform
+- [System architecture](./architecture.mdx) - Learn how the modules work together
+- [Quick start](./tutorials/quick-start.md) - Run the first example on your computer
+- [Create and configure an Agent](./guides/create-agent.md) - Prepare your product and Agent on the IoT Platform

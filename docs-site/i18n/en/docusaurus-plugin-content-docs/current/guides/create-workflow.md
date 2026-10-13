@@ -82,5 +82,5 @@ The following is literal example output, with the Chinese strings preserved. The
 
 ## Related Links {#相关链接}
 
-- [Create an Agent](./create-agent) -- Basic agent configuration steps
-- [Image Understanding Tutorial](../tutorials/edu-camera) -- A complete example of sending images from the device
+- [Create an Agent](./create-agent.md) -- Basic agent configuration steps
+- [Image Understanding Tutorial](../tutorials/edu-camera.md) -- A complete example of sending images from the device

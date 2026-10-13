@@ -42,7 +42,7 @@ tai_send_audio_chunk(ctx, pcm_data, pcm_len);
 tai_send_audio_end(ctx);   // End in manual mode; never call during a server-VAD Session
 ```
 
-> When to call `tai_send_audio_end` depends on the VAD mode (continuous conversation with server VAD versus device-side VAD/manual button control). See [VAD and Interruptions](./vad-and-interrupt).
+> When to call `tai_send_audio_end` depends on the VAD mode (continuous conversation with server VAD versus device-side VAD/manual button control). See [VAD and Interruptions](./vad-and-interrupt.md).
 
 ## RTC Client Configuration {#rtc-client-配置}
 

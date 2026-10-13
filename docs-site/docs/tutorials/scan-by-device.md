@@ -13,9 +13,9 @@ sidebar_position: 4
 :::note 前置条件
 在阅读本章之前，请确保你已具备：
 - **产品 PID** → 在[Tuya IoT 平台](https://iot.tuya.com)创建产品后获得，
-  详见[创建和配置 Agent](../guides/create-agent)
+  详见[创建和配置 Agent](../guides/create-agent.md)
 - **设备授权码**（uuid + authkey）→ 在 IoT 平台产品页面申请，
-  详见[创建 Agent](../guides/create-agent)第 4 步
+  详见[创建 Agent](../guides/create-agent.md)第 4 步
 :::
 
 使用这种配网方式时，需要设备带摄像头功能，可以扫描 App 生成的二维码，如果设

@@ -10,7 +10,7 @@ sidebar_position: 3
 >      * `examples/posix/ai/rtc-tcp-client/music_play_demo.c`
 
 :::note 前置条件
-- 设备凭据（`devid`、`secret_key`、`local_key`）—— 示例内置默认测试凭据，可直接运行。用自己的设备时需先完成[配网](./scan-by-device)获取凭据。
+- 设备凭据（`devid`、`secret_key`、`local_key`）—— 示例内置默认测试凭据，可直接运行。用自己的设备时需先完成[配网](./scan-by-device.md)获取凭据。
 - 此示例需要系统安装 `curl`（用于下载试听音频片段）。
 :::
 

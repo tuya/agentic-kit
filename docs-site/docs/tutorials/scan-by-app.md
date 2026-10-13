@@ -14,10 +14,10 @@ sidebar_position: 5
 :::note 前置条件
 在阅读本章之前，请确保你已具备：
 - **产品 PID** 和 **设备授权码**（uuid + authkey）
-  → 详见[创建和配置 Agent](../guides/create-agent)
+  → 详见[创建和配置 Agent](../guides/create-agent.md)
 :::
 
-在上一章（[设备扫码配网](./scan-by-device)）中，配网流程是 App 显示二维码、设备用摄像头扫码。
+在上一章（[设备扫码配网](./scan-by-device.md)）中，配网流程是 App 显示二维码、设备用摄像头扫码。
 但在部分产品形态中，设备可能没有摄像头（例如带屏音箱、智能面板），却有屏幕
 可以显示二维码。此时可以反过来——设备端向涂鸦云请求一个激活 URL，将其编码为
 二维码展示在屏幕（或终端）上，用户用涂鸦 App 扫描该二维码即可完成配网。
@@ -111,7 +111,7 @@ iot_on_boarding_config_t ob_config = {
 
 ## 与"设备扫码"方式的对比 {#与设备扫码方式的对比}
 
-| | 设备扫码（[scan-by-device](./scan-by-device)） | App 扫码（本章） |
+| | 设备扫码（[scan-by-device](./scan-by-device.md)） | App 扫码（本章） |
 |---|---|---|
 | 二维码由谁生成 | App 生成 | 设备生成 |
 | 二维码由谁扫描 | 设备（摄像头） | 用户（App） |

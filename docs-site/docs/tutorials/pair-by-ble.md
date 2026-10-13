@@ -178,7 +178,7 @@ idf.py flash monitor
 
 - BLE 配网完成后应尽快停止 BLE 广播（`tuya_ble_nimble_stop`），避免与 WiFi 共存时的射频冲突。
 - Token 格式与其他配网方式一致：前两字符为 Region 编码。
-- 配网完成后的设备激活流程与[设备扫码配网](./scan-by-device)相同，使用 `iot_client_init_on_boarding_with_token()`。
+- 配网完成后的设备激活流程与[设备扫码配网](./scan-by-device.md)相同，使用 `iot_client_init_on_boarding_with_token()`。
 - 切勿在激活配置中设 `.mqtt_disable_auto_connect = true`：**App 以设备 MQTT 上线作为配网成功的判定条件**，不连接 MQTT 时 App 会显示配网失败/超时。
 - 需确保项目正确引用了 `modules/tuya-ble/` 和 `modules/iot-client/` 组件。
 

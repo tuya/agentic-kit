@@ -17,7 +17,7 @@ sidebar_position: 2
 本章介绍语音聊天示例的功能与实现。该示例演示了如何通过 Agentic-kit 实现与 AI 的语音或文本聊天，并将 AI 返回的 TTS 音频保存到本地文件。
 
 :::note 前置条件
-- 设备凭据（`devid`、`secret_key`、`local_key`）—— 示例内置默认测试凭据，可直接运行。用自己的设备时需先完成[配网](./scan-by-device)获取凭据。
+- 设备凭据（`devid`、`secret_key`、`local_key`）—— 示例内置默认测试凭据，可直接运行。用自己的设备时需先完成[配网](./scan-by-device.md)获取凭据。
 :::
 
 ## 功能概述 {#功能概述}
@@ -41,7 +41,7 @@ sidebar_position: 2
 | 帧大小 | 3840 字节 |
 
 
-**注**：TuyaAI 云端支持 PCM/OPUS 音频以及不同的采样率及其他参数，示例中为简单起见使用了固定的 PCM 格式参数，并非必需的格式。详见[音频格式配置指南](../guides/audio-format)。
+**注**：TuyaAI 云端支持 PCM/OPUS 音频以及不同的采样率及其他参数，示例中为简单起见使用了固定的 PCM 格式参数，并非必需的格式。详见[音频格式配置指南](../guides/audio-format.md)。
 
 两种模式都会：
 1. 在控制台实时打印 AI 返回的文本内容

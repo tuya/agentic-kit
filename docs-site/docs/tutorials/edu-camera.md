@@ -18,8 +18,8 @@ sidebar_position: 4
 本章介绍图片理解示例的功能与实现。该示例演示了如何通过 Agentic-kit 实现图片理解功能——发送一张图片和文本 prompt 给 AI，接收结构化 JSON 结果和 TTS 语音回复。
 
 :::note 前置条件
-- 设备凭据（`devid`、`secret_key`、`local_key`）—— 示例内置默认测试凭据，可直接运行。用自己的设备时需先完成[配网](./scan-by-device)获取凭据。
-- 此示例依赖在 Tuya AI 平台上配置的**工作流**（Workflow），详见[创建工作流](../guides/create-workflow)。
+- 设备凭据（`devid`、`secret_key`、`local_key`）—— 示例内置默认测试凭据，可直接运行。用自己的设备时需先完成[配网](./scan-by-device.md)获取凭据。
+- 此示例依赖在 Tuya AI 平台上配置的**工作流**（Workflow），详见[创建工作流](../guides/create-workflow.md)。
 :::
 
 ## 功能概述 {#功能概述}
@@ -101,7 +101,7 @@ stm_open_session_send(session, &img_data, 1);
 
 此示例依赖在 Tuya AI 平台上配置的 **工作流**（Workflow）。prompt 文本（如 `"image_recognition"`）在工作流中充当选择器的匹配条件，用于路由到对应的处理分支。
 
-关于工作流的详细配置方法，请参考[创建工作流](../guides/create-workflow)。
+关于工作流的详细配置方法，请参考[创建工作流](../guides/create-workflow.md)。
 
 ## 图片要求 {#图片要求}
 

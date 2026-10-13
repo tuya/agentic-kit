@@ -12,7 +12,7 @@ sidebar_position: 2
 
 The **RTC Client SDK** (API prefix `stm_open_*`) is intended for external developers. It simplifies the workflow of the standard STM SDK, enabling rapid integration of AI capabilities without requiring an understanding of lower-level concepts such as Connect, Stream, and Event.
 
-It is provided as a precompiled library and supports multiple platform architectures. For source-level integration or a simpler API, consider the [RTC TCP Client](./rtc-tcp-client).
+It is provided as a precompiled library and supports multiple platform architectures. For source-level integration or a simpler API, consider the [RTC TCP Client](./rtc-tcp-client.md).
 
 ---
 
@@ -56,15 +56,15 @@ A complete request-response exchange may consist of **multiple packets** (for ex
 
 ### 2.1 AI Agent Configuration {#21-智能体配置}
 
-Create a product on the Tuya IoT Platform and bind or create an AI Agent. For details, see [Create an Agent](https://developer.tuya.com/en/docs/iot/ai-agent-management?id=Kdxr4v7uv4fud). To customize a workflow, see [Create a Workflow](../guides/create-workflow).
+Create a product on the Tuya IoT Platform and bind or create an AI Agent. For details, see [Create an Agent](https://developer.tuya.com/en/docs/iot/ai-agent-management?id=Kdxr4v7uv4fud). To customize a workflow, see [Create a Workflow](../guides/create-workflow.md).
 
 ### 2.2 Device Activation {#22-设备激活}
 
-Activate the device through provisioning and obtain the device credentials (`devid`, `secret_key`, and `local_key`). For details, see the [tutorial](../tutorials/scan-by-device).
+Activate the device through provisioning and obtain the device credentials (`devid`, `secret_key`, and `local_key`). For details, see the [tutorial](../tutorials/scan-by-device.md).
 
 ### 2.3 Obtain a Session Token {#23-获取-session-token}
 
-Initialize the IoT Client by calling `iot_client_init()`, and then call `iot_client_get_session_token()` to obtain the `session_token`. For details, see the [IoT Client API](./iot-client).
+Initialize the IoT Client by calling `iot_client_init()`, and then call `iot_client_get_session_token()` to obtain the `session_token`. For details, see the [IoT Client API](./iot-client.md).
 
 ---
 

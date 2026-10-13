@@ -22,7 +22,7 @@ The RTC Client (`stm_open_*`) is provided as a precompiled static library. It cu
 2. Submit the request through Tuya technical support or your project lead
 3. A precompiled library for the new platform can usually be delivered within 1-2 weeks
 
-**Alternative:** Use the [RTC TCP Client](./reference/rtc-tcp-client) (source form); you only need to implement the `pal.h` interfaces to run on any platform. See [Porting to a new platform](./guides/porting-to-new-platform) for details.
+**Alternative:** Use the [RTC TCP Client](./reference/rtc-tcp-client.md) (source form); you only need to implement the `pal.h` interfaces to run on any platform. See [Porting to a new platform](./guides/porting-to-new-platform.md) for details.
 
 ## Does the device need VAD? {#设备端是否需要-vad}
 
@@ -37,7 +37,7 @@ The RTC Client (`stm_open_*`) is provided as a precompiled static library. It cu
 | WiFi speakers, continuously powered devices | Cloud VAD alone is sufficient |
 | Demanding interactivity requirements | Hybrid: the device does coarse detection and the cloud does fine detection |
 
-See [VAD and interruptions](./guides/vad-and-interrupt) for details.
+See [VAD and interruptions](./guides/vad-and-interrupt.md) for details.
 
 ## What is the difference between RTC TCP Client and RTC Client, and which should I use? {#rtc-tcp-client-和-rtc-client-的区别用哪个}
 
@@ -63,7 +63,7 @@ For other scenarios, use whichever you prefer.
 - Usually PCM or Opus
 - Format information is provided in the first audio callback (`sample_rate`, `frame_duration`)
 
-See the [Audio format configuration guide](./guides/audio-format) for details.
+See the [Audio format configuration guide](./guides/audio-format.md) for details.
 
 ## What should I do if session_token expires? {#session_token-过期了怎么办}
 

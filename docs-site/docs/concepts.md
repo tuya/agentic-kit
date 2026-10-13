@@ -108,6 +108,6 @@ Physical AI 的体验来自感知、推理、记忆和执行协同。这些能�
 
 ## 下一步 {#下一步}
 
-- [系统架构](./architecture) - 了解各模块如何协作
-- [快速开始](./tutorials/quick-start) - 在电脑上运行第一个示例
-- [创建和配置 Agent](./guides/create-agent) - 在 IoT 平台上准备你的产品和 Agent
+- [系统架构](./architecture.mdx) - 了解各模块如何协作
+- [快速开始](./tutorials/quick-start.md) - 在电脑上运行第一个示例
+- [创建和配置 Agent](./guides/create-agent.md) - 在 IoT 平台上准备你的产品和 Agent

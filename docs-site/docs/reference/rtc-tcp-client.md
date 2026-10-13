@@ -452,7 +452,7 @@ int tai_send_audio_start(tai_ctx_t *ctx,
 开始一段音频流。必须在 `tai_send_audio_chunk` 之前调用。
 
 :::note 云端 VAD 模式
-启用云端 VAD（Server VAD，连续对话）时，整个聊天会话只调用一次本函数，不要每个回合重复调用；上行音频流保持打开直到会话结束。详见 [VAD 与打断](../guides/vad-and-interrupt) 中的"云端 VAD vs 设备端 VAD"对比表。
+启用云端 VAD（Server VAD，连续对话）时，整个聊天会话只调用一次本函数，不要每个回合重复调用；上行音频流保持打开直到会话结束。详见 [VAD 与打断](../guides/vad-and-interrupt.md) 中的"云端 VAD vs 设备端 VAD"对比表。
 :::
 
 **参数：**
@@ -486,7 +486,7 @@ int tai_send_audio_end(tai_ctx_t *ctx);
 结束音频流。通知服务端本次音频输入完毕，开始处理。
 
 :::warning 云端 VAD 模式下不要调用
-启用云端 VAD（`asr.enableVad`）时**不应**调用本函数。当前云端的回合结束信号是 `TAI_EVT_CHAT_BREAK`（`TAI_EVT_SERVER_VAD` 已不再下发），收到它也不要调用本函数。它仅用于手动按键对讲或设备端本地 VAD 判停。错误调用会主动结束当前上行 Event，导致云端截断用户语音。详见 [VAD 与打断](../guides/vad-and-interrupt)。
+启用云端 VAD（`asr.enableVad`）时**不应**调用本函数。当前云端的回合结束信号是 `TAI_EVT_CHAT_BREAK`（`TAI_EVT_SERVER_VAD` 已不再下发），收到它也不要调用本函数。它仅用于手动按键对讲或设备端本地 VAD 判停。错误调用会主动结束当前上行 Event，导致云端截断用户语音。详见 [VAD 与打断](../guides/vad-and-interrupt.md)。
 :::
 
 ---
@@ -611,7 +611,7 @@ tai_ctx_deinit(ctx);
 free(mem);
 ```
 
-> 音频流的调用模式取决于 VAD 模式（云端 VAD 连续对话 vs 设备端 VAD/手动按键），详见 [VAD 与打断](../guides/vad-and-interrupt) 中的对比表。
+> 音频流的调用模式取决于 VAD 模式（云端 VAD 连续对话 vs 设备端 VAD/手动按键），详见 [VAD 与打断](../guides/vad-and-interrupt.md) 中的对比表。
 
 ---
 

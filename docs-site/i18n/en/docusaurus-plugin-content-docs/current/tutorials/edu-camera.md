@@ -17,8 +17,8 @@ This chapter uses the precompiled rtc-client library (`stm_open_*` API). The rtc
 This chapter introduces the image understanding example and its implementation. It demonstrates how to use Agentic-kit to send an image and a text prompt to AI and receive structured JSON results and a TTS voice response.
 
 :::note Prerequisites
-- Device credentials (`devid`, `secret_key`, `local_key`) -- the example includes default test credentials and can run directly. To use your own device, first complete [Provisioning](./scan-by-device) to obtain credentials.
-- This example depends on a **Workflow** configured on the Tuya AI platform. See [Create a workflow](../guides/create-workflow).
+- Device credentials (`devid`, `secret_key`, `local_key`) -- the example includes default test credentials and can run directly. To use your own device, first complete [Provisioning](./scan-by-device.md) to obtain credentials.
+- This example depends on a **Workflow** configured on the Tuya AI platform. See [Create a workflow](../guides/create-workflow.md).
 :::
 
 ## Features {#功能概述}
@@ -102,7 +102,7 @@ TTS audio packets arrive as well and are saved to the output file.
 
 This example depends on a **Workflow** configured on the Tuya AI platform. The prompt text (such as `"image_recognition"`) serves as a selector match condition in the workflow, routing the input to the corresponding processing branch.
 
-For detailed workflow configuration instructions, see [Create a workflow](../guides/create-workflow).
+For detailed workflow configuration instructions, see [Create a workflow](../guides/create-workflow.md).
 
 ## Image requirements {#图片要求}
 

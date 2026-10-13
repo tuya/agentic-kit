@@ -39,7 +39,7 @@ tai_send_mcp_response() ──> 云端 AI 继续生成回复
 
 ## 前置条件 {#前置条件}
 
-- 设备已完成 IoT SDK 初始化和 TAI 连接（参考[快速开始](../tutorials/quick-start)）
+- 设备已完成 IoT SDK 初始化和 TAI 连接（参考[快速开始](../tutorials/quick-start.md)）
 - 连接时声明设备支持 MCP
 
 ## 步骤 {#步骤}

@@ -42,7 +42,7 @@ tai_send_audio_chunk(ctx, pcm_data, pcm_len);
 tai_send_audio_end(ctx);   // 手动模式收尾；云端 VAD 模式下整个会话不要调用
 ```
 
-> 何时调用 `tai_send_audio_end` 取决于 VAD 模式（云端 VAD 连续对话 vs 设备端 VAD/手动按键），详见 [VAD 与打断](./vad-and-interrupt)。
+> 何时调用 `tai_send_audio_end` 取决于 VAD 模式（云端 VAD 连续对话 vs 设备端 VAD/手动按键），详见 [VAD 与打断](./vad-and-interrupt.md)。
 
 ## RTC Client 配置 {#rtc-client-配置}
 

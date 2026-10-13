@@ -10,7 +10,7 @@ sidebar_position: 3
 >      * `examples/posix/ai/rtc-tcp-client/music_play_demo.c`
 
 :::note Prerequisites
-- Device credentials (`devid`, `secret_key`, `local_key`) -- the example includes default test credentials and can run directly. To use your own device, first complete [Provisioning](./scan-by-device) to obtain credentials.
+- Device credentials (`devid`, `secret_key`, `local_key`) -- the example includes default test credentials and can run directly. To use your own device, first complete [Provisioning](./scan-by-device.md) to obtain credentials.
 - This example requires `curl` to be installed on the system to download audio preview clips.
 :::
 

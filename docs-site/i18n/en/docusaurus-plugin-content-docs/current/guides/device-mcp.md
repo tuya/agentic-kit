@@ -39,7 +39,7 @@ The cloud sends three types of MCP requests in sequence:
 
 ## Prerequisites {#前置条件}
 
-- The device has completed IoT SDK initialization and established the TAI Connection (see [Quick Start](../tutorials/quick-start))
+- The device has completed IoT SDK initialization and established the TAI Connection (see [Quick Start](../tutorials/quick-start.md))
 - MCP support is declared when establishing the Connection
 
 ## Steps {#步骤}

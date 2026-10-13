@@ -109,7 +109,7 @@ Agentic-kit 保持端侧接入轻量，Tuya Physical AI 平台则提供从实时
 
 ## 下一步 {#下一步}
 
-- [核心概念](./concepts) - 了解设备激活、Agent、tRTC、数据点与 MCP
-- [系统架构](./architecture) - 了解 SDK 模块组成与项目结构
-- [快速开始](./tutorials/quick-start) - 运行第一个示例
-- [SDK 参考](./reference/rtc-tcp-client) - 查阅 API 文档
+- [核心概念](./concepts.md) - 了解设备激活、Agent、tRTC、数据点与 MCP
+- [系统架构](./architecture.mdx) - 了解 SDK 模块组成与项目结构
+- [快速开始](./tutorials/quick-start.md) - 运行第一个示例
+- [SDK 参考](./reference/rtc-tcp-client.md) - 查阅 API 文档

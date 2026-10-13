@@ -9,12 +9,12 @@ sidebar_position: 1
 > 💡 **No hardware?** Every example on this page runs on macOS or Linux, with no development board required.
 
 :::note First time integrating?
-If you are using the Tuya platform for the first time, read [Introduction](../intro) and [Core concepts](../concepts)
+If you are using the Tuya platform for the first time, read [Introduction](../intro.md) and [Core concepts](../concepts.md)
 first to understand the basics such as Product PID, device authorization code, and Provisioning.
 :::
 
 :::tip Need to use your own device?
-Complete [Provisioning](./pair-overall) first to obtain credentials, or [claim a free authorization code](../get-authkey).
+Complete [Provisioning](./pair-overall.md) first to obtain credentials, or [claim a free authorization code](../get-authkey.md).
 :::
 
 ## Dependencies {#依赖}

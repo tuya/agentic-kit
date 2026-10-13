@@ -27,7 +27,7 @@ npm run serve
 
 Both `npm run start` and `npm run serve` default to `http://localhost:3005/`.
 
-`npm run build` runs TypeScript and localization parity checks through `prebuild`,
+`npm run build` runs TypeScript, localization parity, and document-link checks through `prebuild`,
 then builds both locales into `build/`. To run the checks separately:
 
 ```bash
@@ -74,7 +74,11 @@ static/                                        Intentionally shared assets
   source inaccuracies separately rather than silently diverging in translation.
 - Keep one `sidebars.ts`. Translate page front matter and category labels in
   `current.json`; do not create a second sidebar.
-- Keep relative links to translated local pages. Verify English external Tuya
+- Use relative source-file links to local pages, including `.md` or `.mdx`
+  (for example `./scan-by-device.md`), so Docusaurus resolves them at build time.
+  Extensionless relative URLs break when the host adds a trailing slash.
+  `npm run test:links` checks this convention in both locales during `prebuild`.
+  Verify English external Tuya
   resources; when no English resource is available, label the original link as
   Chinese rather than assuming `/cn/` can be replaced with `/en/`.
 

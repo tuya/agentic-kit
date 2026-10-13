@@ -14,10 +14,10 @@ with the Tuya App to complete Provisioning and Activation**.
 :::note Prerequisites
 Before reading this chapter, make sure you have:
 - **Product PID** and **device authorization code** (uuid + authkey)
-  → see [Create and configure an Agent](../guides/create-agent)
+  → see [Create and configure an Agent](../guides/create-agent.md)
 :::
 
-In the previous chapter ([Device QR Code Provisioning](./scan-by-device)), the Provisioning flow has the App display a QR
+In the previous chapter ([Device QR Code Provisioning](./scan-by-device.md)), the Provisioning flow has the App display a QR
 code and the device scan it with a camera. But in some product forms the device may have no camera (for example, a
 screen-equipped smart speaker or a smart panel), yet has a screen that can display a QR code. In that case the roles can
 be reversed—the device requests an Activation URL from the Tuya cloud, encodes it as a QR code, and displays it on the
@@ -113,7 +113,7 @@ Only if the application explicitly sets `.mqtt_disable_auto_connect = true` must
 
 ## Comparison with the "device QR scan" method {#与设备扫码方式的对比}
 
-| | Device QR scan ([scan-by-device](./scan-by-device)) | App QR scan (this chapter) |
+| | Device QR scan ([scan-by-device](./scan-by-device.md)) | App QR scan (this chapter) |
 |---|---|---|
 | Who generates the QR code | The App | The device |
 | Who scans the QR code | The device (camera) | The user (App) |

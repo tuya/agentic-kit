@@ -22,7 +22,7 @@ RTC Client（`stm_open_*`）以预编译静态库形式提供，当前支持：
 2. 通过涂鸦技术支持或项目负责人提交请求
 3. 通常 1-2 周内可交付新平台的预编译库
 
-**替代方案：** 使用 [RTC TCP Client](./reference/rtc-tcp-client)（源码形式），只需实现 `pal.h` 接口即可在任意平台运行。详见[适配新平台](./guides/porting-to-new-platform)。
+**替代方案：** 使用 [RTC TCP Client](./reference/rtc-tcp-client.md)（源码形式），只需实现 `pal.h` 接口即可在任意平台运行。详见[适配新平台](./guides/porting-to-new-platform.md)。
 
 ## 设备端是否需要 VAD？ {#设备端是否需要-vad}
 
@@ -37,7 +37,7 @@ RTC Client（`stm_open_*`）以预编译静态库形式提供，当前支持：
 | WiFi 音箱、持续供电设备 | 仅云端 VAD 即可 |
 | 高交互体验要求 | 混合：设备端做粗判，云端做精判 |
 
-详见[VAD 与打断](./guides/vad-and-interrupt)。
+详见[VAD 与打断](./guides/vad-and-interrupt.md)。
 
 ## RTC TCP Client 和 RTC Client 的区别？用哪个？ {#rtc-tcp-client-和-rtc-client-的区别用哪个}
 
@@ -64,7 +64,7 @@ UDP实现版本有非常好的弱网性能支持, 即使在网络条件很差的
 - 通常为 PCM 或 Opus
 - 格式信息在首个音频回调中提供（`sample_rate`、`frame_duration`）
 
-详见[音频格式配置指南](./guides/audio-format)。
+详见[音频格式配置指南](./guides/audio-format.md)。
 
 ## session_token 过期了怎么办？ {#session_token-过期了怎么办}
 

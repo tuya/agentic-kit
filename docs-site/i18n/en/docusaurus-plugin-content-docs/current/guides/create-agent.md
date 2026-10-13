@@ -15,7 +15,7 @@ This guide explains how to create a product, create an AI agent, and **deploy** 
 | Deploy the agent to the product | [Agent Deployment and Billing](https://developer.tuya.com/en/docs/iot/agent-deploy?id=Kfnx3351272vh), [AI Capabilities Development](https://developer.tuya.com/en/docs/iot/AI-feature?id=Keapy1et1fc63) |
 
 :::tip Not Started Yet?
-If you do not yet have a product PID and device authorization code (uuid + authkey), follow this guide first. These are prerequisites for using Agentic-kit. See the integration flow in the [Introduction](../intro).
+If you do not yet have a product PID and device authorization code (uuid + authkey), follow this guide first. These are prerequisites for using Agentic-kit. See the integration flow in the [Introduction](../intro.md).
 :::
 
 ## Prerequisites {#前置条件}
@@ -63,7 +63,7 @@ The full product-side flow is: **Product** > **Product Development** > select th
 | Select Tuya's Agent Applications | Official Tuya applications (AI pet care, AI energy, and so on), with no development required; the application must already be deployed to this product solution |
 | Select Created Agent | An agent you created under your account; **its status must be Released** |
 
-After adding the device-side agent, click **Configure Audio** to select the audio format and voice. The device has a separate declaration: `tts.order.supports` in `session_attrs_json`. See [Configure Audio Formats](./audio-format).
+After adding the device-side agent, click **Configure Audio** to select the audio format and voice. The device has a separate declaration: `tts.order.supports` in `session_attrs_json`. See [Configure Audio Formats](./audio-format.md).
 
 **Only one device-side agent can be deployed per product.** The official table describes multiple-agent deployment for devices as "not currently supported; multiple agents planned." Multiple agents are supported on the panel side.
 
@@ -73,11 +73,11 @@ Link the agent to the product **before** purchasing modules or obtaining authori
 
 ### 4. Configure a Workflow (Optional) {#4-配置工作流可选}
 
-Advanced features such as image understanding and structured output require a **workflow**. See [Create a Workflow](./create-workflow).
+Advanced features such as image understanding and structured output require a **workflow**. See [Create a Workflow](./create-workflow.md).
 
 ### 5. Obtain Authorization Codes {#5-获取授权码}
 
-1. Request test authorization codes (uuid + authkey) on the product page. See [Obtain Authorization Codes](../get-authkey).
+1. Request test authorization codes (uuid + authkey) on the product page. See [Obtain Authorization Codes](../get-authkey.md).
 2. For large-scale shipments, contact Tuya sales to purchase authorization codes.
 
 ### 6. Use the Agent in Code {#6-在代码中使用}
@@ -110,7 +110,7 @@ Obtain `agent_token` from the Agent Management page on the Tuya IoT Platform.
 ## Considerations {#注意事项}
 
 - Each product can have one default agent; devices use it when `agent_token` is not specified.
-- The device declares the downlink TTS audio format through `tts.order.supports` in `session_attrs_json`. See [Configure Audio Formats](./audio-format).
+- The device declares the downlink TTS audio format through `tts.order.supports` in `session_attrs_json`. See [Configure Audio Formats](./audio-format.md).
 - Workflow configuration changes take effect immediately, without reconnecting.
 - Test authorization codes have usage-count and time limits.
-- To have an agent **proactively** push a message when a device reports a particular DP, you must also configure device event rules and triggers. See [Agent Triggers](../tutorials/agent-trigger).
+- To have an agent **proactively** push a message when a device reports a particular DP, you must also configure device event rules and triggers. See [Agent Triggers](../tutorials/agent-trigger.md).

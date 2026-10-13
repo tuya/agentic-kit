@@ -206,7 +206,7 @@ See [Where Defaults Live](#默认值在哪里) for each subsystem's file path. T
 | Configuration macro | Default | When to adjust |
 |------|------|---------|
 | `AGENTIC_KIT_REQUEST_HEADER_BUFFER_SIZE` | 1024 | When assembled request headers (request line + headers) no longer fit |
-| `AGENTIC_KIT_RESPONSE_BUFFER_SIZE` | 4096 | **Must-read for products with a large DP schema**: the status line, response headers, and encrypted response body share this one buffer; overflow reports `OPRT_COMMUNICATION_ERROR`. The decrypted-JSON cap is roughly 2.8 KB net of headers (see [Generic ATOP Calls](./atop-generic-call)) |
+| `AGENTIC_KIT_RESPONSE_BUFFER_SIZE` | 4096 | **Must-read for products with a large DP schema**: the status line, response headers, and encrypted response body share this one buffer; overflow reports `OPRT_COMMUNICATION_ERROR`. The decrypted-JSON cap is roughly 2.8 KB net of headers (see [Generic ATOP Calls](./atop-generic-call.md)) |
 
 ### rtc-tcp-client (TAI 2.1) {#rtc-tcp-client-tai-21}
 

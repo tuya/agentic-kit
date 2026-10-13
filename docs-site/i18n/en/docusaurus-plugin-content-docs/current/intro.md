@@ -109,7 +109,7 @@ Agentic-kit keeps device-side integration lightweight, while the Tuya Physical A
 
 ## Next steps {#下一步}
 
-- [Core concepts](./concepts) - Learn about device Activation, Agents, tRTC, Data Points, and MCP
-- [System architecture](./architecture) - Learn about the SDK modules and project structure
-- [Quick start](./tutorials/quick-start) - Run the first example
-- [SDK reference](./reference/rtc-tcp-client) - Read the API documentation
+- [Core concepts](./concepts.md) - Learn about device Activation, Agents, tRTC, Data Points, and MCP
+- [System architecture](./architecture.mdx) - Learn about the SDK modules and project structure
+- [Quick start](./tutorials/quick-start.md) - Run the first example
+- [SDK reference](./reference/rtc-tcp-client.md) - Read the API documentation

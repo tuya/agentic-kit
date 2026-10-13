@@ -206,7 +206,7 @@ void my_sink(log_level_t level, const char *fmt, ...)
 | 配置宏 | 默认 | 何时调整 |
 |------|------|---------|
 | `AGENTIC_KIT_REQUEST_HEADER_BUFFER_SIZE` | 1024 | 请求头（请求行 + 头部）拼不下的场景 |
-| `AGENTIC_KIT_RESPONSE_BUFFER_SIZE` | 4096 | **DP schema 大的产品必看**：状态行 + 响应头 + 加密响应体共用这一个缓冲，溢出报 `OPRT_COMMUNICATION_ERROR`。解密后 JSON 上限约 2.8 KB（详见[通用 ATOP 调用](./atop-generic-call)） |
+| `AGENTIC_KIT_RESPONSE_BUFFER_SIZE` | 4096 | **DP schema 大的产品必看**：状态行 + 响应头 + 加密响应体共用这一个缓冲，溢出报 `OPRT_COMMUNICATION_ERROR`。解密后 JSON 上限约 2.8 KB（详见[通用 ATOP 调用](./atop-generic-call.md)） |
 
 ### rtc-tcp-client（TAI 2.1） {#rtc-tcp-client-tai-21}
 

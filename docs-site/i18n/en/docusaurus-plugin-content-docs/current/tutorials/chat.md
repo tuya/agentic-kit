@@ -17,7 +17,7 @@ This chapter uses the precompiled rtc-client library (`stm_open_*` API). The rtc
 This chapter introduces the voice chat example and its implementation. It demonstrates how to use Agentic-kit for voice or text chat with AI and save the returned TTS audio to a local file.
 
 :::note Prerequisites
-- Device credentials (`devid`, `secret_key`, `local_key`) -- the example includes default test credentials and can run directly. To use your own device, first complete [Provisioning](./scan-by-device) to obtain credentials.
+- Device credentials (`devid`, `secret_key`, `local_key`) -- the example includes default test credentials and can run directly. To use your own device, first complete [Provisioning](./scan-by-device.md) to obtain credentials.
 :::
 
 ## Features {#功能概述}
@@ -38,7 +38,7 @@ The example requires the following PCM input parameters:
 | Frame duration | 120 ms |
 | Frame size | 3840 bytes |
 
-**Note**: TuyaAI cloud supports PCM/OPUS audio with different sample rates and other parameters. The example uses fixed PCM parameters for simplicity; these are not mandatory format requirements. See the [Audio format configuration guide](../guides/audio-format).
+**Note**: TuyaAI cloud supports PCM/OPUS audio with different sample rates and other parameters. The example uses fixed PCM parameters for simplicity; these are not mandatory format requirements. See the [Audio format configuration guide](../guides/audio-format.md).
 
 Both modes:
 1. Print the AI's text response to the console in real time.

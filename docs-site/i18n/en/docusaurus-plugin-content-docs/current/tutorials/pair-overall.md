@@ -15,7 +15,7 @@ Before a new device can be used for the first time, it must be bound to a Tuya c
 | Token source | In the App's QR code | Pushed by the cloud over MQTT | Returned by OpenAPI | Passed by the App over BLE |
 | Network information delivery | The QR code contains WiFi credentials | The device must connect to the network itself | The device must connect to the network itself | WiFi credentials passed over BLE |
 | Use cases | Devices with a camera | Devices with a screen | No App / Apps that do not use the Tuya App SDK | Devices that support BLE |
-| Corresponding tutorial | [Device QR Code Provisioning](./scan-by-device) | [App QR Code Provisioning](./scan-by-app) | [OpenAPI Provisioning](./openapi-activate) | [BLE Provisioning](./pair-by-ble) |
+| Corresponding tutorial | [Device QR Code Provisioning](./scan-by-device.md) | [App QR Code Provisioning](./scan-by-app.md) | [OpenAPI Provisioning](./openapi-activate.md) | [BLE Provisioning](./pair-by-ble.md) |
 
 After Activation succeeds, the cloud assigns the device a `devid`, `secret_key`, and `local_key`; all three fields are required when using the AI SDK later.
 

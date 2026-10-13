@@ -15,7 +15,7 @@ sidebar_position: 1
 | Token 来源 | App 二维码中 | 云端 MQTT 推送 | OpenAPI 返回 | App BLE 传递 |
 | 网络信息传递 | 二维码含 WiFi 凭据 | 设备需自行联网 | 设备需自行联网 | BLE 传递 WiFi 凭据 |
 | 适用场景 | 带摄像头的设备 | 带屏设备 | 无 App / 不用 Tuya App SDK 的 App | 支持 BLE 的设备 |
-| 对应教程 | [设备扫码配网](./scan-by-device) | [App 扫码配网](./scan-by-app) | [OpenAPI 配网](./openapi-activate) | [BLE 配网](./pair-by-ble) |
+| 对应教程 | [设备扫码配网](./scan-by-device.md) | [App 扫码配网](./scan-by-app.md) | [OpenAPI 配网](./openapi-activate.md) | [BLE 配网](./pair-by-ble.md) |
 
 激活成功后，云端会为设备分配 `devid`、`secret_key`、`local_key`，后续使用 AI SDK 时均需使用这三个字段。
 

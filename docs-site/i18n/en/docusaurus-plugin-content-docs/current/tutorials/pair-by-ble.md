@@ -171,7 +171,7 @@ Key settings currently present in `sdkconfig.defaults`:
 
 - After BLE Provisioning completes, stop BLE advertising (`tuya_ble_nimble_stop`) as soon as possible to avoid RF conflicts when coexisting with WiFi.
 - The token format is the same as for the other Provisioning methods: the first two characters are the Region code.
-- The device Activation flow after Provisioning completes is the same as in [Device QR-code Provisioning](./scan-by-device), using `iot_client_init_on_boarding_with_token()`.
+- The device Activation flow after Provisioning completes is the same as in [Device QR-code Provisioning](./scan-by-device.md), using `iot_client_init_on_boarding_with_token()`.
 - Never set `.mqtt_disable_auto_connect = true` in the Activation configuration: **the App treats the device coming online on MQTT as the condition for Provisioning success**, so without an MQTT connection the App shows Provisioning failure/timeout.
 - Make sure the project correctly references the `modules/tuya-ble/` and `modules/iot-client/` components.
 

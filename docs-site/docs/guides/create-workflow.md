@@ -90,5 +90,5 @@ ret = send_image(session, NULL, img_data, nread, img_format, 1);
 
 ## 相关链接 {#相关链接}
 
-- [如何创建 Agent](./create-agent) — Agent 基础配置步骤
-- [图片理解教程](../tutorials/edu-camera) — 设备端发送图片的完整示例
+- [如何创建 Agent](./create-agent.md) — Agent 基础配置步骤
+- [图片理解教程](../tutorials/edu-camera.md) — 设备端发送图片的完整示例

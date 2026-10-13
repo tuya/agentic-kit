@@ -452,7 +452,7 @@ int tai_send_audio_start(tai_ctx_t *ctx,
 Starts an audio stream. It must be called before `tai_send_audio_chunk`.
 
 :::note Server VAD mode
-When Server VAD (continuous conversation) is enabled, call this function only once for the entire chat Session, not once per turn; keep the uplink audio stream open until the Session ends. See the "Server VAD vs. device-side VAD" comparison table in [VAD and Interruption](../guides/vad-and-interrupt).
+When Server VAD (continuous conversation) is enabled, call this function only once for the entire chat Session, not once per turn; keep the uplink audio stream open until the Session ends. See the "Server VAD vs. device-side VAD" comparison table in [VAD and Interruption](../guides/vad-and-interrupt.md).
 :::
 
 **Parameters:**
@@ -486,7 +486,7 @@ int tai_send_audio_end(tai_ctx_t *ctx);
 Ends the audio stream. Notifies the server that the current audio input is complete and processing can begin.
 
 :::warning Do not call in Server VAD mode
-When Server VAD (`asr.enableVad`) is enabled, this function **must not** be called. The current cloud's turn-end signal is `TAI_EVT_CHAT_BREAK` (`TAI_EVT_SERVER_VAD` is no longer sent); do not call this function when that signal is received either. This function is only for manual push-to-talk or device-side local VAD stop detection. Calling it incorrectly actively ends the current uplink Event, causing the cloud to truncate the user's speech. See [VAD and Interruption](../guides/vad-and-interrupt).
+When Server VAD (`asr.enableVad`) is enabled, this function **must not** be called. The current cloud's turn-end signal is `TAI_EVT_CHAT_BREAK` (`TAI_EVT_SERVER_VAD` is no longer sent); do not call this function when that signal is received either. This function is only for manual push-to-talk or device-side local VAD stop detection. Calling it incorrectly actively ends the current uplink Event, causing the cloud to truncate the user's speech. See [VAD and Interruption](../guides/vad-and-interrupt.md).
 :::
 
 ---
@@ -611,7 +611,7 @@ tai_ctx_deinit(ctx);
 free(mem);
 ```
 
-> The audio-stream call pattern depends on the VAD mode (continuous conversation with Server VAD vs. device-side VAD/manual push-to-talk). See the comparison table in [VAD and Interruption](../guides/vad-and-interrupt).
+> The audio-stream call pattern depends on the VAD mode (continuous conversation with Server VAD vs. device-side VAD/manual push-to-talk). See the comparison table in [VAD and Interruption](../guides/vad-and-interrupt.md).
 
 ---
 
