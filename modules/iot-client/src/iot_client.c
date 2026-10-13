@@ -18,7 +18,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <inttypes.h>
-#include <time.h>
 
 static const pal_t *g_iot_pal = NULL;
 
@@ -380,7 +379,7 @@ IOT_API int iot_client_reset(iot_client_t *client,
     int sn = snprintf(body, sizeof(body),
                       "{\"resetFactory\":%s,\"t\":%" PRIu32 "}",
                       (scope == IOT_RESET_FACTORY) ? "true" : "false",
-                      (uint32_t)time(NULL));
+                      (uint32_t)(client->pal->wal_clock_time() / 1000U));
     if (sn < 0 || (size_t)sn >= sizeof(body)) {
         return OPRT_COMMUNICATION_ERROR;
     }
@@ -681,7 +680,7 @@ IOT_API int iot_get_binding_status(const iot_binding_status_request_t *request,
         return OPRT_UNINITIALIZED;
     }
 
-    uint32_t timestamp = (uint32_t)time(NULL);
+    uint32_t timestamp = (uint32_t)(pal->wal_clock_time() / 1000U);
     char body[32];
     int body_len = snprintf(body, sizeof(body), "{\"t\":%" PRIu32 "}", timestamp);
     if (body_len < 0 || (size_t)body_len >= sizeof(body)) {

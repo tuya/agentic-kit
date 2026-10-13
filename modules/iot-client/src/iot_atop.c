@@ -22,7 +22,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 
 /* The public buffers mirror the internal envelope buffers. Static-assert rather
  * than re-deriving one from the other, so a future widening of either side
@@ -98,7 +97,7 @@ int iot_atop_call(iot_client_t *client,
         .api       = request->api,
         .version   = request->version,
         .devid     = client->devid,
-        .timestamp = (uint32_t)time(NULL),
+        .timestamp = (uint32_t)(client->pal->wal_clock_time() / 1000U),
         .data      = (void *)body,
         .datalen   = strlen(body),
         .host      = host[0] ? host : NULL,

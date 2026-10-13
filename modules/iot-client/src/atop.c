@@ -7,7 +7,6 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 #include <inttypes.h>
 
 
@@ -87,7 +86,7 @@ int atop_activate_request(const pal_t *pal, const activite_request_t *request, a
         IOT_LOGE("post buffer malloc fail");
         return OPRT_MALLOC_FAILED;
     }
-    uint32_t timestamp = (uint32_t)time(NULL);
+    uint32_t timestamp = (uint32_t)(pal->wal_clock_time() / 1000U);
 
     /* activate JSON format */
     size_t offset = 0;
@@ -311,7 +310,7 @@ int atop_device_meta_save(const pal_t *pal, const device_meta_save_request_t *re
 
     memset(response, 0, sizeof(device_meta_save_response_t));
 
-    uint32_t timestamp = (uint32_t)time(NULL);
+    uint32_t timestamp = (uint32_t)(pal->wal_clock_time() / 1000U);
 
     /* {"t":12345,"metas":"{\"smain_network_sdk_full_version\":\"agentic-kit 0.1\"}"} */
     size_t post_len = 64 + strlen(request->sdk_version) * 2;
@@ -395,7 +394,7 @@ int atop_qrcode_info_get(const pal_t *pal, const qrcode_info_request_t *request,
 
     memset(response, 0, sizeof(qrcode_info_response_t));
 
-    uint32_t timestamp = (uint32_t)time(NULL);
+    uint32_t timestamp = (uint32_t)(pal->wal_clock_time() / 1000U);
 
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
@@ -499,7 +498,7 @@ int atop_ai_token_get(const pal_t *pal, const ai_token_request_t *request, ai_to
     memset(response, 0, sizeof(ai_token_response_t));
 
     int rt = OPRT_OK;
-    uint32_t timestamp = (uint32_t)time(NULL);
+    uint32_t timestamp = (uint32_t)(pal->wal_clock_time() / 1000U);
     // Create request JSON
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
@@ -612,7 +611,7 @@ int atop_schema_newest_get(const pal_t *pal, const schema_newest_request_t *requ
 
     memset(response, 0, sizeof(schema_newest_response_t));
 
-    uint32_t timestamp = (uint32_t)time(NULL);
+    uint32_t timestamp = (uint32_t)(pal->wal_clock_time() / 1000U);
 
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
@@ -748,7 +747,7 @@ int atop_upgrade_get(const pal_t *pal, const ota_upgrade_request_t *request, ota
 
     memset(response, 0, sizeof(ota_upgrade_response_t));
 
-    uint32_t timestamp = (uint32_t)time(NULL);
+    uint32_t timestamp = (uint32_t)(pal->wal_clock_time() / 1000U);
 
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
@@ -885,7 +884,7 @@ int atop_version_update(const pal_t *pal, const ota_version_update_request_t *re
     const char *pv = (request->pv != NULL && request->pv[0] != '\0') ? request->pv : "2.3";
     const char *bv = (request->bv != NULL && request->bv[0] != '\0') ? request->bv : "2.0";
 
-    uint32_t timestamp = (uint32_t)time(NULL);
+    uint32_t timestamp = (uint32_t)(pal->wal_clock_time() / 1000U);
 
     /* versions is a JSON string (doubly-escaped) containing an array */
     #define VER_UPDATE_BUF_LEN 256
@@ -952,7 +951,7 @@ int atop_upgrade_status_update(const pal_t *pal, const ota_status_update_request
         return OPRT_INVALID_PARAMETER;
     }
 
-    uint32_t timestamp = (uint32_t)time(NULL);
+    uint32_t timestamp = (uint32_t)(pal->wal_clock_time() / 1000U);
 
     #define STATUS_UPD_BUF_LEN 128
     char *post_data = (char *)pal->malloc(STATUS_UPD_BUF_LEN);

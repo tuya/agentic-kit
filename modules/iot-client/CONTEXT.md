@@ -5,6 +5,21 @@ device state over MQTT: activation, the Data Point model, and DP reporting/downl
 
 ## Language
 
+**Monotonic time**:
+An elapsed-time clock exposed by `pal_t.time_ms`, used for deadlines and retry
+intervals. Its epoch is local to the platform's current run; it does not name a
+calendar date and must not be substituted for a UTC timestamp in a cloud request.
+The FreeRTOS PAL's monotonic clock resolution follows the kernel tick frequency.
+_Avoid_: wall-clock time, UTC timestamp (when referring to this elapsed-time clock).
+
+**UTC timestamp**:
+Wall-clock time exposed by `pal_t.wal_clock_time` as milliseconds since the Unix epoch,
+with no timezone offset. Cloud signing/reporting converts it to seconds; it may
+step forwards or backwards when the application synchronizes the clock. The
+application establishes UTC before cloud requests; the SDK never synchronizes
+it in the background. See [ADR 0003](docs/adr/0003-pal-separates-utc-and-monotonic-time.md).
+_Avoid_: uptime, monotonic time (when referring to a cloud timestamp).
+
 **Data Point (DP)**:
 A single addressable unit of device state or capability, identified by a numeric id
 (1–255) and typed by the product schema.

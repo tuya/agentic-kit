@@ -55,7 +55,7 @@ The PAL is Agentic-kit's portability boundary. Rather than binding directly to a
 | --- | --- | --- |
 | Network | `connect / send / recv / close / poll` | Timeouts, partial sends and receives, TLS dependencies, network recovery |
 | Concurrency | `thread_create / join`, mutex | Thread stack, callback context, lock granularity |
-| System | `time_ms`, `malloc / free` | Clock monotonicity, peak memory use, and fragmentation |
+| System | `wal_clock_time`, `time_ms`, `malloc / free` | UTC synchronization and monotonic timing, peak memory use, and fragmentation |
 
 ## Physical device control: DPs and device-side MCP {#物理设备控制dp-与端侧-mcp}
 

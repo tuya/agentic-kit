@@ -235,6 +235,13 @@ static void pal_tcp_close(void *handle)
 /* -------------------------------------------------------------------------
  * Time
  * ------------------------------------------------------------------------- */
+static uint64_t pal_wal_clock_time(void)
+{
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0 || ts.tv_sec <= 0) return 0;
+    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)(ts.tv_nsec / 1000000);
+}
+
 static uint64_t pal_time_ms(void)
 {
     struct timespec ts;
@@ -307,6 +314,7 @@ static const pal_t g_posix_pal = {
     .tcp_close        = pal_tcp_close,
     .tcp_poll         = pal_tcp_poll,
     .time_ms          = pal_time_ms,
+    .wal_clock_time   = pal_wal_clock_time,
     .malloc           = pal_malloc,
     .free             = pal_free,
     .mutex_create     = pal_mutex_create,
