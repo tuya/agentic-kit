@@ -82,7 +82,8 @@ extern "C" {
 typedef struct {
     const char *api;      /**< e.g. "tuya.device.upgrade.get" (required) */
     const char *version;  /**< e.g. "4.4" (required) */
-    const char *data;     /**< request body, a JSON object string; NULL/"" = "{}" */
+    const char *data;     /**< request body, a JSON object string; NULL/"" = "{}".
+                               The SDK injects a "t" timestamp matching the URL t. */
 } iot_atop_request_t;
 
 /**

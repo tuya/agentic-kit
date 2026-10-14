@@ -347,9 +347,18 @@ def handle_ai_token_request(request_data, config):
 
 def handle_image_secret_request(request_data, url_params):
     """Synthetic secret; test-only devId selects malformed business results."""
-    if url_params.get('v') != '1.0' or json.loads(request_data) != {}:
+    # The real cloud binds the URL t to the body t: a body without a t (or one
+    # that disagrees) is rejected. Reproduce that here so the SDK is exercised
+    # on the injection it must perform, not on the empty-object shortcut.
+    try:
+        body = json.loads(request_data)
+    except (ValueError, TypeError):
+        body = None
+    if (url_params.get('v') != '1.0' or not isinstance(body, dict) or
+            't' not in body or str(body['t']) != url_params.get('t')):
         return json.dumps({"success": False, "t": int(time.time()),
-                           "errorCode": "ILLEGAL_PARAM", "errorMsg": "expected v1.0 and empty object"})
+                           "errorCode": "ILLEGAL_PARAM",
+                           "errorMsg": "expected v1.0 and a body t matching the url t"})
 
     secret = 'AAECAwQFBgcICQoLDA0ODw=='  # bytes 0x00 through 0x0f, never a real key
     mode = url_params.get('devId', '').replace('ci_secret_', '', 1)
@@ -817,6 +826,27 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
                     "errorCode": "GATEWAY_NOT_EXISTS",
                     "errorMsg": "device removed from the cloud"
                 }, separators=(',', ':'))
+            elif api == 'tuya.test.body.t.matches.url.t':
+                # Test-only: success only when the SDK put the same t in the
+                # decrypted body and in the signed URL -- the cloud's binding.
+                try:
+                    echo = json.loads(decrypted_data)
+                except (ValueError, TypeError):
+                    echo = None
+                body_t = echo.get('t') if isinstance(echo, dict) else None
+                if body_t is not None and str(body_t) == url_params.get('t'):
+                    response_json = json.dumps({
+                        "success": True,
+                        "t": int(time.time()),
+                        "result": True
+                    }, separators=(',', ':'))
+                else:
+                    response_json = json.dumps({
+                        "success": False,
+                        "t": int(time.time()),
+                        "errorCode": "ILLEGAL_PARAM",
+                        "errorMsg": "body t does not match url t"
+                    }, separators=(',', ':'))
             else:
                 response_json = json.dumps({
                     "success": False,

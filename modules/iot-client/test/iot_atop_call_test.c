@@ -475,6 +475,39 @@ static int test_unknown_api_reaches_the_cloud(void)
     return 0;
 }
 
+/* The cloud binds the URL t to the body t: a generic caller that passes "{}",
+ * or its own stale t, must still go out with the SDK's timestamp in the body
+ * matching the URL. The mock answers success only when the two agree, so
+ * OPRT_OK here is the assertion. */
+static int test_call_binds_body_timestamp_to_url(void)
+{
+    const struct {
+        const char *data;
+        const char *what;
+    } cases[] = {
+        {NULL,            "default {}"},
+        {"{}",            "empty object"},
+        {"{\"t\":1}",     "stale caller t"},
+        {"{\"k\":\"v\"}", "caller field preserved"},
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        iot_atop_request_t req = { .api = "tuya.test.body.t.matches.url.t",
+                                   .version = "1.0",
+                                   .data = cases[i].data };
+        iot_atop_response_t resp = {0};
+        int rt = iot_atop_call(&g_client, &req, &resp);
+        if (rt != OPRT_OK || resp.result == NULL || strcmp(resp.result, "true") != 0) {
+            printf("  %s: returned %d, result=%s\n", cases[i].what, rt,
+                   resp.result ? resp.result : "(null)");
+            iot_atop_response_free(&g_client, &resp);
+            return -1;
+        }
+        iot_atop_response_free(&g_client, &resp);
+    }
+    return 0;
+}
+
 /* A response larger than AGENTIC_KIT_RESPONSE_BUFFER_SIZE must fail loudly.
  *
  * This is the failure from CHANGELOG: a product whose schema came back at
@@ -916,6 +949,7 @@ int main(void)
     RUN_TEST(test_null_body_defaults_to_empty_object);
     RUN_TEST(test_business_error_carries_error_code);
     RUN_TEST(test_unknown_api_reaches_the_cloud);
+    RUN_TEST(test_call_binds_body_timestamp_to_url);
     RUN_TEST(test_null_result_stays_null);
     RUN_TEST(test_gateway_not_exists_is_business_error);
     RUN_TEST(test_response_zeroed_on_bad_request);
