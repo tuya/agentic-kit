@@ -475,6 +475,10 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     )
     add_test(NAME iot_tai_control_test COMMAND iot_tai_control_test)
 
+    add_executable(image_generation_demo_test "${AI_TCP_TESTS_DIR}/image_generation_demo_test.c")
+    target_link_libraries(image_generation_demo_test PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
+    add_test(NAME image_generation_demo_test COMMAND image_generation_demo_test)
+
     # The ble sources compile into the executable (not the tuya_ble
     # library) so they pick up the test sink's log remap from
     # tuya_iot_client_testlog's include path -- that is what lets

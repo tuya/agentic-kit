@@ -139,8 +139,21 @@ else()
 endif()
 
 # -- ai / rtc-tcp-client ----------------------------------------------------
+# A keyed Connection reassembles each whole-image Packet before GCM decryption
+# (see modules/rtc-tcp-client/CONTEXT.md), so the reassembly ceiling must cover
+# one inline image plus its Packet metadata, not just a few 4096-byte transport
+# fragments. The module default (32000) fails image reception with
+# TAI_PROTO_ERR_FRAG: the cloud delivered an image as one ~400 KB Packet. Size
+# the SDK library built for these demos to the demo's 16 MiB image limit and
+# leave the module default small for consumers that never receive keyed images.
+target_compile_definitions(tuya_ai_tcp PRIVATE
+    "AGENTIC_KIT_TAI_FRAG_BUF_SIZE=(16*1024*1024+4096)")
+
 add_executable(text_chat_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/text_chat_demo.c")
 target_link_libraries(text_chat_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
+
+add_executable(image_generation_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/image_generation_demo.c")
+target_link_libraries(image_generation_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
 
 add_executable(edu_camera_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/edu_camera_demo.c")
 target_link_libraries(edu_camera_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
