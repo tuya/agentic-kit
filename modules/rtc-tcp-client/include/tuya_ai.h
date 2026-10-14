@@ -94,6 +94,8 @@ extern "C" {
 #define TAI_IMG_JPEG  1
 #define TAI_IMG_PNG   2
 
+#define TAI_IMAGE_KEY_LEN 16
+
 /* =========================================================================
  * Constants -- Image payload types (Section 9.3)
  * ========================================================================= */
@@ -121,6 +123,7 @@ extern "C" {
 #define TAI_DATA_ID_TEXT_UP     3
 #define TAI_DATA_ID_TEXT_DOWN   4
 #define TAI_DATA_ID_IMAGE_UP    5
+#define TAI_DATA_ID_IMAGE_DOWN  6   /* advertised by keyed Sessions */
 #define TAI_DATA_ID_AUDIO_AUX  7
 
 /* =========================================================================
@@ -155,7 +158,8 @@ typedef struct tai_ctx tai_ctx_t;
  *
  * Every receive callback takes ONE const message pointer + user_data. The
  * struct AND every pointer inside it (data/text/event_id) are valid ONLY for
- * the callback's duration — copy to retain. The SDK never heap-allocates these.
+ * the callback's duration — copy to retain. Message structs are stack-allocated;
+ * authenticated image plaintext uses temporary PAL storage freed after the call.
  *
  * ABI: the SDK zero-fills the struct before populating; new fields are appended
  * before _reserved. Forward-safe only when the SDK is at least as new as the
@@ -193,9 +197,14 @@ typedef struct tai_text_msg {
  * chunks: START (or ONE_SHOT) carries the first bytes and the image-params,
  * MIDDLE continues, END terminates (len may be 0). The caller accumulates the
  * chunks by stream_flag and decodes once the stream ends. format/width/height
- * are populated from image-params on START/ONE_SHOT and 0 on MIDDLE/END. */
+ * are populated when image-params is present, otherwise 0 on continuations.
+ * Keyed inline RAW/Base64 bodies are authenticated per complete Packet, then
+ * delivered as RAW plaintext (image-file bytes, not decoded pixels). URL bytes
+ * are passed through unchanged, never downloaded or decrypted. No-key payloads
+ * remain unchanged, with their original type when supplied (0 when absent).
+ * On a protocol failure discard any accumulated incomplete image. */
 typedef struct tai_image_msg {
-    const uint8_t *data;            /* encoded image bytes (JPEG/PNG); callback-lifetime */
+    const uint8_t *data;            /* image payload or URL; borrowed until callback returns */
     size_t         len;
     uint8_t        format;          /* TAI_IMG_JPEG / TAI_IMG_PNG / 0=unknown     */
     uint16_t       width;           /* px, 0 if unknown / not on this chunk       */
@@ -204,6 +213,7 @@ typedef struct tai_image_msg {
     uint16_t       data_id;         /* Data ID                                   */
     const char    *event_id;        /* turn id, borrowed; "" if none             */
     uint64_t       timestamp_ms;    /* stream-start ts (media header)            */
+    uint8_t        payload_type;    /* TAI_IMG_PAYLOAD_*; decrypted bytes are RAW */
     uint8_t        _reserved[8];
 } tai_image_msg_t;
 
@@ -239,6 +249,8 @@ typedef struct tai_event_msg {
 #define TAI_PROTO_ERR_MEDIA_HDR     8  /* media/text header truncated               */
 #define TAI_PROTO_ERR_UNEXPECTED    9  /* valid packet, wrong state (behaviour)     */
 #define TAI_PROTO_ERR_OVERSIZED    10  /* inbound frame exceeds rx_buf (see note)   */
+#define TAI_PROTO_ERR_IMAGE_AUTH   11  /* Image GCM authentication failed           */
+#define TAI_PROTO_ERR_IMAGE_PROCESSING 12 /* Image scratch allocation/processing failed */
 
 typedef struct tai_disconnect_msg {
     uint8_t  reason;                /* TAI_DISCONNECT_*                          */
@@ -253,7 +265,8 @@ typedef struct tai_disconnect_msg {
  * Configuration
  * =========================================================================
  * Fill this struct before calling tai_ctx_init().
- * All pointer fields must remain valid for the lifetime of the context.
+ * All pointer fields except image_key must remain valid for the
+ * lifetime of the context. image_key is copied during construction.
  */
 typedef struct tai_config {
     /* --- Server (from MQTT protocol-9000 or gateway API) --- */
@@ -282,7 +295,7 @@ typedef struct tai_config {
     uint64_t biz_tag;
 
     /* --- Cryptography --- */
-    uint8_t sign_level;
+    uint8_t sign_level;          /* ignored with image_key: keyed Frames are unsigned */
 
     /* --- Keepalive (0 = default) --- */
     uint32_t ping_interval_ms;    /* 0 = default 60000 */
@@ -350,6 +363,27 @@ typedef struct tai_config {
      * SDK receive state. NULL means receive continuously. */
     int (*on_flow_control)(tai_ctx_t *ctx, void *user_data);
 
+    /* Optional fixed AES-128 image key: exactly TAI_IMAGE_KEY_LEN
+     * decoded binary bytes, not Base64, a C string, local_key or an HKDF output.
+     * Non-NULL must reference at least 16 readable bytes; the application must
+     * validate the decoded length (this pointer API cannot check allocation size).
+     * Copied only on successful tai_ctx_init; caller storage is then releasable.
+     * An all-zero key is valid. The owned copy survives disconnect/failure and
+     * is wiped by tai_ctx_deinit. NULL preserves legacy behavior.
+     * Selects TuyaOpen's encrypted-media profile: Frame version 3, unsigned
+     * Frames, v2 Attribute layout, suite 00 || random[32] || 04 03 03.
+     * The suffix means AES-128-GCM, whole video I-frames, whole images; it is
+     * not a media-support bitmap. Only audio/text/image Data IDs are advertised;
+     * video/file handling is not implemented. No automatic key acquisition.
+     * Requires TLS with ca_cert or cert_bundle_attach; disable_tls is rejected
+     * by tai_connect before networking. protocol_version must be 0 or TAI_VER_21. */
+    const uint8_t *image_key;
+
+    /* Optional CA certificate (full PEM or bare Base64 body, not a file path).
+     * Borrowed for context lifetime. Nonempty enables required peer verification;
+     * NULL preserves the legacy bundle/optional verification path without a key. */
+    const char *ca_cert;
+
 } tai_config_t;
 
 /* =========================================================================
@@ -358,10 +392,14 @@ typedef struct tai_config {
 
 size_t      tai_ctx_size(void);
 tai_ctx_t  *tai_ctx_init(void *mem, const tai_config_t *cfg);
+/* After tai_disconnect has stopped/joined any worker, release context resources
+ * and wipe the owned image key. Does not free the caller-owned context memory. */
 void        tai_ctx_deinit(tai_ctx_t *ctx);
 
 /* Connect: TLS handshake + ClientHello + SessionNew + start background thread.
  * The background thread handles receive polling and keepalive pings.
+ * With image_key, returns TAI_ERR_TLS before networking if disable_tls is set
+ * or neither a nonempty ca_cert nor cert_bundle_attach is configured.
  * Returns TAI_OK or TAI_ERR_*. */
 int         tai_connect(tai_ctx_t *ctx);
 

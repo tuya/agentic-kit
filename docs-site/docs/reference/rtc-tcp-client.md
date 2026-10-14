@@ -113,6 +113,7 @@ sidebar_position: 1
 | `TAI_DATA_ID_TEXT_UP` | 3 | 上行文本 |
 | `TAI_DATA_ID_TEXT_DOWN` | 4 | 下行文本 |
 | `TAI_DATA_ID_IMAGE_UP` | 5 | 上行图像 |
+| `TAI_DATA_ID_IMAGE_DOWN` | 6 | 下行图像（配置密钥的 Session 声明） |
 | `TAI_DATA_ID_AUDIO_AUX` | 7 | 辅助音频 |
 
 ### 2.10 返回码 {#210-返回码}
@@ -133,7 +134,7 @@ sidebar_position: 1
 
 ## 3. 配置（`tai_config_t`） {#3-配置tai_config_t}
 
-调用 `tai_ctx_init` 前填充此结构体。所有指针字段在 context 生命周期内必须保持有效。
+调用 `tai_ctx_init` 前填充此结构体。除 `image_key` 外，所有指针字段在 context 生命周期内必须保持有效；该密钥在构造成功时被复制。
 
 ### 3.1 服务器配置 {#31-服务器配置}
 
@@ -171,7 +172,30 @@ sidebar_position: 1
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `sign_level` | `uint8_t` | 签名级别：`TAI_SIGN_HMAC_SHA256`（推荐）或 `TAI_SIGN_HMAC_SHA1`。注意 `TAI_SIGN_NONE`（0）会被视为"未设置"而强制回退到 `TAI_SIGN_HMAC_SHA256`，无法通过该字段关闭签名 |
+| `sign_level` | `uint8_t` | 未配置 `image_key` 时：`TAI_SIGN_HMAC_SHA256`（推荐）或 `TAI_SIGN_HMAC_SHA1`；0 视为未设置并回退到 HMAC-SHA256。配置 `image_key` 时忽略此字段，使用签名级别 0，所有 Frame 均不附加签名。 |
+
+#### 图像密钥与加密媒体连接 {#image-decrypt-key}
+
+为兼容已有链接，保留历史锚点 `image-decrypt-key`；配置字段名为 `image_key`，同一密钥用于上行加密和下行解密。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `image_key` | `const uint8_t *` | 可选的固定 AES-128 图像密钥：恰好 `TAI_IMAGE_KEY_LEN`（16）个解码后的二进制字节。NULL 保持旧有行为。 |
+
+:::warning 配置密钥后必须验证 TLS 对端
+`image_key` 启用 TuyaOpen 加密媒体配置：Frame 版本 3、签名级别 0（忽略 `cfg.sign_level`），Attribute 仍使用 v2 布局。ClientHello 的 36 字节 suite 为 `00 || random[32] || 04 03 03`；后三字节分别表示 AES-128-GCM、完整视频 I 帧、完整图像的加密范围，**不是媒体能力位图**。本 SDK 不支持视频或文件处理。
+
+此 unsigned Frame 安全决策已获用户明确批准。图像 GCM 不使用 AAD，只逐个认证完整 Image Packet 的加密正文；元数据、控制 Packet、URL 和空标记依赖经过验证的 TLS 保护。必须配置非空 `cfg.ca_cert` 或 `cert_bundle_attach`；配置密钥时若设置 `disable_tls` 或缺少两种信任来源，`tai_connect()` 在网络操作前返回 `TAI_ERR_TLS`。实现已启用，但不代表已通过真实云端验证。
+:::
+
+配置密钥的 Session 仅声明上行音频/文本/图像 ID 1/3/5，下行音频/文本/图像 ID 2/4/6。TuyaOpen 按配置类型顺序分配偶数接收 ID；这支持本 SDK 的 Session 分配，并不意味着协议对所有媒体类型规定了通用固定 ID。`protocol_version` 保持 0 或 `TAI_VER_21`，不要为 Frame 版本 3 将该字段设为 3。
+
+- 传入二进制密钥，不是 Base64 文本、C 字符串、`local_key`、设备凭据或派生的 Frame 密钥。指针必须指向至少 16 个可读字节；应用必须验证解码长度。全零密钥在结构上有效，同样被视为已配置。
+- `tai_ctx_init()` 仅在成功时复制密钥，随后调用方可以清零/释放临时字节。context 拥有不可变副本，断连和连接失败均不清除它；拥有者通过 `tai_disconnect()` 停止并 join worker 后，`tai_ctx_deinit()` 会清零该副本。
+- 密钥是固定的。获取和可选的保留由应用负责；IoT 初始化及所有 TAI 生命周期/接收路径均不自动获取、重试、刷新、轮换或持久化密钥。重新连接复用同一密钥，无需再次调用 ATOP。
+- SDK 和使用公开 `tai_config_t` / `tai_image_msg_t` 布局的调用方必须使用相同头文件重新编译。不透明 context 的内存大小通过 `tai_ctx_size()` 获取。IoT 公开布局（`iot_client_config_t`、`iot_on_boarding_config_t`、`iot_client_t`）不变。
+
+[应用显式获取密钥](#application-image-key) 展示了仅构造、不连接的示例。
 
 ### 3.6 保活配置 {#36-保活配置}
 
@@ -185,14 +209,15 @@ sidebar_position: 1
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `disable_tls` | `uint8_t` | 非零时跳过 TLS，仅用于集成测试 |
+| `disable_tls` | `uint8_t` | 非零时跳过 TLS，仅用于无图像密钥的集成测试；配置密钥时 `tai_connect()` 在网络操作前返回 `TAI_ERR_TLS` |
 
 ### 3.8 平台适配 {#38-平台适配}
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `pal` | `const pal_t *` | 平台适配层实现指针 |
-| `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | 平台证书包回调（ESP-IDF 上设为 `esp_crt_bundle_attach`，否则 TLS 不做证书校验）；NULL 表示不使用。详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
+| `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | 平台证书包回调（ESP-IDF 上设为 `(tls_cert_bundle_attach_fn)esp_crt_bundle_attach`）；NULL 表示不使用证书包。可替代 `ca_cert` 提供对端验证。详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
+| `ca_cert` | `const char *` | 可选 CA 证书，完整 PEM 或裸 Base64 正文，**不是文件路径**。借用至 context 销毁；非空时要求验证对端。配置图像密钥时必须提供此字段或证书包；无密钥且两者均省略时保留旧有可选验证路径。 |
 
 ### 3.9 回调函数 {#39-回调函数}
 
@@ -263,19 +288,26 @@ int  (*on_flow_control)(tai_ctx_t *ctx, void *user_data);
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `data` | `const uint8_t *` | 编码图像字节（JPEG/PNG）；回调生命周期内有效 |
+| `data` | `const uint8_t *` | 借用的图像负载：配置密钥时为认证后的明文字节或 URL 透传；未配置时为旧有原始负载；仅回调期间有效 |
+| `payload_type` | `uint8_t` | 配置密钥时：解密后为 `TAI_IMG_PAYLOAD_RAW`，URL 透传为 `TAI_IMG_PAYLOAD_URL`；旧有路径报告该 Packet 解析出的类型，缺省为 RAW |
 | `len` | `size_t` | 数据字节数 |
 | `format` | `uint8_t` | `TAI_IMG_JPEG` / `TAI_IMG_PNG` / 0=未知 |
-| `width` | `uint16_t` | 宽（px），未知或非 START/ONE_SHOT 包时为 0 |
-| `height` | `uint16_t` | 高（px），未知或非 START/ONE_SHOT 包时为 0 |
+| `width` | `uint16_t` | 宽（px），未知或该 Packet 无 image-params 时为 0 |
+| `height` | `uint16_t` | 高（px），未知或该 Packet 无 image-params 时为 0 |
 | `stream_flag` | `uint8_t` | `TAI_STREAM_*` |
-| `data_id` | `uint16_t` | 数据 ID（取自媒体头） |
+| `data_id` | `uint16_t` | 数据 ID（取自媒体头）；配置密钥的接收路径要求 `TAI_DATA_ID_IMAGE_DOWN`（6） |
 | `event_id` | `const char *` | turn id（借用）；无则为 `""` |
 | `timestamp_ms` | `uint64_t` | 流起始时间戳（媒体头） |
 
 :::note 流式接收
-接收到的图片以分片流形式到达：START（或 ONE_SHOT）携带首字节与 image-params，MIDDLE 继续，END 结束（len 可能为 0）。调用方按 `stream_flag` 累积分片，在流结束后（END 或 ONE_SHOT）解码整图。`format`/`width`/`height` 仅在 START/ONE_SHOT 从 image-params 解析得到，MIDDLE/END 时为 0。
+接收到的图片以分片流形式到达：START（或 ONE_SHOT）携带首字节与 image-params，MIDDLE 继续，END 结束（len 可能为 0）。调用方按 `stream_flag` 复制/累积分片；仅在应用确定累计字节构成受支持的图像文件时，才可在 END 或 ONE_SHOT 后进行图像编解码。`format`/`width`/`height` 来自该 Packet 的 image-params，省略该属性的 MIDDLE/END 为 0。
 :::
+
+回调签名和 worker 线程交付不变，新增 `payload_type` 区分交付的负载。已实现的配置密钥路径在 transport Fragmentation 重组后逐个认证完整 Image Packet：24 字节头部含 16 字节 IV；RAW 的正文是密文加 16 字节 GCM tag，Base64 则先严格解码再认证；AES-128-GCM 不使用 AAD。仅成功认证后交付非空图像明文；tag-only 正文也必须认证。24 字节的 header-only START/ONE_SHOT/END 被当作零长度标记，header-only MIDDLE 被拒绝；标记不是认证后的图像数据。URL 只以 URL 类型透传，不进行 GCM 或下载。无密钥路径保持原始字节，不自动解码或解密；SDK 不将 JPEG/PNG 解码为像素。
+
+配置密钥的解析严格校验 image-params 的四个无符号字段及范围、重复 image-params 和 Event ID；START/ONE_SHOT 必须携带 image-params，MIDDLE/END 必须匹配已锁定的 Event/Data ID，若重复携带参数则必须一致。缺失属性的 continuation 继承负载类型，`format`/`width`/`height` 为 0；携带一致属性时报告这些值。孤立或冲突 continuation、畸形 Base64、截断和认证失败均不交付失败 Packet。完成、Event 边界、SessionClose、断连及错误会清除相应流状态，不会触发密钥获取或明文回退。
+
+明文来自临时 PAL 堆缓冲区，回调返回后清零并释放；需要保留时按 `len` 复制。URL/文本不保证 NUL 结尾。现有 `AGENTIC_KIT_TAI_FRAG_BUF_SIZE` 默认 32,000 字节限制单个重组 Packet，而非整张图像。RAW 需要独立明文 scratch，Base64 还需要解码 scratch；云端最大 Packet 和目标峰值内存**尚未实测**。配置密钥的连接已启用，须满足[经过验证的 TLS 要求](#image-decrypt-key)。
 
 `tai_event_msg_t`（事件回调）：
 
@@ -303,7 +335,7 @@ int  (*on_flow_control)(tai_ctx_t *ctx, void *user_data);
 | `session_id` | `char[64]` | 值拷贝；无则为 `""` |
 
 :::warning 生命周期
-`msg` 以及其内部所有指针（`data` / `text` / `event_id` 等）**仅在回调执行期间有效**——SDK 从不堆分配它们。如需在回调返回后保留，请自行拷贝。
+`msg` 以及其内部所有指针（`data` / `text` / `event_id` 等）**仅在回调执行期间有效**——图像明文可能指向临时堆缓冲区，回调返回后即清零并释放。如需在回调返回后保留，请自行拷贝。
 :::
 
 #### 断连原因（`reason`） {#断连原因reason}
@@ -337,6 +369,10 @@ int  (*on_flow_control)(tai_ctx_t *ctx, void *user_data);
 | `TAI_PROTO_ERR_MEDIA_HDR` | 8 | 媒体/文本头截断 |
 | `TAI_PROTO_ERR_UNEXPECTED` | 9 | 包合法但状态错误（行为错误） |
 | `TAI_PROTO_ERR_OVERSIZED` | 10 | 入站帧超出 rx_buf |
+| `TAI_PROTO_ERR_IMAGE_AUTH` | 11 | 图像 GCM 认证失败 |
+| `TAI_PROTO_ERR_IMAGE_PROCESSING` | 12 | 图像 scratch 分配或处理失败 |
+
+这些是正数 fatal detail，不是负数 `TAI_ERR_*` 返回码。图像错误通过一次终止性的 `on_disconnect(PROTOCOL, detail)` 报告；畸形头部/属性、流状态错误仍使用对应的既有 detail。失败 Packet 不触发 `on_image`，应用须丢弃此前累计但尚未完成的图像。
 
 ---
 
@@ -384,7 +420,7 @@ void tai_ctx_deinit(tai_ctx_t *ctx);
 int tai_connect(tai_ctx_t *ctx);
 ```
 
-执行 TLS 握手、发送 ClientHello、建立会话、启动后台接收线程。
+执行 TLS 握手、发送 ClientHello、确认会话应答并启动后台接收线程。构造时传入 `image_key` 会选择[加密媒体配置](#image-decrypt-key)，而不是阻止连接；若启用 raw TCP 或缺少非空 `ca_cert` / `cert_bundle_attach` 信任来源，则在网络操作前返回 `TAI_ERR_TLS`。TLS 证书或握手失败也返回 `TAI_ERR_TLS`。无密钥时保留旧有行为。
 
 **返回值：** `TAI_OK` 成功，`TAI_ERR_*` 失败。
 
@@ -501,6 +537,8 @@ int tai_send_image(tai_ctx_t *ctx,
 
 发送单张图片。
 
+`image_key` 同时用于三个图像发送 API：`tai_send_image()`、`tai_send_image_with_text()` 和 `tai_send_image_audio_start()`。加密准备在 EventStart 之前完成，不修改调用方缓冲区；非空图片需要 `len + 32` 字节临时 scratch（16 字节 IV + `len` 字节密文 + 16 字节 tag），空图片需要 16 字节 scratch（仅 IV，无 tag）。scratch 在发送完成或失败后清零并释放；无密钥发送保持旧有行为。这些发送路径使用[经过验证的 TLS 加密媒体连接](#image-decrypt-key)；真实云端兼容性仍待验证。
+
 **参数：**
 - `data` — 图片二进制数据
 - `len` — 数据长度
@@ -612,6 +650,112 @@ free(mem);
 ```
 
 > 音频流的调用模式取决于 VAD 模式（云端 VAD 连续对话 vs 设备端 VAD/手动按键），详见 [VAD 与打断](../guides/vad-and-interrupt.md) 中的对比表。
+
+---
+
+### 应用显式获取图像密钥（仅构造） {#application-image-key}
+
+使用公开的通用 `iot_atop_call()`，指定 API `thing.km.secret.get.device`、版本 `1.0`、`data = "{}"`。空对象依据 TuyaOpen 参考实现未传业务参数的做法，目前仅由本地 mock 测试覆盖；**实际云端是否接受尚未验证（UNVERIFIED）**。通用 API 不补充业务字段，不要自行添加 token/agent 参数。`OPRT_OK` 本身不能证明 `result.secretValue` 可用。
+
+以下应用本地示例返回构造好的 context 或 NULL，**不调用 `tai_connect()`**，只显式请求一次 ATOP，不重试。应用提供在 `iot_init()` 之后创建的已激活 IoT client、正确对齐且至少为 `tai_ctx_size()` 字节的自有 `mem`，以及其余字段完整的 `base` 配置。`ca_cert` 参数必须提供应用信任的真实 CA（完整 PEM 或裸 Base64 正文），或传 NULL 并使用 `base->cert_bundle_attach` 中已有的平台证书包。helper 将 CA 赋给 `cfg.ca_cert`，不内置示例证书；CA 和其他借用字段须在 context 生命周期内保持有效。示例仅使用 SDK/库的公开头文件，不增加具名 SDK 封装，不改变 cJSON 的分配器钩子。
+
+```c
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include "iot_atop.h"
+#include "tuya_ai.h"
+#include "cJSON.h"
+#include "mbedtls/base64.h"
+#include "mbedtls/platform_util.h"
+
+/* Only for owned trees returned by cJSON_ParseWithOpts. */
+static void app_wipe_json_strings(cJSON *node)
+{
+    for (; node; node = node->next) {
+        app_wipe_json_strings(node->child);
+        if (node->valuestring)
+            mbedtls_platform_zeroize(node->valuestring, strlen(node->valuestring));
+        if (node->string)
+            mbedtls_platform_zeroize(node->string, strlen(node->string));
+    }
+}
+
+static int app_decode_image_key(const char *text, uint8_t *key)
+{
+    static const char alphabet[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t decoded_len = 0;
+
+    if (!text || strlen(text) != 24 || text[22] != '=' || text[23] != '=')
+        return -1;
+    for (size_t i = 0; i < 22; ++i) {
+        const char *p = strchr(alphabet, text[i]);
+        if (!p) return -1;
+        /* With '==', the last sextet's four unused bits must be zero. */
+        if (i == 21 && ((size_t)(p - alphabet) & 15u) != 0)
+            return -1;
+    }
+    if (mbedtls_base64_decode(key, TAI_IMAGE_KEY_LEN, &decoded_len,
+                             (const unsigned char *)text, 24) != 0)
+        return -1;
+    return decoded_len == TAI_IMAGE_KEY_LEN ? 0 : -1;
+}
+
+static tai_ctx_t *app_construct_with_image_key(iot_client_t *client,
+                                               void *mem,
+                                               const tai_config_t *base,
+                                               const char *ca_cert)
+{
+    const iot_atop_request_t request = {
+        .api = "thing.km.secret.get.device",
+        .version = "1.0",
+        .data = "{}"
+    };
+    iot_atop_response_t response = {0};
+    cJSON *result = NULL;
+    cJSON *secret = NULL;
+    uint8_t key[TAI_IMAGE_KEY_LEN] = {0};
+    tai_config_t cfg = {0};
+    tai_ctx_t *ctx = NULL;
+
+    if (!client || !mem || !base) goto cleanup;
+    if (base->disable_tls ||
+        ((!ca_cert || !ca_cert[0]) && !base->cert_bundle_attach)) goto cleanup;
+    if (iot_atop_call(client, &request, &response) != OPRT_OK)
+        goto cleanup;
+    if (!response.result) goto cleanup;
+    /* response.result already IS the result, not the ATOP Envelope. */
+    result = cJSON_ParseWithOpts(response.result, NULL, 1);
+    if (!cJSON_IsObject(result)) goto cleanup;
+    secret = cJSON_GetObjectItemCaseSensitive(result, "secretValue");
+    if (!cJSON_IsString(secret) || !secret->valuestring) goto cleanup;
+    if (app_decode_image_key(secret->valuestring, key) != 0) goto cleanup;
+
+    cfg = *base;
+    cfg.ca_cert = ca_cert;
+    cfg.image_key = key;
+    ctx = tai_ctx_init(mem, &cfg);
+    cfg.image_key = NULL;
+
+cleanup:
+    mbedtls_platform_zeroize(key, sizeof(key));
+    app_wipe_json_strings(result);
+    cJSON_Delete(result);
+    if (response.result)
+        mbedtls_platform_zeroize(response.result, strlen(response.result));
+    mbedtls_platform_zeroize(response.error_code, sizeof(response.error_code));
+    mbedtls_platform_zeroize(response.error_msg, sizeof(response.error_msg));
+    iot_atop_response_free(client, &response);
+    return ctx;
+}
+```
+
+校验器仅接受规范的标准 Base64：长度为 24，前 22 个字符属于标准字母表，末尾恰好为 `==`，最后一个六位组的未用位为零，且解码结果恰好 16 字节。空白、URL-safe 变体、错误填充和错误长度都会在配置前被拒绝。传输/业务失败、result 缺失/null/非对象、密钥缺失/非字符串、非法 Base64 及构造失败均经同一清理路径返回 NULL。
+
+构造成功后及所有失败路径均清零临时二进制密钥；删除解析树前，局部 helper 通过公开的 child/next 字段遍历所有节点，清零字符串值和对象成员名，包括被拒绝形状内的嵌套内容，而不只清理 secretValue。返回的明文 JSON 和 response.error_code/error_msg 也在响应释放前清零。这只是应用可见缓冲区的实际清理，不保证解析器/传输内部没有其他副本。不要记录 response、`secretValue` 或解码后的密钥。使用真实密钥前，确保 SDK 已包含该 secret API 的响应正文日志抑制；仅关闭 TAI 日志不会抑制 IoT ATOP 诊断。
+
+成功后 context 由调用方持有：最终依次调用 `tai_disconnect(ctx)`、`tai_ctx_deinit(ctx)`，再释放 `mem`。返回 NULL 时没有构造成功的 context，`mem` 仍由调用方持有。示例不持久化固定密钥；应用若已保留经过验证的密钥，可直接传给 `tai_ctx_init()`，无需再次请求。两条路径均选择加密媒体配置；由拥有者在构造成功后调用 `tai_connect(ctx)` 并检查返回值，TLS 对端验证及会话确认成功后即可收发加密图像。helper 只检查信任来源是否配置，真正的证书验证发生在连接时；这不是已通过真实云端验证的声明。 前面的典型流程省略该字段（NULL），保持旧有行为。
 
 ---
 

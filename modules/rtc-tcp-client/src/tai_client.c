@@ -15,6 +15,7 @@
 
 #include "tai_internal.h"
 #include "rng.h"
+#include "mbedtls/platform_util.h"
 #include <stdio.h>
 #include <unistd.h>
 
@@ -166,7 +167,7 @@ static int send_one_frame_sg(tai_ctx_t *ctx, uint8_t frag_flag, uint16_t seq,
     if (plen + ctx->sig_len > 0xFFFFU) return TAI_ERR_ARGS;
 
     uint8_t *head = ctx->tx_hdr_buf;                 /* [frame hdr 5][app hdr]  */
-    head[0] = (uint8_t)(((frag_flag & 0x03) << 6) | (0x02 << 4) | 0x02);
+    head[0] = (uint8_t)(((frag_flag & 0x03) << 6) | (0x02 << 4) | ctx->frame_ver);
     tai_w16(head + 1, seq);
     tai_w16(head + 3, (uint16_t)(plen + ctx->sig_len));
     size_t head_len = TAI_FRAME_HDR_LEN + hdr_len;   /* app hdr already in place */
@@ -321,10 +322,12 @@ tai_ctx_t *tai_ctx_init(void *mem, const tai_config_t *cfg)
     ctx->client_id   = cfg->device_id;
 
     ctx->proto_ver   = cfg->protocol_version ? cfg->protocol_version : TAI_VER_21;
+    ctx->frame_ver   = cfg->image_key ? 3 : 2;
     ctx->client_type = cfg->client_type       ? cfg->client_type      : TAI_CLIENT_DEVICE;
     ctx->biz_code    = cfg->biz_code          ? cfg->biz_code         : 65537U;
     ctx->biz_tag     = cfg->biz_tag           ? cfg->biz_tag          : 119U;
-    ctx->sign_level  = cfg->sign_level        ? cfg->sign_level       : TAI_SIGN_HMAC_SHA256;
+    ctx->sign_level  = cfg->image_key ? TAI_SIGN_NONE
+                    : cfg->sign_level ? cfg->sign_level : TAI_SIGN_HMAC_SHA256;
 
     switch (ctx->sign_level) {
         case TAI_SIGN_HMAC_SHA1:   ctx->sig_len = 20; break;
@@ -349,6 +352,7 @@ tai_ctx_t *tai_ctx_init(void *mem, const tai_config_t *cfg)
     ctx->connect_timeout_ms = cfg->connect_timeout_ms ? cfg->connect_timeout_ms : 5000U;
     ctx->disable_tls      = cfg->disable_tls;
     ctx->cert_bundle_attach = cfg->cert_bundle_attach;
+    ctx->ca_cert          = cfg->ca_cert;
 
     /* Initialise mutex */
     ctx->mutex = cfg->pal->mutex_create();
@@ -363,6 +367,12 @@ tai_ctx_t *tai_ctx_init(void *mem, const tai_config_t *cfg)
         TAI_LOGE(ctx->pal, TAG, "ctx_init: rng_init failed");
         ctx->pal->mutex_destroy(ctx->mutex);
         return NULL;
+    }
+
+    if (cfg->image_key) {
+        memcpy(ctx->image_key, cfg->image_key,
+               TAI_IMAGE_KEY_LEN);
+        ctx->has_image_key = 1;
     }
 
     TAI_LOGI(ctx->pal, TAG, "ctx_init: proto=v%u client_type=%s sign_level=%s sig_len=%u",
@@ -388,6 +398,9 @@ void tai_ctx_deinit(tai_ctx_t *ctx)
     if (!ctx) return;
     ctx_io_close(ctx);
     if (ctx->mutex) { ctx->pal->mutex_destroy(ctx->mutex); ctx->mutex = NULL; }
+    mbedtls_platform_zeroize(ctx->image_key, sizeof(ctx->image_key));
+    ctx->has_image_key = 0;
+    tai_proto_reset_image(ctx);
 }
 
 /* =========================================================================
@@ -409,9 +422,21 @@ static int   tai_process_rx(tai_ctx_t *ctx, int *paused);
 int tai_connect(tai_ctx_t *ctx)
 {
     if (!ctx || !ctx->pal) return TAI_ERR_ARGS;
+    if (ctx->has_image_key) {
+        if (ctx->disable_tls ||
+            ((!ctx->ca_cert || !ctx->ca_cert[0]) && !ctx->cert_bundle_attach)) {
+            TAI_LOGE(ctx->pal, TAG, "keyed Connection requires verified TLS with a CA or cert bundle");
+            return TAI_ERR_TLS;
+        }
+        if (ctx->proto_ver != TAI_VER_21 || ctx->frame_ver != 3 ||
+            ctx->sign_level != TAI_SIGN_NONE || ctx->sig_len != 0)
+            return TAI_ERR_PROTO;
+    }
     if (!ctx->host || ctx->port == 0) return TAI_ERR_ARGS;
 
     int rc;
+    tai_proto_reset_image(ctx);
+    ctx->rx_event_id[0] = '\0';
     ctx->disconnect_emitted = 0;   /* re-arm single-point on_disconnect for this connection */
 
     TAI_LOGI(ctx->pal, TAG, "connecting to %s:%u", ctx->host, ctx->port);
@@ -423,20 +448,22 @@ int tai_connect(tai_ctx_t *ctx)
         return TAI_ERR_CRYPTO;
     }
 
-    /* 2. Derive keys */
-    const char *ikm    = ctx->local_key ? ctx->local_key : "";
-    size_t      ikm_len = ctx->local_key ? strlen(ctx->local_key) : 0;
+    /* Keyed media uses the owned Image key and unsigned Frames, not HKDF keys. */
+    if (!ctx->has_image_key) {
+        const char *ikm    = ctx->local_key ? ctx->local_key : "";
+        size_t      ikm_len = ctx->local_key ? strlen(ctx->local_key) : 0;
 
-    rc = tai_crypto_derive_keys(ctx->proto_ver,
-                                 (const uint8_t *)ikm, ikm_len,
-                                 ctx->encrypt_random, 32,
-                                 ctx->encrypt_key, ctx->sign_key,
-                                 ctx->pal);
-    if (rc != TAI_OK) {
-        TAI_LOGE(ctx->pal, TAG, "key derivation failed: %d", rc);
-        return rc;
+        rc = tai_crypto_derive_keys(ctx->proto_ver,
+                                     (const uint8_t *)ikm, ikm_len,
+                                     ctx->encrypt_random, 32,
+                                     ctx->encrypt_key, ctx->sign_key,
+                                     ctx->pal);
+        if (rc != TAI_OK) {
+            TAI_LOGE(ctx->pal, TAG, "key derivation failed: %d", rc);
+            return rc;
+        }
+        TAI_LOGD(ctx->pal, TAG, "keys derived (ikm_len=%zu)", ikm_len);
     }
-    TAI_LOGD(ctx->pal, TAG, "keys derived (ikm_len=%zu)", ikm_len);
 
     /* 3. TLS connect (or raw TCP in test mode) */
     if (ctx->disable_tls) {
@@ -451,7 +478,8 @@ int tai_connect(tai_ctx_t *ctx)
             .host                 = ctx->host,
             .port                 = ctx->port,
             .sni                  = ctx->tls_sni,
-            .verify               = TLS_VERIFY_OPTIONAL,  /* fallback when no cert bundle */
+            .cacert               = ctx->ca_cert,
+            .verify               = ctx->has_image_key ? TLS_VERIFY_REQUIRED : TLS_VERIFY_OPTIONAL,
             .cert_bundle_attach   = ctx->cert_bundle_attach,
             .connect_timeout_ms   = ctx->connect_timeout_ms, /* bounds TCP connect + TLS handshake */
             .pal                  = ctx->pal,
@@ -464,9 +492,8 @@ int tai_connect(tai_ctx_t *ctx)
         TAI_LOGI(ctx->pal, TAG, "TLS connected");
     }
 
-    /* 4. ClientHello — sent UNENCRYPTED (sig_len = 0). It is the one unsigned
-     * frame, so it can't go through send_app (which signs); it is small (no
-     * JSON) and one-shot, so frame it inline on the stack. */
+    /* 4. ClientHello is always unsigned, including on signed legacy Connections.
+     * It is small (no JSON) and one-shot, so frame it inline on the stack. */
     int app_len = tai_proto_build_client_hello(ctx,
                                                 ctx->tx_ctrl_buf,
                                                 sizeof(ctx->tx_ctrl_buf));
@@ -488,6 +515,8 @@ int tai_connect(tai_ctx_t *ctx)
                                       ctx->pal,
                                       ch_frame, sizeof(ch_frame));
     if (frame_len < 0) { tai_disconnect(ctx); return frame_len; }
+    /* ClientHello has no signature, so selecting its wire nibble is safe here. */
+    ch_frame[0] = (uint8_t)((0x02 << 4) | ctx->frame_ver);
 
     rc = ctx_io_send(ctx, ch_frame, (size_t)frame_len);
     if (rc != TAI_OK) {
@@ -646,6 +675,7 @@ void tai_disconnect(tai_ctx_t *ctx)
     ctx->connecting = 0;          /* clear in case a connect aborted mid-handshake */
     ctx->disconnect_emitted = 0;  /* re-arm the single-point on_disconnect      */
     ctx->rx_event_id[0] = '\0';   /* clear latched turn id so a reconnect starts clean */
+    tai_proto_reset_image(ctx);
 
     ctx_unlock(ctx);
 }
@@ -662,6 +692,27 @@ static int process_app_packet(tai_ctx_t *ctx,
     const uint8_t *payload;
     size_t         payload_len;
 
+    if (ctx->has_image_key) {
+        if (app_len > sizeof(ctx->frag_buf)) return TAI_PROTO_ERR_FRAG;
+        /* The legacy decoder tolerates truncated TLVs and excess Attributes.
+         * Keyed identity/parameter checks must see the entire block. */
+        if (app_len && (app_bytes[0] & 1)) {
+            if (app_len < 5) return TAI_PROTO_ERR_PKT_DECODE;
+            size_t block_len = tai_r32(app_bytes + 1);
+            if (block_len > app_len - 5) return TAI_PROTO_ERR_PKT_DECODE;
+            size_t pos = 5, end = 5 + block_len;
+            int count = 0;
+            while (pos < end) {
+                if (end - pos < 4 || count == AGENTIC_KIT_TAI_MAX_ATTRS)
+                    return TAI_PROTO_ERR_PKT_DECODE;
+                size_t len = tai_r16(app_bytes + pos + 2);
+                pos += 4;
+                if (len > end - pos) return TAI_PROTO_ERR_PKT_DECODE;
+                pos += len;
+                count++;
+            }
+        }
+    }
     int rc = tai_packet_decode(ctx->proto_ver,
                                 app_bytes, app_len,
                                 &pkt_type,
@@ -768,7 +819,12 @@ static int tai_process_rx(tai_ctx_t *ctx, int *paused)
         }
 
         /* Detect version from first byte */
-        int ver = tai_frame_detect_version(ctx->rx_buf[0]);
+        /* Version 3 retains the v2 Attribute/Frame layout. Never negotiate a
+         * keyed Connection down to the legacy signed profile on receive. */
+        int ver = ctx->has_image_key
+                ? ((ctx->rx_buf[0] & 0x3F) == (0x20 | ctx->frame_ver)
+                   ? TAI_VER_21 : TAI_ERR_PROTO)
+                : tai_frame_detect_version(ctx->rx_buf[0]);
         if (ver < 0) {
             TAI_LOGW(ctx->pal, TAG, "unknown frame byte 0x%02x", ctx->rx_buf[0]);
             return TAI_PROTO_ERR_BAD_VERSION;
@@ -1061,6 +1117,44 @@ int tai_send_audio_end(tai_ctx_t *ctx)
 /* =========================================================================
  * tai_send_image
  * ========================================================================= */
+typedef struct {
+    const uint8_t *data;
+    size_t len;
+    uint8_t *scratch;
+} prepared_image_t;
+
+/* Reserve the maximum header span before any allocation or EventStart.
+ * Outbound images are not limited by the receive reassembly buffer. */
+static int prepare_image(tai_ctx_t *ctx, const uint8_t *data, size_t len,
+                         prepared_image_t *image)
+{
+    size_t extra = ctx->has_image_key ? (len ? 32 : 16) : 0;
+    size_t overhead = sizeof(ctx->tx_hdr_buf) + extra;
+    if (len > SIZE_MAX - overhead || len > PTRDIFF_MAX - overhead)
+        return TAI_ERR_ARGS;
+    image->data = data;
+    image->len = len;
+    if (!ctx->has_image_key) return TAI_OK;
+
+    image->len += extra;
+    image->scratch = ctx->pal->malloc(image->len);
+    if (!image->scratch) return TAI_ERR_MEM;
+    image->data = image->scratch;
+    if (tai_random_bytes(ctx->pal, image->scratch, 16) != 0)
+        return TAI_ERR_CRYPTO;
+    if (!len) return TAI_OK; /* Reference empty marker: IV only, no tag. */
+    return tai_image_gcm_encrypt(ctx->image_key, image->scratch,
+                                 data, len, image->scratch + 16, len + 16);
+}
+
+static void release_image(tai_ctx_t *ctx, prepared_image_t *image)
+{
+    if (image->scratch) {
+        mbedtls_platform_zeroize(image->scratch, image->len);
+        ctx->pal->free(image->scratch);
+    }
+}
+
 static int send_image_locked(tai_ctx_t *ctx,
                              const uint8_t *data, size_t len,
                              uint8_t format, uint16_t width, uint16_t height)
@@ -1109,7 +1203,11 @@ int tai_send_image(tai_ctx_t *ctx,
     TAI_LOGI(ctx->pal, TAG, "send_image: %zu bytes fmt=%u %ux%u",
              len, format, width, height);
     ctx_lock(ctx);
-    int rc = send_image_locked(ctx, data, len, format, width, height);
+    prepared_image_t image = {0};
+    int rc = prepare_image(ctx, data, len, &image);
+    if (rc == TAI_OK)
+        rc = send_image_locked(ctx, image.data, image.len, format, width, height);
+    release_image(ctx, &image);
     ctx_unlock(ctx);
     return rc;
 }
@@ -1178,11 +1276,17 @@ int tai_send_image_with_text(tai_ctx_t *ctx,
                              uint16_t width, uint16_t height)
 {
     if (!ctx || !ctx->connected || !text || !img_data) return TAI_ERR_ARGS;
+    if (text_len > SIZE_MAX - sizeof(ctx->tx_hdr_buf) ||
+        text_len > PTRDIFF_MAX - sizeof(ctx->tx_hdr_buf)) return TAI_ERR_ARGS;
     TAI_LOGI(ctx->pal, TAG, "send_image_with_text: text=%zu img=%zu bytes",
              text_len, img_len);
     ctx_lock(ctx);
-    int rc = send_image_with_text_locked(ctx, text, text_len,
-                                         img_data, img_len, format, width, height);
+    prepared_image_t image = {0};
+    int rc = prepare_image(ctx, img_data, img_len, &image);
+    if (rc == TAI_OK)
+        rc = send_image_with_text_locked(ctx, text, text_len,
+                                         image.data, image.len, format, width, height);
+    release_image(ctx, &image);
     ctx_unlock(ctx);
     return rc;
 }
@@ -1203,24 +1307,27 @@ int tai_send_image_audio_start(tai_ctx_t *ctx,
              img_len, width, height, codec);
     ctx_lock(ctx);
 
-    int app_len, hdr_len, rc;
+    prepared_image_t image = {0};
+    int app_len, hdr_len;
+    int rc = prepare_image(ctx, img_data, img_len, &image);
+    if (rc != TAI_OK) goto done;
 
     /* EventStart (control) */
     app_len = tai_proto_build_event_start(ctx, ctx->tx_ctrl_buf,
                                            sizeof(ctx->tx_ctrl_buf));
-    if (app_len < 0) { ctx_unlock(ctx); return app_len; }
+    if (app_len < 0) { rc = app_len; goto done; }
     rc = send_app(ctx, ctx->tx_ctrl_buf, (size_t)app_len);
-    if (rc != TAI_OK) { ctx_unlock(ctx); return rc; }
+    if (rc != TAI_OK) goto done;
     ctx->event_open = 1;
 
-    /* Image OneShot (scatter-gather: small header + zero-copy image payload) */
+    /* Image OneShot (scatter-gather: header + prepared image payload) */
     hdr_len = tai_proto_build_image_hdr(ctx, TAI_DATA_ID_IMAGE_UP,
                                         TAI_STREAM_ONE_SHOT, img_format, width, height,
                                         ctx->tx_hdr_buf + TAI_FRAME_HDR_LEN,
                                         sizeof(ctx->tx_hdr_buf) - TAI_FRAME_HDR_LEN);
-    if (hdr_len < 0) { ctx_unlock(ctx); return hdr_len; }
-    rc = send_app_sg(ctx, (size_t)hdr_len, img_data, img_len);
-    if (rc != TAI_OK) { ctx_unlock(ctx); return rc; }
+    if (hdr_len < 0) { rc = hdr_len; goto done; }
+    rc = send_app_sg(ctx, (size_t)hdr_len, image.data, image.len);
+    if (rc != TAI_OK) goto done;
 
     /* Audio params stored here; the first tai_send_audio_chunk emits START.
      * The event stays open until tai_send_image_audio_end (audio END +
@@ -1231,8 +1338,10 @@ int tai_send_image_audio_start(tai_ctx_t *ctx,
     ctx->audio_sample_rate = sample_rate;
     ctx->audio_started     = 0;
 
+done:
+    release_image(ctx, &image);
     ctx_unlock(ctx);
-    return TAI_OK;
+    return rc;
 }
 
 int tai_send_image_audio_chunk(tai_ctx_t *ctx, const uint8_t *pcm, size_t len)
@@ -1446,6 +1555,7 @@ static void *worker_thread(void *arg)
      * decided a fatal cause — a transport fault above, or a fail-fast /
      * CONNECTION_CLOSE returned up from dispatch. A clean tai_disconnect /
      * tai_request_disconnect leaves f_reason==0xFF and fires nothing. */
+    tai_proto_reset_image(ctx);
     if (f_reason != 0xFF) {
         ctx->connected = 0;
         ctx->running   = 0;

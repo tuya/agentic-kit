@@ -30,6 +30,7 @@ Usage:
 Supported APIs:
     - thing.device.opensdk.active: Device activation
     - thing.ai.agent.token.get: AI token retrieval
+    - thing.km.secret.get.device: Synthetic fixed image secret retrieval
     - tuya.device.qrcode.info.get: QR code info retrieval
     - tuya.device.meta.save: Device metadata save
     - tuya.device.info.sync: Device binding status query
@@ -342,6 +343,34 @@ def handle_ai_token_request(request_data, config):
             "errorMsg": str(e)
         }
         return json.dumps(response, separators=(',', ':'))
+
+
+def handle_image_secret_request(request_data, url_params):
+    """Synthetic secret; test-only devId selects malformed business results."""
+    if url_params.get('v') != '1.0' or json.loads(request_data) != {}:
+        return json.dumps({"success": False, "t": int(time.time()),
+                           "errorCode": "ILLEGAL_PARAM", "errorMsg": "expected v1.0 and empty object"})
+
+    secret = 'AAECAwQFBgcICQoLDA0ODw=='  # bytes 0x00 through 0x0f, never a real key
+    mode = url_params.get('devId', '').replace('ci_secret_', '', 1)
+    if mode.endswith('_plaintext'):
+        mode = mode[:-len('_plaintext')]
+    if mode in ('reject', 'nocode'):
+        response = {"success": False, "t": int(time.time()),
+                    "errorMsg": "mock rejection: " + secret}
+        if mode == 'reject':
+            response['errorCode'] = 'SECRET_' + secret
+        return json.dumps(response, separators=(',', ':'))
+    results = {
+        'number': {"secretValue": 7},
+        'missing': {},
+        'null': None,
+        'array': [secret],
+        'string': secret,
+    }
+    result = results.get(mode, {"secretValue": secret})
+    return json.dumps({"success": True, "t": int(time.time()), "result": result},
+                      separators=(',', ':'))
 
 
 def handle_device_meta_save_request(request_data, config):
@@ -741,6 +770,8 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
                 response_json = handle_activate_request(decrypted_data, self.config)
             elif api == 'thing.ai.agent.token.get':
                 response_json = handle_ai_token_request(decrypted_data, self.config)
+            elif api == 'thing.km.secret.get.device':
+                response_json = handle_image_secret_request(decrypted_data, url_params)
             elif api == 'tuya.device.qrcode.info.get':
                 response_json = handle_qrcode_info_request(decrypted_data, self.config, url_params)
             elif api == 'tuya.device.meta.save':
@@ -814,6 +845,10 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
             
             print(f"📤 Encrypted response (base64): {encrypted_response_b64[:64]}...")
             
+            # Test-only plaintext Envelope fallback, selected without business parameters.
+            if api == 'thing.km.secret.get.device' and devid.endswith('_plaintext'):
+                response_body = response_json
+
             # Send response
             self.send_response(200)
             self.send_header('Content-Type', 'application/json;charset=UTF-8')

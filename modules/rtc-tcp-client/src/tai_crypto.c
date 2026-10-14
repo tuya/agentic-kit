@@ -10,6 +10,8 @@
 
 #include "mbedtls/md.h"
 #include "mbedtls/hkdf.h"
+#include "mbedtls/gcm.h"
+#include "mbedtls/platform_util.h"
 
 #include "rng.h"
 
@@ -40,6 +42,72 @@ int tai_hkdf_sha256(const uint8_t *ikm, size_t ikm_len,
                         ikm, ikm_len,
                         (const unsigned char *)"", 0,
                         out, out_len) == 0 ? 0 : -1;
+}
+
+static int buffers_overlap(const void *a, size_t a_len,
+                           const void *b, size_t b_len)
+{
+    uintptr_t x = (uintptr_t)a, y = (uintptr_t)b;
+    if (!a_len || !b_len) return 0;
+    return x <= y ? y - x < a_len : x - y < b_len;
+}
+
+int tai_image_gcm_encrypt(const uint8_t key[TAI_IMAGE_KEY_LEN],
+                          const uint8_t iv[16],
+                          const uint8_t *data, size_t len,
+                          uint8_t *out, size_t out_size)
+{
+    if (!key || !iv || !data || !out ||
+        len > SIZE_MAX - 16 || len > PTRDIFF_MAX - 16)
+        return TAI_ERR_ARGS;
+    size_t body_len = len + 16;
+    if (out_size < body_len) return TAI_ERR_MEM;
+    if (buffers_overlap(out, body_len, data, len) ||
+        buffers_overlap(out, body_len, key, TAI_IMAGE_KEY_LEN) ||
+        buffers_overlap(out, body_len, iv, 16))
+        return TAI_ERR_ARGS;
+
+    mbedtls_gcm_context gcm;
+    mbedtls_gcm_init(&gcm);
+    int rc = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, 128);
+    if (rc == 0)
+        rc = mbedtls_gcm_crypt_and_tag(&gcm, MBEDTLS_GCM_ENCRYPT, len,
+                                      iv, 16, NULL, 0, data, out,
+                                      16, out + len);
+    mbedtls_gcm_free(&gcm);
+    if (rc != 0) {
+        mbedtls_platform_zeroize(out, body_len);
+        return TAI_ERR_CRYPTO;
+    }
+    return TAI_OK;
+}
+
+int tai_image_gcm_decrypt(const uint8_t key[TAI_IMAGE_KEY_LEN],
+                          const uint8_t iv[16],
+                          const uint8_t *body, size_t body_len,
+                          uint8_t *out, size_t out_size)
+{
+    if (!key || !iv || !body || !out || body_len < 16)
+        return TAI_ERR_ARGS;
+    size_t len = body_len - 16;
+    if (out_size < len) return TAI_ERR_MEM;
+    if (buffers_overlap(out, len, body, body_len) ||
+        buffers_overlap(out, len, key, TAI_IMAGE_KEY_LEN) ||
+        buffers_overlap(out, len, iv, 16))
+        return TAI_ERR_ARGS;
+
+    mbedtls_gcm_context gcm;
+    mbedtls_gcm_init(&gcm);
+    int rc = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, 128);
+    if (rc == 0)
+        rc = mbedtls_gcm_auth_decrypt(&gcm, len, iv, 16, NULL, 0,
+                                     body + len, 16, body, out);
+    mbedtls_gcm_free(&gcm);
+    if (rc != 0) {
+        mbedtls_platform_zeroize(out, len);
+        return TAI_ERR_CRYPTO;
+    }
+    return TAI_OK;
 }
 
 /* =========================================================================
