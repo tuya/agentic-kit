@@ -182,10 +182,10 @@ sidebar_position: 1
 |------|------|------|
 | `image_key` | `const uint8_t *` | 可选的固定 AES-128 图像密钥：恰好 `TAI_IMAGE_KEY_LEN`（16）个解码后的二进制字节。NULL 保持旧有行为。 |
 
-:::warning 配置密钥后必须验证 TLS 对端
+:::warning 配置密钥后必须使用 TLS
 `image_key` 启用 TuyaOpen 加密媒体配置：Frame 版本 3、签名级别 0（忽略 `cfg.sign_level`），Attribute 仍使用 v2 布局。ClientHello 的 36 字节 suite 为 `00 || random[32] || 04 03 03`；后三字节分别表示 AES-128-GCM、完整视频 I 帧、完整图像的加密范围，**不是媒体能力位图**。本 SDK 不支持视频或文件处理。
 
-此 unsigned Frame 安全决策已获用户明确批准。图像 GCM 不使用 AAD，只逐个认证完整 Image Packet 的加密正文；元数据、控制 Packet、URL 和空标记依赖经过验证的 TLS 保护。必须配置非空 `cfg.ca_cert` 或 `cert_bundle_attach`；配置密钥时若设置 `disable_tls` 或缺少两种信任来源，`tai_connect()` 在网络操作前返回 `TAI_ERR_TLS`。实现已启用，但不代表已通过真实云端验证。
+此 unsigned Frame 安全决策已获用户明确批准。图像 GCM 不使用 AAD，只逐个认证完整 Image Packet 的加密正文；元数据、控制 Packet、URL 和空标记依赖 TLS 保护。配置非空 `ca_cert` 或 `cert_bundle_attach` 时验证对端；两者都未配置时，配置密钥的连接仍使用 TLS 但对端不验证（连接时告警一次）——与 IoT/MQTT 路径同一规则。配置密钥时若设置 `disable_tls`，`tai_connect()` 在网络操作前返回 `TAI_ERR_TLS`（不支持 raw TCP）。未验证的 TLS 存在中间人攻击风险，可泄露 token、图像密钥并危及元数据和控制流，因此不要在生产环境省略信任来源。实现已启用，但不代表已通过真实云端验证。
 :::
 
 配置密钥的 Session 仅声明上行音频/文本/图像 ID 1/3/5，下行音频/文本/图像 ID 2/4/6。TuyaOpen 按配置类型顺序分配偶数接收 ID；这支持本 SDK 的 Session 分配，并不意味着协议对所有媒体类型规定了通用固定 ID。`protocol_version` 保持 0 或 `TAI_VER_21`，不要为 Frame 版本 3 将该字段设为 3。
@@ -217,7 +217,7 @@ sidebar_position: 1
 |------|------|------|
 | `pal` | `const pal_t *` | 平台适配层实现指针 |
 | `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | 平台证书包回调（ESP-IDF 上设为 `(tls_cert_bundle_attach_fn)esp_crt_bundle_attach`）；NULL 表示不使用证书包。可替代 `ca_cert` 提供对端验证。详见 [TLS 证书验证](../guides/tls-cert-verification.md) |
-| `ca_cert` | `const char *` | 可选 CA 证书，完整 PEM 或裸 Base64 正文，**不是文件路径**。借用至 context 销毁；非空时要求验证对端。配置图像密钥时必须提供此字段或证书包；无密钥且两者均省略时保留旧有可选验证路径。 |
+| `ca_cert` | `const char *` | 可选 CA 证书，完整 PEM 或裸 Base64 正文，**不是文件路径**。借用至 context 销毁；非空时要求验证对端。配置图像密钥时提供此字段或 `cert_bundle_attach` 才验证对端；两者均省略时仍使用 TLS 但对端不验证（连接时告警一次）。 |
 
 ### 3.9 回调函数 {#39-回调函数}
 
@@ -307,7 +307,7 @@ int  (*on_flow_control)(tai_ctx_t *ctx, void *user_data);
 
 配置密钥的解析严格校验 image-params 的四个无符号字段及范围、重复 image-params 和 Event ID；START/ONE_SHOT 必须携带 image-params，MIDDLE/END 必须匹配已锁定的 Event/Data ID，若重复携带参数则必须一致。缺失属性的 continuation 继承负载类型，`format`/`width`/`height` 为 0；携带一致属性时报告这些值。孤立或冲突 continuation、畸形 Base64、截断和认证失败均不交付失败 Packet。完成、Event 边界、SessionClose、断连及错误会清除相应流状态，不会触发密钥获取或明文回退。
 
-明文来自临时 PAL 堆缓冲区，回调返回后清零并释放；需要保留时按 `len` 复制。URL/文本不保证 NUL 结尾。现有 `AGENTIC_KIT_TAI_FRAG_BUF_SIZE` 默认 32,000 字节限制单个重组 Packet，而非整张图像。RAW 需要独立明文 scratch，Base64 还需要解码 scratch；云端最大 Packet 和目标峰值内存**尚未实测**。配置密钥的连接已启用，须满足[经过验证的 TLS 要求](#image-decrypt-key)。
+明文来自临时 PAL 堆缓冲区，回调返回后清零并释放；需要保留时按 `len` 复制。URL/文本不保证 NUL 结尾。现有 `AGENTIC_KIT_TAI_FRAG_BUF_SIZE` 默认 32,000 字节限制单个重组 Packet，而非整张图像。RAW 需要独立明文 scratch，Base64 还需要解码 scratch；云端最大 Packet 和目标峰值内存**尚未实测**。配置密钥的连接已启用，须满足[TLS 信任要求及显式例外](#image-decrypt-key)。
 
 `tai_event_msg_t`（事件回调）：
 
@@ -420,7 +420,7 @@ void tai_ctx_deinit(tai_ctx_t *ctx);
 int tai_connect(tai_ctx_t *ctx);
 ```
 
-执行 TLS 握手、发送 ClientHello、确认会话应答并启动后台接收线程。构造时传入 `image_key` 会选择[加密媒体配置](#image-decrypt-key)，而不是阻止连接；若启用 raw TCP 或缺少非空 `ca_cert` / `cert_bundle_attach` 信任来源，则在网络操作前返回 `TAI_ERR_TLS`。TLS 证书或握手失败也返回 `TAI_ERR_TLS`。无密钥时保留旧有行为。
+执行 TLS 握手、发送 ClientHello、确认会话应答并启动后台接收线程。构造时传入 `image_key` 会选择[加密媒体配置](#image-decrypt-key)，而不是阻止连接；若启用 raw TCP，则在网络操作前返回 `TAI_ERR_TLS`。提供非空 `ca_cert` / `cert_bundle_attach` 时要求验证对端；两者均省略时仍使用 TLS 但对端不验证并告警一次。TLS 证书或握手失败也返回 `TAI_ERR_TLS`。无密钥时保留旧有行为。
 
 **返回值：** `TAI_OK` 成功，`TAI_ERR_*` 失败。
 
@@ -537,7 +537,7 @@ int tai_send_image(tai_ctx_t *ctx,
 
 发送单张图片。
 
-`image_key` 同时用于三个图像发送 API：`tai_send_image()`、`tai_send_image_with_text()` 和 `tai_send_image_audio_start()`。加密准备在 EventStart 之前完成，不修改调用方缓冲区；非空图片需要 `len + 32` 字节临时 scratch（16 字节 IV + `len` 字节密文 + 16 字节 tag），空图片需要 16 字节 scratch（仅 IV，无 tag）。scratch 在发送完成或失败后清零并释放；无密钥发送保持旧有行为。这些发送路径使用[经过验证的 TLS 加密媒体连接](#image-decrypt-key)；真实云端兼容性仍待验证。
+`image_key` 同时用于三个图像发送 API：`tai_send_image()`、`tai_send_image_with_text()` 和 `tai_send_image_audio_start()`。加密准备在 EventStart 之前完成，不修改调用方缓冲区；非空图片需要 `len + 32` 字节临时 scratch（16 字节 IV + `len` 字节密文 + 16 字节 tag），空图片需要 16 字节 scratch（仅 IV，无 tag）。scratch 在发送完成或失败后清零并释放；无密钥发送保持旧有行为。这些发送路径使用[默认验证 TLS 对端的加密媒体连接](#image-decrypt-key)；真实云端兼容性仍待验证。
 
 **参数：**
 - `data` — 图片二进制数据
@@ -756,6 +756,43 @@ cleanup:
 构造成功后及所有失败路径均清零临时二进制密钥；删除解析树前，局部 helper 通过公开的 child/next 字段遍历所有节点，清零字符串值和对象成员名，包括被拒绝形状内的嵌套内容，而不只清理 secretValue。返回的明文 JSON 和 response.error_code/error_msg 也在响应释放前清零。这只是应用可见缓冲区的实际清理，不保证解析器/传输内部没有其他副本。不要记录 response、`secretValue` 或解码后的密钥。使用真实密钥前，确保 SDK 已包含该 secret API 的响应正文日志抑制；仅关闭 TAI 日志不会抑制 IoT ATOP 诊断。
 
 成功后 context 由调用方持有：最终依次调用 `tai_disconnect(ctx)`、`tai_ctx_deinit(ctx)`，再释放 `mem`。返回 NULL 时没有构造成功的 context，`mem` 仍由调用方持有。示例不持久化固定密钥；应用若已保留经过验证的密钥，可直接传给 `tai_ctx_init()`，无需再次请求。两条路径均选择加密媒体配置；由拥有者在构造成功后调用 `tai_connect(ctx)` 并检查返回值，TLS 对端验证及会话确认成功后即可收发加密图像。helper 只检查信任来源是否配置，真正的证书验证发生在连接时；这不是已通过真实云端验证的声明。 前面的典型流程省略该字段（NULL），保持旧有行为。
+
+---
+
+### 生成图像并保存到本地 {#image-generation-demo}
+
+`examples/posix/ai/rtc-tcp-client/image_generation_demo.c` 通过 `tai_send_text()` 发送一次提示词，保存第一张完整的内联 PNG/JPEG。这是云端文生图，不是上传图像进行识别，也不是本地渲染。前提是设备已激活并绑定获授权的 Agent，且其云端工作流生成**内联 Image Packet**。请遵循产品的[工作流配置](../guides/create-workflow.md)及路由约定；发送提示词不会配置工作流，也不能假定 `clm_intent=ai_image` 是通用的生成意图。
+
+运行前，通过安全的环境变量/秘密注入机制从外部提供 `TUYA_DEVICE_ID`、`TUYA_SECRET_KEY` 和 `TUYA_LOCAL_KEY`。不要提交凭据，也不要将秘密字面值输入 shell 命令或历史记录。默认必须提供 `--ca-file`：可信 CA bundle 必须同时覆盖 **bootstrap HTTPS 和 TAI 端点**。示例读取其内容（非空，最多 256 KiB），传给 IoT `cacert` 和 TAI `ca_cert`，并保留至客户端销毁；SDK 接收的是证书内容，不是文件名。布尔开关 `--allow-insecure-fallback`（不带参数值）显式允许省略 `--ca-file`：此时 IoT HTTPS 和 TAI 仍使用 TLS，但不验证对端，并警告中间人攻击可能窃取 token、图像密钥或篡改元数据和控制流。若提供 `--ca-file`，即使同时指定该开关也必须验证对端；无效或不存在的 CA 路径仍报错，证书或握手失败不会自动重试为未验证连接。示例不会通过未验证的连接下载信任锚点。
+
+:::warning 使用凭据前，以 WARN 上限重新编译所有 SDK 库
+SDK 现有 DEBUG 日志可能暴露 Session token 响应，TAI 的 INFO Packet 日志也可能暴露 token。请按下方命令使用 `-DCMAKE_C_FLAGS="-DAGENTIC_KIT_LOG_LEVEL=2"`，使**所有 C 库**（而非仅示例或 TAI）编译为只输出 ERROR/WARN 日志。单独设置 CMake 变量 `-DAGENTIC_KIT_LOG_LEVEL=2` 并未接入编译器宏定义。没有运行时日志级别开关；调整上限必须重新编译。
+:::
+
+从仓库根目录执行，使用独立的 `build-examples` 目录（不要复用根 SDK 的构建目录）：
+
+```sh
+cmake -S examples/posix -B build-examples \
+  -DPython3_EXECUTABLE="$(command -v python3)" \
+  -DCMAKE_C_FLAGS="-DAGENTIC_KIT_LOG_LEVEL=2"
+cmake --build build-examples --target image_generation_demo -j 4
+
+./build-examples/image_generation_demo \
+  --prompt "Generate a watercolor picture of a red panda reading under a tree" \
+  --ca-file /path/to/trusted-ca-bundle.pem \
+  --output-dir ./generated-images \
+  --timeout 120 \
+  --region AY
+```
+
+请替换 CA 路径。每个产品只绑定一个 Agent，产品下的设备统一使用该 Agent；示例不提供 Agent 选择参数。示例**仅使用 PROD**，区域默认为 **AY**，接受的精确区域拼写为 `AY`、`AZ`、`UEAZ`、`EU`、`WEAZ`、`IN`、`SG`。`--timeout` 默认 **120 秒**，从提示词发送后开始计时；不包含 bootstrap HTTPS 和 Connection 建立，因此不是整个进程的执行时限。
+
+- **引导与密钥生命周期：** 关闭 MQTT 自动连接后，示例获取 Session token，并[显式获取固定图像密钥](#application-image-key)一次。校验规范 Base64 解码结果恰好为 16 字节，清零应用持有的密钥响应副本及构造后的临时密钥，并在 context 销毁时清零其密钥副本。不持久化密钥，不自动重连或重发提示词，以免重复生成或重复计费。
+- **有界接收：** 回调负载/标识符是借用数据，在返回前复制到一个受 mutex 保护的累积缓冲区，整张图像上限为 **16 MiB**（SDK 的单 Packet 上限仍独立生效）。完成必须是非空 ONE_SHOT 或完整的 START/MIDDLE/END 流，单独 EventEnd 不算完成。回调通过 `tai_request_disconnect()` 请求停止；仅主线程在 `tai_disconnect()` join worker 后写入文件。
+- **本地输出：** `--output-dir` 默认为相对进程工作目录的 `./generated-images`。示例在云端调用前验证目录，缺失时只创建最后一级，父目录必须已存在。PNG/JPEG 签名检查拒绝未知字节或与非零声明格式不符的内容，但不做解码器验证。独占临时文件写入并关闭后，以本地生成的唯一 `.png`/`.jpg` 文件名发布，不覆盖已有文件；重名时失败。提示词和 Event ID 不用作文件名。
+- **结果与不支持的交付：** 生成任务仅在文件发布成功后退出 0，并打印保存路径、字节数、格式及尺寸（0 表示未知）。文本/音频被丢弃。未实现 Image URL 交付下载，也不下载 NLG 文本中的图片链接；只有 URL 或只有文本的响应会失败，不会被保存为图片。超时、打断、图像不完整、引导/TLS/协议错误、大小/内存限制及文件错误均返回非零。
+
+真实云端生成、所选工作流的交付模式、密钥服务是否接受请求及加密媒体互通均**尚未验证**；本用法示例不代表已完成端到端云端运行。
 
 ---
 

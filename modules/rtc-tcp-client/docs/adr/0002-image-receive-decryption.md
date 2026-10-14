@@ -39,13 +39,15 @@ fixed mapping from media type to ID. Keyed image receive requires ID 6.
 
 **Security decision:** image AES-128-GCM uses no AAD. Its per-Packet tag authenticates
 the encrypted image body, not the media metadata, Attributes or control traffic.
-Unsigned Frames therefore require verified TLS to protect that metadata/control
+Unsigned Frames therefore need verified TLS to protect that metadata/control
 traffic, URL pass-through and empty markers. Configure a nonempty `cfg.ca_cert`
 (full PEM or bare Base64 body, not a file path; borrowed for context lifetime) or
-`cert_bundle_attach`. `tai_connect()` rejects `disable_tls` or neither trust source
-with `TAI_ERR_TLS` before networking. TLS uses required peer verification; a trust
-pointer is not proof of a valid certificate or successful handshake. There is no
-raw-TCP escape hatch or legacy-profile fallback for a keyed context.
+`cert_bundle_attach`. When either is supplied, `tai_connect()` verifies the peer; a
+trust pointer is not proof of a valid certificate or successful handshake. With
+neither, the Connection still uses TLS but with the peer unverified and one warning
+logged -- the same CA-driven rule as the IoT path, and not for production. `disable_tls`
+(raw TCP) is always rejected for a keyed context with `TAI_ERR_TLS` before networking;
+there is no legacy-profile fallback for a keyed context.
 
 A NULL key keeps legacy Frame version 2, signing defaults, 33-byte suite, Session
 payload and image bytes unchanged. The optional CA field can also enable required
@@ -139,10 +141,19 @@ ClientHello/acknowledgement/Session acceptance, image boundaries and empty marke
 in both directions, and same-key reconnect. Source alignment and offline fixtures
 must not be reported as successful cloud verification.
 
-Keep the 32,000-byte reassembled-Packet default until representative cloud sizes and
-target peak memory are measured. RAW receive needs bounded separate plaintext
-scratch, while Base64 also needs a decode buffer; upload scratch is described above.
-No target-cloud test or runtime heap/stack measurement is recorded here. No new
+The 32,000-byte reassembled-Packet default is too small for keyed image receive.
+Observed on 2026-10-14 (POSIX `image_generation_demo`, peer verification disabled):
+the cloud delivered a complete inline image as a single Packet of ~400 KB, which
+overflowed the reassembly buffer and failed the Connection with `TAI_PROTO_ERR_FRAG`
+before any image arrived. A single Packet must therefore be bounded by the whole
+image plus its Packet metadata, not by a few 4096-byte transport fragments; the
+16 MiB image ceiling makes that a per-consumer decision, not a safe universal
+default. The module default stays 32,000 for consumers that never receive keyed
+images, and a keyed-image consumer overrides `AGENTIC_KIT_TAI_FRAG_BUF_SIZE` to its
+image ceiling -- `examples/posix` sizes the SDK library it builds to 16 MiB + 4096,
+after which the same exchange saved a 400 KB PNG. RAW receive needs bounded separate
+plaintext scratch, while Base64 also needs a decode buffer; upload scratch is
+described above. Target peak heap/stack measurement is still not recorded. No new
 runtime dependencies are required.
 
 ## Historical gated-pipeline validation (2026-10-14)

@@ -182,10 +182,10 @@ The legacy anchor `image-decrypt-key` is retained for existing links; the config
 |------|------|------|
 | `image_key` | `const uint8_t *` | Optional fixed AES-128 image key: exactly `TAI_IMAGE_KEY_LEN` (16) decoded binary bytes. NULL preserves legacy behavior. |
 
-:::warning A supplied key requires verified TLS
+:::warning A supplied key requires TLS
 `image_key` enables TuyaOpen's encrypted-media profile: Frame version 3, sign level 0 (ignoring `cfg.sign_level`), with the v2 Attribute layout unchanged. The 36-byte ClientHello suite is `00 || random[32] || 04 03 03`; the last three bytes select AES-128-GCM, whole video I-frames and whole images as encryption ranges, **not a media-capability bitmap**. This SDK does not support video or file handling.
 
-The user explicitly approved this unsigned-Frame security decision. Image GCM uses no AAD and authenticates the encrypted body of each complete Image Packet; metadata, control Packets, URLs and empty markers rely on verified TLS protection. Configure a nonempty `cfg.ca_cert` or `cert_bundle_attach`. With a key, `disable_tls` or neither trust source makes `tai_connect()` return `TAI_ERR_TLS` before networking. The implementation is enabled, but this is not a live-cloud verification claim.
+The user explicitly approved this unsigned-Frame security decision. Image GCM uses no AAD and authenticates the encrypted body of each complete Image Packet; metadata, control Packets, URLs and empty markers rely on TLS protection. A nonempty `cfg.ca_cert` or `cert_bundle_attach` verifies the peer; with neither, a keyed Connection still uses TLS but with the peer unverified (one warning at connect) -- the same CA-driven rule as the IoT/MQTT path. With a key, `disable_tls` makes `tai_connect()` return `TAI_ERR_TLS` before networking (raw TCP is unsupported). Unverified TLS risks man-in-the-middle attacks exposing tokens and the image key and compromising metadata and control traffic, so omit a trust source only outside production. The implementation is enabled, but this is not a live-cloud verification claim.
 :::
 
 Keyed Sessions advertise only audio/text/image: send IDs 1/3/5 and receive IDs 2/4/6. TuyaOpen allocates even receive IDs in configured type order; that supports this SDK's Session allocation, not a universal fixed ID for each media type. Keep `protocol_version` at 0 or `TAI_VER_21`; do not set it to 3 to select Frame version 3.
@@ -217,7 +217,7 @@ See [explicit application acquisition](#application-image-key) for a constructio
 |------|------|------|
 | `pal` | `const pal_t *` | Pointer to the platform adaptation layer implementation |
 | `cert_bundle_attach` | `tls_cert_bundle_attach_fn` | Platform certificate bundle callback (set to `(tls_cert_bundle_attach_fn)esp_crt_bundle_attach` on ESP-IDF); NULL means no bundle. Provides peer verification as an alternative to `ca_cert`. See [TLS Certificate Verification](../guides/tls-cert-verification.md) |
-| `ca_cert` | `const char *` | Optional CA certificate: full PEM or bare Base64 body, **not a file path**. Borrowed until context destruction; nonempty requires peer verification. An image key requires this field or a certificate bundle; omitting both without a key retains the legacy optional-verification path. |
+| `ca_cert` | `const char *` | Optional CA certificate: full PEM or bare Base64 body, **not a file path**. Borrowed until context destruction; nonempty requires peer verification. A keyed Connection verifies the peer only when this field or `cert_bundle_attach` is set; omitting both still uses TLS but with the peer unverified (one warning at connect). |
 
 ### 3.9 Callbacks {#39-回调函数}
 
@@ -307,7 +307,7 @@ The callback signature and worker-thread delivery are unchanged; the added `payl
 
 Keyed parsing strictly validates the four unsigned image-params fields and their ranges, duplicate image-params and Event IDs. START/ONE_SHOT requires image-params; MIDDLE/END must match the latched Event/Data ID and any repeated parameters must agree. Continuations without Attributes inherit payload type but report 0 for `format`/`width`/`height`; matching repeated Attributes supply those values. Orphan/conflicting continuations, malformed Base64, truncation and authentication failures do not deliver the failed Packet. Completion, Event boundaries, SessionClose, disconnect and errors clear the relevant stream state, without key acquisition or plaintext fallback.
 
-Plaintext uses temporary PAL heap storage, wiped and freed after callback return; copy `len` bytes to retain it. URL/text bytes need not be NUL-terminated. The existing `AGENTIC_KIT_TAI_FRAG_BUF_SIZE` default of 32,000 bytes limits one reassembled Packet, not an entire image. RAW needs separate plaintext scratch; Base64 also needs decode scratch. Maximum cloud Packet sizes and target peak memory are **not measured**. Keyed Connections are enabled subject to the [verified-TLS requirement](#image-decrypt-key).
+Plaintext uses temporary PAL heap storage, wiped and freed after callback return; copy `len` bytes to retain it. URL/text bytes need not be NUL-terminated. The existing `AGENTIC_KIT_TAI_FRAG_BUF_SIZE` default of 32,000 bytes limits one reassembled Packet, not an entire image. RAW needs separate plaintext scratch; Base64 also needs decode scratch. Maximum cloud Packet sizes and target peak memory are **not measured**. Keyed Connections are enabled subject to the [TLS trust requirements and explicit exception](#image-decrypt-key).
 
 `tai_event_msg_t` (Event callback):
 
@@ -420,7 +420,7 @@ Deinitializes the context and releases internal resources. `mem` can be freed af
 int tai_connect(tai_ctx_t *ctx);
 ```
 
-Performs the TLS handshake, sends ClientHello, confirms the Session acknowledgement, and starts the background receive thread. Supplying `image_key` at construction selects the [encrypted-media profile](#image-decrypt-key), rather than blocking the Connection. Raw TCP or neither a nonempty `ca_cert` nor `cert_bundle_attach` trust source returns `TAI_ERR_TLS` before networking. Certificate or TLS handshake failure also returns `TAI_ERR_TLS`. No-key behavior remains unchanged.
+Performs the TLS handshake, sends ClientHello, confirms the Session acknowledgement, and starts the background receive thread. Supplying `image_key` at construction selects the [encrypted-media profile](#image-decrypt-key), rather than blocking the Connection. Raw TCP returns `TAI_ERR_TLS` before networking. A nonempty `ca_cert` or `cert_bundle_attach` requires peer verification; with neither, the Connection still uses TLS but with the peer unverified and one warning logged. Certificate or TLS handshake failure also returns `TAI_ERR_TLS`. No-key behavior remains unchanged.
 
 **Return value:** `TAI_OK` on success, or `TAI_ERR_*` on failure.
 
@@ -756,6 +756,43 @@ The validator accepts only canonical standard Base64: 24 characters, exactly 22 
 The temporary binary key is zeroized after construction on success and on every failure. Before deleting the parsed tree, the local helper traverses every node through public child/next fields and wipes string values and object member names, including nested content in rejected shapes, not just secretValue. Returned plaintext JSON and response.error_code/error_msg are also wiped before response cleanup. This is practical cleanup of application-visible buffers, not a guarantee that parser/transport internals leave no other copies. Do not log the response, `secretValue` or decoded key. Ensure the SDK's secret-API response-body log suppression is present before using real keys; disabling only TAI logs does not suppress IoT ATOP diagnostics.
 
 On success the caller owns the context: eventually call `tai_disconnect(ctx)`, then `tai_ctx_deinit(ctx)`, then release `mem`. On NULL, no constructed context is returned and the caller still owns `mem`. This example does not persist the fixed key. An application that already retains a validated key can pass it directly to `tai_ctx_init()` without another request. Both paths select the encrypted-media profile. After successful construction, the owner calls `tai_connect(ctx)` and checks the result; encrypted images can be sent and received after TLS peer verification and Session confirmation succeed. The helper only checks that trust is configured; actual certificate verification happens at connect time. This is not a live-cloud verification claim. The earlier typical flow omits the field (NULL) and remains legacy behavior.
+
+---
+
+### Generate an image and save it locally {#image-generation-demo}
+
+`examples/posix/ai/rtc-tcp-client/image_generation_demo.c` sends one prompt with `tai_send_text()` and saves the first complete inline PNG/JPEG. This is cloud text-to-image generation, not an image upload for recognition or local rendering. It requires an activated device bound to an authorized Agent whose cloud workflow generates **inline Image Packets**. Follow the product's [workflow configuration](../guides/create-workflow.md) and routing contract; sending a prompt does not configure a workflow, and `clm_intent=ai_image` is not assumed to be a universal generation intent.
+
+Supply `TUYA_DEVICE_ID`, `TUYA_SECRET_KEY`, and `TUYA_LOCAL_KEY` externally through a secure environment/secret-injection mechanism before running. Do not commit credentials or type literal secrets into shell commands/history. By default, `--ca-file` is required: provide a trusted CA bundle covering **both bootstrap HTTPS and TAI endpoints**. The demo reads its contents (nonempty, at most 256 KiB) into IoT `cacert` and TAI `ca_cert`, retaining them through client teardown; the SDK receives certificate contents, not the filename. `--allow-insecure-fallback` explicitly permits omitting the CA file, leaving TLS peer verification disabled with a MITM warning. A supplied CA is always verified, even with that flag; certificate failures never trigger an unverified retry. The demo does not download trust anchors over an unverified connection.
+
+:::warning Rebuild all SDK libraries with a WARN ceiling before using credentials
+Existing SDK DEBUG logs can expose the Session-token response, and TAI Packet logs at INFO may expose tokens. Use `-DCMAKE_C_FLAGS="-DAGENTIC_KIT_LOG_LEVEL=2"` as below so **all C libraries**, not just the demo or TAI, compile with only ERROR/WARN logs. A bare CMake `-DAGENTIC_KIT_LOG_LEVEL=2` variable is not wired to compiler definitions. There is no runtime log-level switch; changing the ceiling requires rebuilding.
+:::
+
+From the repository root, use the separate `build-examples` directory (do not reuse the root SDK build directory):
+
+```sh
+cmake -S examples/posix -B build-examples \
+  -DPython3_EXECUTABLE="$(command -v python3)" \
+  -DCMAKE_C_FLAGS="-DAGENTIC_KIT_LOG_LEVEL=2"
+cmake --build build-examples --target image_generation_demo -j 4
+
+./build-examples/image_generation_demo \
+  --prompt "Generate a watercolor picture of a red panda reading under a tree" \
+  --ca-file /path/to/trusted-ca-bundle.pem \
+  --output-dir ./generated-images \
+  --timeout 120 \
+  --region AY
+```
+
+Replace the CA path with your configuration. Each product binds one Agent, and all devices belonging to that product use that Agent; the demo does not offer Agent selection. The demo uses **PROD only**, defaults to **AY**, and accepts the exact region spellings `AY`, `AZ`, `UEAZ`, `EU`, `WEAZ`, `IN`, `SG`. `--timeout` defaults to **120 seconds**, measured after sending the prompt; it excludes bootstrap HTTPS and Connection setup, so it is not a total execution deadline.
+
+- **Bootstrap and key lifetime:** With MQTT auto-connect disabled, the demo obtains a Session token and [explicitly acquires the fixed Image key](#application-image-key) once. It validates canonical Base64 decoding to 16 bytes, wipes application-owned key-response copies and the temporary key after construction, and wipes the context's key at teardown. It neither persists the key nor reconnects/resubmits the prompt; replay could duplicate generation or charges.
+- **Bounded reception:** Callback payloads/identifiers are borrowed and copied before return into one mutex-protected accumulator, capped at **16 MiB** for the entire image (SDK per-Packet limits still apply). Completion requires a nonempty ONE_SHOT or a completed START/MIDDLE/END stream, not merely EventEnd. Callbacks request shutdown with `tai_request_disconnect()`; only the main thread writes files, after `tai_disconnect()` joins the worker.
+- **Local output:** `--output-dir` defaults to `./generated-images` relative to the process working directory. The demo validates it before cloud calls and creates only the final directory if missing; its parent must already exist. PNG/JPEG signature checks reject unknown bytes or a mismatch with a nonzero declared format; this is not decoder validation. An exclusive temporary file is written and closed, then published with a unique locally generated `.png`/`.jpg` name without overwriting existing files; collisions fail. Prompts and Event IDs are not filenames.
+- **Result and unsupported delivery:** A generation run exits 0 only after successful publication and prints the saved path, byte count, format and dimensions (0 means unknown). Text/audio are discarded. Image URL delivery and downloading image links from NLG text are not implemented; URL-only or text-only responses fail rather than being saved as images. Timeout, interruption, incomplete images, bootstrap/TLS/protocol errors, size/allocation failures and file errors return nonzero.
+
+Live-cloud generation, the selected workflow's delivery mode, key-service acceptance and encrypted-media interoperability remain **unverified**; this usage example is not evidence of an end-to-end cloud run.
 
 ---
 
