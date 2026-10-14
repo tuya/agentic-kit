@@ -3652,8 +3652,9 @@ int main(void)
     test_image_uplink_argument_bounds();
     test_image_recv();
     test_keyed_tls_connection();
+    test_keyed_tls_without_trust();
     test_keyed_tls_rejections();
-    test_keyed_tls_worker_downgrade();
+    test_keyed_tls_worker_unknown_version();
     test_image_parser_fragmented();
     test_image_parser_rejections();
     test_image_parser_capacity();

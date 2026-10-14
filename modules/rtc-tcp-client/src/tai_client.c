@@ -422,12 +422,18 @@ static int   tai_process_rx(tai_ctx_t *ctx, int *paused);
 int tai_connect(tai_ctx_t *ctx)
 {
     if (!ctx || !ctx->pal) return TAI_ERR_ARGS;
+    int has_trust = (ctx->ca_cert && ctx->ca_cert[0]) || ctx->cert_bundle_attach;
     if (ctx->has_image_key) {
-        if (ctx->disable_tls ||
-            ((!ctx->ca_cert || !ctx->ca_cert[0]) && !ctx->cert_bundle_attach)) {
-            TAI_LOGE(ctx->pal, TAG, "keyed Connection requires verified TLS with a CA or cert bundle");
+        if (ctx->disable_tls) {
+            TAI_LOGE(ctx->pal, TAG, "keyed Connection requires TLS");
             return TAI_ERR_TLS;
         }
+        /* TLS is still required, but with no CA or bundle the peer cannot be
+         * verified -- the same rule the IoT/MQTT path follows. Warn once and
+         * proceed: transport encryption holds, a man-in-the-middle does not. */
+        if (!has_trust)
+            TAI_LOGW(ctx->pal, TAG,
+                     "keyed Connection has no CA or cert bundle; peer verification disabled (MITM risk)");
         if (ctx->proto_ver != TAI_VER_21 || ctx->frame_ver != 3 ||
             ctx->sign_level != TAI_SIGN_NONE || ctx->sig_len != 0)
             return TAI_ERR_PROTO;
@@ -479,7 +485,11 @@ int tai_connect(tai_ctx_t *ctx)
             .port                 = ctx->port,
             .sni                  = ctx->tls_sni,
             .cacert               = ctx->ca_cert,
-            .verify               = ctx->has_image_key ? TLS_VERIFY_REQUIRED : TLS_VERIFY_OPTIONAL,
+            /* Keyed Connections verify the peer when a trust source exists, and
+             * run unverified (one WARN above) when none is configured. */
+            .verify               = ctx->has_image_key
+                                        ? (has_trust ? TLS_VERIFY_REQUIRED : TLS_VERIFY_NONE)
+                                        : TLS_VERIFY_OPTIONAL,
             .cert_bundle_attach   = ctx->cert_bundle_attach,
             .connect_timeout_ms   = ctx->connect_timeout_ms, /* bounds TCP connect + TLS handshake */
             .pal                  = ctx->pal,
@@ -818,13 +828,20 @@ static int tai_process_rx(tai_ctx_t *ctx, int *paused)
             continue;
         }
 
-        /* Detect version from first byte */
-        /* Version 3 retains the v2 Attribute/Frame layout. Never negotiate a
-         * keyed Connection down to the legacy signed profile on receive. */
-        int ver = ctx->has_image_key
-                ? ((ctx->rx_buf[0] & 0x3F) == (0x20 | ctx->frame_ver)
-                   ? TAI_VER_21 : TAI_ERR_PROTO)
-                : tai_frame_detect_version(ctx->rx_buf[0]);
+        /* Detect version from first byte. Version 3 keeps the v2.1 Attribute and
+         * Frame layout, and the cloud answers with version 2 for its own
+         * control/acknowledgement Frames -- only media is version 3. TuyaOpen
+         * never validates this nibble on receive, so a keyed Connection accepts
+         * either v2.1 version rather than rejecting the handshake. The layout is
+         * identical and the profile is pinned by sig_len = 0, not this byte, so
+         * accepting version 2 never selects the legacy signed read. */
+        int ver;
+        if (ctx->has_image_key) {
+            uint8_t nibble = (uint8_t)(ctx->rx_buf[0] & 0x0F);
+            ver = (nibble == 0x02 || nibble == 0x03) ? TAI_VER_21 : TAI_ERR_PROTO;
+        } else {
+            ver = tai_frame_detect_version(ctx->rx_buf[0]);
+        }
         if (ver < 0) {
             TAI_LOGW(ctx->pal, TAG, "unknown frame byte 0x%02x", ctx->rx_buf[0]);
             return TAI_PROTO_ERR_BAD_VERSION;

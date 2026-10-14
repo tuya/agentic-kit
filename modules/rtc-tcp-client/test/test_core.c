@@ -1002,23 +1002,24 @@ static void test_image_key_ownership(void)
         uint8_t frame_key[32], random_before[32];
         memcpy(frame_key, ctx->encrypt_key, 32);
         memcpy(random_before, ctx->encrypt_random, 32);
-        for (int raw = 0; raw <= 1; raw++) {
-            ctx->disable_tls = (uint8_t)raw;
-            for (int attempt = 0; attempt < 2; attempt++) {
-                CHECK(tai_connect(ctx) == TAI_ERR_TLS);
-                CHECK(ctx->has_image_key == 1);
-                CHECK(memcmp(ctx->image_key, expected, 16) == 0);
-                CHECK(memcmp(ctx->encrypt_key, frame_key, 32) == 0);
-                CHECK(memcmp(ctx->sign_key, frame_key, 32) == 0);
-                CHECK(memcmp(ctx->encrypt_random, random_before, 32) == 0);
-                CHECK(ctx->seq == 0 && ctx->session_id[0] == '\0');
-                CHECK(ctx->tls == NULL && ctx->raw_tcp == NULL);
-                CHECK(!ctx->connected && !ctx->connecting && !ctx->session_open);
-                CHECK(!ctx->running && ctx->thread_handle == NULL);
-                tai_disconnect(ctx);
-                CHECK(ctx->has_image_key == 1);
-                CHECK(memcmp(ctx->image_key, expected, 16) == 0);
-            }
+        /* disable_tls rejects a keyed context before touching any state, so
+         * repeated failures must leave the key and the profile untouched. (A
+         * keyed TLS connect with no trust source now proceeds to the network.) */
+        ctx->disable_tls = 1;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            CHECK(tai_connect(ctx) == TAI_ERR_TLS);
+            CHECK(ctx->has_image_key == 1);
+            CHECK(memcmp(ctx->image_key, expected, 16) == 0);
+            CHECK(memcmp(ctx->encrypt_key, frame_key, 32) == 0);
+            CHECK(memcmp(ctx->sign_key, frame_key, 32) == 0);
+            CHECK(memcmp(ctx->encrypt_random, random_before, 32) == 0);
+            CHECK(ctx->seq == 0 && ctx->session_id[0] == '\0');
+            CHECK(ctx->tls == NULL && ctx->raw_tcp == NULL);
+            CHECK(!ctx->connected && !ctx->connecting && !ctx->session_open);
+            CHECK(!ctx->running && ctx->thread_handle == NULL);
+            tai_disconnect(ctx);
+            CHECK(ctx->has_image_key == 1);
+            CHECK(memcmp(ctx->image_key, expected, 16) == 0);
         }
     }
     CHECK(image_network_calls == 0);
@@ -1055,8 +1056,8 @@ static void test_image_connection_guards(void)
         const char *ca;
         int bundle, raw, expected;
     } cases[] = {
-        {NULL, 0, 0, TAI_ERR_TLS},
-        {"",   0, 0, TAI_ERR_TLS},
+        {NULL, 0, 0, TAI_ERR_ARGS},
+        {"",   0, 0, TAI_ERR_ARGS},
         {NULL, 0, 1, TAI_ERR_TLS},
         {"",   0, 1, TAI_ERR_TLS},
         {"synthetic-ca", 0, 1, TAI_ERR_TLS},

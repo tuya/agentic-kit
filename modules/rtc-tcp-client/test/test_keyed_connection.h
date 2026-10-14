@@ -82,8 +82,9 @@ static void test_keyed_tls_connection(void)
     static uint8_t image[IMAGE_UPLINK_LARGE];
     for (size_t i = 0; i < sizeof(image); i++) image[i] = (uint8_t)(i * 37 + i / 251);
     uint8_t previous_random[32] = {0};
-    for (int bundle = 0; bundle < 2; bundle++) {
-        int started = keyed_peer_start(bundle ? 4 : 0);
+    for (int mode = 0; mode < 3; mode++) {
+        int bundle = mode == 1;
+        int started = keyed_peer_start(mode == 2 ? 1 : bundle ? 4 : 0);
         CHECK_EQ_INT(started, 0);
         if (started) return;
         mbedtls_x509_crt_init(&keyed_bundle);
@@ -138,17 +139,50 @@ static void test_keyed_tls_connection(void)
     }
 }
 
-static void test_keyed_tls_worker_downgrade(void)
+static void test_keyed_tls_without_trust(void)
 {
-    SECTION("keyed_TLS_worker_rejects_legacy_Frame");
+    SECTION("keyed_TLS_runs_unverified_when_no_CA_or_bundle");
+    static tai_ctx_t storage;
+    /* No CA and no bundle: TLS still runs, the peer is unverified, and connect
+     * warns but proceeds -- the same rule the IoT path follows. */
+    int started = keyed_peer_start(0);
+    CHECK_EQ_INT(started, 0);
+    if (started) return;
+    st_reset();
+    tai_config_t cfg = {
+        .pal = tai_pal_posix(), .host = "127.0.0.1", .tls_sni = "localhost",
+        .port = keyed_peer.port, .device_id = "keyed-device",
+        .image_key = image_uplink_key, .ca_cert = NULL,
+        .event_user_data_json = "{}", .on_disconnect = on_disconnect,
+    };
+    tai_ctx_t *ctx = tai_ctx_init(&storage, &cfg);
+    CHECK(ctx != NULL);
+    int rc = ctx ? tai_connect(ctx) : TAI_ERR_MEM;
+    pthread_join(keyed_peer.thread, NULL);
+    CHECK_EQ_INT(rc, TAI_OK);
+    CHECK_EQ_INT(keyed_peer.error, 0);
+    if (rc == TAI_OK) {
+        CHECK(ctx->tls != NULL && ctx->raw_tcp == NULL && ctx->connected);
+        keyed_check_handshake(ctx, 1);
+        tai_disconnect(ctx);
+        CHECK_EQ_INT(g_st.disconnect_calls, 0);
+    }
+    if (ctx) tai_ctx_deinit(ctx);
+    keyed_peer_close();
+}
+
+static void test_keyed_tls_worker_unknown_version(void)
+{
+    SECTION("keyed_TLS_worker_rejects_unsupported_Frame_version");
     static tai_ctx_t storage;
     pal_t pal;
     tai_ctx_t *ctx = image_parser_setup(&storage, &pal, 1);
     if (!ctx) return;
-    /* Otherwise valid unsigned Text on v2, followed by valid v3 Text. Neither
-     * may be delivered once the first Frame has fatally downgraded the link. */
+    /* Version 2 and 3 are both valid v2.1 (the cloud sends its control/ack
+     * Frames as version 2). An unsupported version nibble is fatal, and the
+     * following valid Frame must not be delivered once the first has done so. */
     const uint8_t wire[] = {
-        0x22,0,2,0,6, 0x44,0,4,0,0,'x',
+        0x21,0,2,0,6, 0x44,0,4,0,0,'x',
         0x23,0,3,0,6, 0x44,0,4,0,0,'y'
     };
     CHECK_EQ_INT(keyed_peer_write(wire, sizeof(wire)), 0);
@@ -158,7 +192,7 @@ static void test_keyed_tls_worker_downgrade(void)
 
 static void test_keyed_tls_rejections(void)
 {
-    SECTION("keyed_TLS_downgrade_signed_ack_bad_suite_and_untrusted_peer");
+    SECTION("keyed_TLS_signed_ack_bad_suite_and_untrusted_peer");
     static tai_ctx_t storage;
     char wrong_ca[4096], path[4096];
     const char *slash = strrchr(__FILE__, '/');
@@ -174,7 +208,7 @@ static void test_keyed_tls_rejections(void)
     fclose(f);
     wrong_ca[n] = 0;
     /* Modes 4/5 reject CA/hostname via ca_cert; 6/7 repeat via the bundle. */
-    for (int mode = 1; mode <= 7; mode++) {
+    for (int mode = 2; mode <= 7; mode++) {
         int started = keyed_peer_start(mode <= 3 ? mode : 0);
         CHECK_EQ_INT(started, 0);
         if (started) return;

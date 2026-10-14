@@ -247,7 +247,8 @@ exit, and input remains untouched. No-key sends retain legacy behavior.
 
 ClientHello is always unsigned. In the legacy profile, SessionNew and subsequent
 Frames use the configured/default Sign level; in the keyed profile every Frame
-is unsigned and the Connection requires verified TLS.
+is unsigned and the Connection uses TLS, verifying the peer when a nonempty CA or
+cert bundle is supplied and running unverified (one warning) when neither is.
 
 ### Receiving
 
@@ -263,9 +264,13 @@ the worker fire `on_disconnect`.
 
 `tai_process_rx` peels complete Frames off the front of that buffer:
 
-1. Confirm the leading byte matches the selected Frame profile: legacy version 2,
-   or keyed version 3 with reserved bits 2. Keyed receive never downgrades to legacy
-   framing. A mismatch is fail-fast; an ordered TLS stream cannot resync by dropping bytes.
+1. Confirm the leading byte matches the selected Frame profile: legacy version 2, or
+   keyed version 2 or 3. The cloud answers its own control/acknowledgement Frames with
+   version 2 and only media with version 3, sharing the v2.1 header layout, so a keyed
+   Connection accepts either; the profile is pinned by the signature length (0), not
+   this nibble, so accepting version 2 is not a downgrade to the legacy signed read. A
+   genuinely unsupported version is fail-fast; an ordered TLS stream cannot resync by
+   dropping bytes.
 2. Read the length field for the full Frame size; wait if the whole Frame has not arrived. A
    Frame that declares more bytes than the receive buffer can hold (`rx_buf`, one max Fragment)
    can never be assembled, so it is fail-fast (`TAI_PROTO_ERR_OVERSIZED`) rather than stalling
@@ -345,9 +350,13 @@ must not block — captured in the callback-contract block in `tuya_ai.h`.
 - Key presence selects an immutable profile, not merely a receive transform: Frame
   version 3, unsigned Frames, v2 Attributes and the exact `00 || random[32] || 04 03 03`
   suite. A suite Attribute, if received, must match its length/sign/range settings.
-- Keyed Connections require verified TLS; do not weaken this to optional verification
-  or raw TCP to accommodate a test. GCM has no AAD and does not authenticate metadata
-  or control Packets. No video/file support follows from the suite range bytes.
+- Keyed Connections require TLS (raw TCP is rejected) and verify the peer whenever a
+  nonempty `ca_cert` or `cert_bundle_attach` is supplied. With neither, the Connection
+  still uses TLS but unverified, behind one warning -- the same CA-driven rule the IoT
+  path follows. There is no module knob to relax verification: supplying no trust source
+  is the only way to it, and it is not for production. GCM has no AAD and does not
+  authenticate metadata or control Packets, so an unverified keyed Connection exposes
+  them to a man-in-the-middle. No video/file support follows from the suite range bytes.
 - No-key signing is unchanged: zero `cfg.sign_level` means default HMAC-SHA256;
   levels 1/2 map to 20/32 bytes. Other legacy values fall through to zero signature
   length and are not a supported way to select the encrypted-media profile. Keyed

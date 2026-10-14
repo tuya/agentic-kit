@@ -375,13 +375,16 @@ typedef struct tai_config {
      * The suffix means AES-128-GCM, whole video I-frames, whole images; it is
      * not a media-support bitmap. Only audio/text/image Data IDs are advertised;
      * video/file handling is not implemented. No automatic key acquisition.
-     * Requires TLS with ca_cert or cert_bundle_attach; disable_tls is rejected
-     * by tai_connect before networking. protocol_version must be 0 or TAI_VER_21. */
+     * Requires TLS (disable_tls is rejected by tai_connect before networking).
+     * A nonempty ca_cert or cert_bundle_attach verifies the peer; with neither,
+     * TLS still runs but the peer is unverified (as on the IoT path).
+     * protocol_version must be 0 or TAI_VER_21. */
     const uint8_t *image_key;
 
     /* Optional CA certificate (full PEM or bare Base64 body, not a file path).
-     * Borrowed for context lifetime. Nonempty enables required peer verification;
-     * NULL preserves the legacy bundle/optional verification path without a key. */
+     * Borrowed for context lifetime. Nonempty (or cert_bundle_attach) enables
+     * required peer verification; with neither, the Connection still uses TLS
+     * but with the peer unverified (one warning logged at connect time). */
     const char *ca_cert;
 
 } tai_config_t;
@@ -398,8 +401,9 @@ void        tai_ctx_deinit(tai_ctx_t *ctx);
 
 /* Connect: TLS handshake + ClientHello + SessionNew + start background thread.
  * The background thread handles receive polling and keepalive pings.
- * With image_key, returns TAI_ERR_TLS before networking if disable_tls is set
- * or neither a nonempty ca_cert nor cert_bundle_attach is configured.
+ * With image_key, returns TAI_ERR_TLS before networking if disable_tls is set.
+ * A nonempty ca_cert or cert_bundle_attach requires peer verification; with
+ * neither, the Connection uses unverified TLS and logs a warning at connect.
  * Returns TAI_OK or TAI_ERR_*. */
 int         tai_connect(tai_ctx_t *ctx);
 
