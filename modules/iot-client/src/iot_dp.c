@@ -21,7 +21,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <time.h>
 
 /* ---- Tuya MQTT protocol numbers (centralised here on purpose) ---- */
 #define DP_PROTO_REPORT  4   /* uplink   DP report (device -> cloud) */
@@ -553,7 +552,8 @@ static char *dp_build_report_json(iot_client_t *client, dp_sel_t sel, uint8_t on
     cJSON *root = cJSON_CreateObject();
     if (!root) return NULL;
     cJSON_AddNumberToObject(root, "protocol", DP_PROTO_REPORT);
-    cJSON_AddNumberToObject(root, "t", (double)(uint32_t)time(NULL));
+    uint32_t timestamp = (uint32_t)(pal->wal_clock_time() / 1000U);
+    cJSON_AddNumberToObject(root, "t", (double)timestamp);
     cJSON *data = cJSON_CreateObject();
     if (!data) { cJSON_Delete(root); return NULL; }
     if (!cJSON_AddItemToObject(root, "data", data)) { cJSON_Delete(data); cJSON_Delete(root); return NULL; }

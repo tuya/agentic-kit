@@ -14,6 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Examples — `unbind_demo` checks cloud binding status before client initialization/reconnect and after a removal notice (#44).
 - Examples — `activate_demo --release` prints cloud binding status before and after reset (#44).
 
+### Changed
+
+- **BREAKING** pal — mandatory `wal_clock_time` provides Unix UTC milliseconds; `time_ms` keeps its monotonic timing contract (#45).
+  - Custom PALs must supply `wal_clock_time` and rebuild SDK/PAL consumers.
+- iot-client — cloud signing and DP timestamps use `wal_clock_time()` directly, converting UTC milliseconds to seconds (#45).
+- rtc-tcp-client — media and Ping timestamps use PAL UTC milliseconds instead of monotonic time (#45).
+
+### Fixed
+
+- pal — FreeRTOS `time_ms` preserves tick wraps and converts non-integral tick periods correctly (#45).
+
 ## [0.5.0] - 2026-09-24
 
 ### Added

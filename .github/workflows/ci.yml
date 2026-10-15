@@ -52,6 +52,9 @@ jobs:
       - name: Build
         run: cmake --build build -j 4
 
+      - name: FreeRTOS PAL header compatibility
+        run: cmake --build build --target check_freertos_pal
+
       - name: Test
         run: ctest --test-dir build --output-on-failure --no-tests=error --timeout 180
 

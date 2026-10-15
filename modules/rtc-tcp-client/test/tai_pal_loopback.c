@@ -411,7 +411,7 @@ static void lb_sleep_ms(uint32_t ms)
     while (nanosleep(&ts, &ts) < 0 && errno == EINTR) { }
 }
 
-static uint64_t lb_time_ms(void);   /* defined below; used for a real-time recv timeout */
+static uint64_t lb_time_ms(void);   /* defined below; monotonic recv timeout */
 
 static int lb_tcp_recv(void *tcp, uint8_t *buf, size_t buf_len,
                        uint32_t timeout_ms)
@@ -478,6 +478,13 @@ static int lb_tcp_poll(void *tcp, int events, uint32_t timeout_ms)
 /* =========================================================================
  * Time / memory
  * ========================================================================= */
+static uint64_t lb_wal_clock_time(void)
+{
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0 || ts.tv_sec <= 0) return 0;
+    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+}
+
 static uint64_t lb_time_ms(void)
 {
     struct timespec ts;
@@ -532,6 +539,7 @@ static const pal_t g_loopback_pal = {
     .tcp_close        = lb_tcp_close,
     .tcp_poll         = lb_tcp_poll,
     .time_ms          = lb_time_ms,
+    .wal_clock_time   = lb_wal_clock_time,
     .malloc           = lb_malloc,
     .free             = lb_free,
     .mutex_create     = lb_mutex_create,

@@ -95,10 +95,11 @@ void iot_atop_response_free(iot_client_t *client, iot_atop_response_t *response)
 ```c
 #include "iot_atop.h"
 
+uint32_t timestamp = (uint32_t)(client->pal->wal_clock_time() / 1000U);
 char body[192];
 snprintf(body, sizeof(body),
          "{\"schemaId\":\"%s\",\"version\":\"\",\"t\":%u}",
-         schema_id, (unsigned)time(NULL));
+         schema_id, (unsigned)timestamp);
 
 iot_atop_request_t  req  = { .api     = "tuya.device.schema.newest.get",
                               .version = "1.0",

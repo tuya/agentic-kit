@@ -367,7 +367,7 @@ int tai_proto_build_audio_hdr(tai_ctx_t *ctx,
 
     /* Append the 8-byte media header — the first bytes of the packet payload. */
     int hl = tai_pack_media_hdr(ctx->proto_ver, data_id, stream_flag,
-                                ctx->pal->time_ms(), buf + pos, buf_size - (size_t)pos);
+                                ctx->pal->wal_clock_time(), buf + pos, buf_size - (size_t)pos);
     if (hl < 0) return hl;
     return pos + hl;
 }
@@ -419,7 +419,7 @@ int tai_proto_build_image_hdr(tai_ctx_t *ctx,
     if (pos < 0) return pos;
 
     int hl = tai_pack_media_hdr(ctx->proto_ver, data_id, stream_flag,
-                                ctx->pal->time_ms(), buf + pos, buf_size - (size_t)pos);
+                                ctx->pal->wal_clock_time(), buf + pos, buf_size - (size_t)pos);
     if (hl < 0) return hl;
     return pos + hl;
 }
@@ -432,7 +432,7 @@ int tai_proto_build_ping(tai_ctx_t *ctx, uint8_t *buf, size_t buf_size)
     uint8_t s_ts[8];
     tai_attr_t attrs[1];
     attrs[0] = tai_attr_u64v(TAI_ATTR_CLIENT_TIMESTAMP, s_ts,
-                              ctx->pal->time_ms());
+                              ctx->pal->wal_clock_time());
     return tai_packet_encode(ctx->proto_ver, TAI_PKT_PING,
                               attrs, 1, NULL, 0, buf, buf_size);
 }

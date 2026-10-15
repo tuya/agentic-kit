@@ -2,9 +2,9 @@
  * tests/tai_pal_loopback.h -- In-memory PAL for deterministic integration tests.
  *
  * Replaces the TLS layer with a pair of byte FIFOs so tests can drive the
- * library without any network. Crypto uses OpenSSL directly (same as the
- * openssl PAL), time is a controllable virtual clock, and randomness is
- * seeded for reproducibility.
+ * library without any network. PAL wal_clock_time uses real CLOCK_REALTIME and
+ * time_ms uses real CLOCK_MONOTONIC. The separate virtual clock helpers
+ * below do not change either PAL clock.
  *
  *   test                                             library
  *   ----                                             -------
@@ -39,7 +39,7 @@ void tai_loopback_seed_random(uint64_t seed);
 
 /* Virtual clock. Defaults to 1700000000000 ms after reset.
  *
- * NOT wired to the receive worker: the worker reads real CLOCK_MONOTONIC, so
+ * NOT wired to the receive worker: pal->time_ms reads CLOCK_MONOTONIC, so
  * advancing this clock does not move its Ping schedule or liveness deadline.
  * Keepalive and liveness tests therefore need real timeouts and real sleeps --
  * driving them with advance_time() looks like the production code is broken. */

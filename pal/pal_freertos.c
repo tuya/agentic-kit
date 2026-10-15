@@ -47,7 +47,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <limits.h>
 #include <errno.h>
+#include <sys/time.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -267,18 +269,60 @@ static void pal_tcp_close(void *handle)
 /* -------------------------------------------------------------------------
  * Time
  * ------------------------------------------------------------------------- */
+/* Task context after scheduler start, never ISR. vTaskSetTimeOutState captures
+ * ticks and their overflow count together, preserving multiple wraps without
+ * polling or a tick hook. This relies on the TimeOut_t layout and critical
+ * section in vTaskSetTimeOutState in FreeRTOS V10.4.3/V11.1.0, not a stable
+ * extended-clock API. See ADR 0003 and tools/check_freertos_pal.py; recheck
+ * vendor forks/upgrades. For 16/32-bit ticks, UBaseType_t must be at least 32 bits
+ * and the kernel overflow count must remain representable. Native 64-bit ticks
+ * use their own counter. A kernel restart establishes a new monotonic epoch.
+ * Tickless-idle sleep counts only as the port compensates the kernel ticks.
+ */
+typedef char pal_supported_tick_width[
+    (sizeof(TickType_t) * CHAR_BIT == 16 ||
+     sizeof(TickType_t) * CHAR_BIT == 32 ||
+     sizeof(TickType_t) * CHAR_BIT == 64) ? 1 : -1];
+typedef char pal_supported_overflow_width[
+    (sizeof(TickType_t) * CHAR_BIT == 64 ||
+     sizeof(UBaseType_t) * CHAR_BIT >= 32) ? 1 : -1];
+typedef char pal_valid_tick_rate[
+    (configTICK_RATE_HZ > 0 &&
+     (uint64_t)configTICK_RATE_HZ <= UINT32_MAX) ? 1 : -1];
+
 static uint64_t pal_time_ms(void)
 {
-    /* NOT monotonic, despite pal.h's contract: the cast stops the MULTIPLY
-     * overflowing, it does not stop xTaskGetTickCount() itself wrapping --
-     * back to 0 after 2^32 ticks (~49.7 days at a 1 ms tick), or every ~65 s
-     * if the port sets configUSE_16_BIT_TICKS 1 (so: don't).  Deltas do not
-     * survive the wrap either; they are the worst case.  now < start makes the
-     * unsigned subtraction ~1.8e19, so every connect deadline, keepalive and
-     * liveness check in the SDK trips at once and the client tears down and
-     * reconnects.  It re-stamps its timestamps on the way back up, so this
-     * self-heals and leaves no trace but one unexplained reconnect. */
-    return (uint64_t)xTaskGetTickCount() * (uint64_t)portTICK_PERIOD_MS;
+    TimeOut_t now;
+    const unsigned tick_bits = (unsigned)(sizeof(TickType_t) * CHAR_BIT);
+    vTaskSetTimeOutState(&now);
+    uint64_t ticks = (uint64_t)now.xTimeOnEntering;
+    /* Merge the kernel wrap count above the tick bits for 16/32-bit counters;
+     * native 64-bit ticks keep their full counter. Literal shift counts stay
+     * well-formed on every width: a variable count folds to 64 on the 64-bit
+     * target and trips -Werror=shift-count-overflow (GCC) even in dead code. */
+    if (tick_bits == 16U) {
+        ticks |= (uint64_t)(UBaseType_t)now.xOverflowCount << 16;
+    } else if (tick_bits == 32U) {
+        ticks |= (uint64_t)(UBaseType_t)now.xOverflowCount << 32;
+    }
+
+    /* Convert by frequency, including fractional-ms ticks. Quotient/remainder
+     * avoids overflowing ticks * 1000; saturate if milliseconds exceed uint64. */
+    const uint64_t hz = (uint64_t)configTICK_RATE_HZ;
+    const uint64_t seconds = ticks / hz;
+    const uint64_t fraction = (ticks % hz) * 1000U / hz;
+    if (seconds > UINT64_MAX / 1000U) return UINT64_MAX;
+    const uint64_t whole = seconds * 1000U;
+    if (fraction > UINT64_MAX - whole) return UINT64_MAX;
+    return whole + fraction;
+}
+
+static uint64_t pal_wal_clock_time(void)
+{
+    /* The application maintains the C library UTC clock via RTC/SNTP. */
+    struct timeval tv;
+    if (gettimeofday(&tv, NULL) != 0 || tv.tv_sec <= 0) return 0;
+    return (uint64_t)tv.tv_sec * 1000ULL + (uint64_t)tv.tv_usec / 1000ULL;
 }
 
 static void pal_sleep_ms(uint32_t ms)
@@ -398,6 +442,7 @@ static const pal_t g_freertos_pal = {
     .tcp_close        = pal_tcp_close,
     .tcp_poll         = pal_tcp_poll,
     .time_ms          = pal_time_ms,
+    .wal_clock_time   = pal_wal_clock_time,
     .malloc           = pal_malloc,
     .free             = pal_free,
     .mutex_create     = pal_mutex_create,
