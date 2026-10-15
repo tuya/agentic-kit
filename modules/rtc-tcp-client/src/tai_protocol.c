@@ -14,6 +14,8 @@
 
 #include <stdio.h>   /* snprintf */
 #include "tai_internal.h"
+#include "mbedtls/base64.h"
+#include "mbedtls/platform_util.h"
 
 #define TAG "proto"
 
@@ -36,6 +38,12 @@ static const char TAI_DEFAULT_EVENT_USER_DATA[] =
 /* SessionNew data-ID payload (Section 8.1) */
 static const uint8_t TAI_SESSION_PAYLOAD[] = {
     0,8, 0,1, 0,3, 0,5, 0,7, 0,4, 0,2, 0,4
+};
+/* TuyaOpen allocates odd send IDs and even receive IDs; these lists contain
+ * IDs, not packet types. Keyed Sessions expose only audio, text and image. */
+static const uint8_t TAI_KEYED_SESSION_PAYLOAD[] = {
+    0,6, 0,TAI_DATA_ID_AUDIO_UP, 0,TAI_DATA_ID_TEXT_UP, 0,TAI_DATA_ID_IMAGE_UP,
+    0,6, 0,TAI_DATA_ID_AUDIO_DOWN, 0,TAI_DATA_ID_TEXT_DOWN, 0,TAI_DATA_ID_IMAGE_DOWN
 };
 
 /* =========================================================================
@@ -111,10 +119,18 @@ static int gen_id(tai_ctx_t *ctx, const char *prefix,
 int tai_proto_build_client_hello(tai_ctx_t *ctx,
                                   uint8_t *buf, size_t buf_size)
 {
-    /* Build security-suit: 1 byte sign_level + 32 bytes encrypt_random */
-    uint8_t security_suit[33];
+    uint8_t security_suit[36];
+    uint16_t suit_len = ctx->has_image_key ? 36 : 33;
     security_suit[0] = ctx->sign_level;
     memcpy(security_suit + 1, ctx->encrypt_random, 32);
+    if (ctx->has_image_key) {
+        /* TuyaOpen AI_SUB_VERSION=2: AES-128-GCM, all video I-frame bytes,
+         * all image bytes. These are encryption ranges, not support flags.
+         * No video/file Data IDs are advertised by our keyed Session. */
+        security_suit[33] = 4;
+        security_suit[34] = 3;
+        security_suit[35] = 3;
+    }
 
     uint8_t s_ctype[1], s_ping[4], s_maxfrag[4];
     tai_attr_t attrs[5];
@@ -123,7 +139,7 @@ int tai_proto_build_client_hello(tai_ctx_t *ctx,
     attrs[na++] = tai_attr_u8v(TAI_ATTR_CLIENT_TYPE, s_ctype, ctx->client_type);
     if (ctx->client_id && ctx->client_id[0])
         attrs[na++] = tai_attr_strv(TAI_ATTR_CLIENT_ID, ctx->client_id);
-    attrs[na++] = tai_attr_bytesv(TAI_ATTR_SECURITY_SUIT, security_suit, 33);
+    attrs[na++] = tai_attr_bytesv(TAI_ATTR_SECURITY_SUIT, security_suit, suit_len);
     attrs[na++] = tai_attr_u32v(TAI_ATTR_MAX_FRAGMENT_LEN, s_maxfrag,
                                 AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD);
     attrs[na++] = tai_attr_u32v(TAI_ATTR_PING_INTERVAL, s_ping,
@@ -171,7 +187,8 @@ int tai_proto_build_session_new(tai_ctx_t *ctx,
 
     int rc = tai_packet_encode(ctx->proto_ver, TAI_PKT_SESSION_NEW,
                                 attrs, na,
-                                TAI_SESSION_PAYLOAD, sizeof(TAI_SESSION_PAYLOAD),
+                                ctx->has_image_key ? TAI_KEYED_SESSION_PAYLOAD : TAI_SESSION_PAYLOAD,
+                                ctx->has_image_key ? sizeof(TAI_KEYED_SESSION_PAYLOAD) : sizeof(TAI_SESSION_PAYLOAD),
                                 buf, buf_size);
     ctx->pal->free(ud_json);
     return rc;
@@ -471,6 +488,14 @@ int tai_proto_build_mcp_hdr(tai_ctx_t *ctx, uint8_t *buf, size_t buf_size)
  * Decode the payload of a received application packet and call the
  * appropriate callback on the context.
  * ========================================================================= */
+void tai_proto_reset_image(tai_ctx_t *ctx)
+{
+    ctx->rx_image_active = 0;
+    ctx->rx_image_data_id = 0;
+    memset(ctx->rx_image_params, 0, sizeof(ctx->rx_image_params));
+    memset(ctx->rx_image_event_id, 0, sizeof(ctx->rx_image_event_id));
+}
+
 /* Latch the turn id (attr 61) into ctx->rx_event_id to back msg->event_id.
  * A packet that carries attr 61 updates it; a packet WITHOUT one INHERITS the
  * current value (it is NOT reset to ""). The EVENT case clears it right after
@@ -483,6 +508,10 @@ static void latch_event_id(tai_ctx_t *ctx,
     if (e && e->len > 0) {
         size_t n = e->len < sizeof(ctx->rx_event_id) - 1
                  ? e->len : sizeof(ctx->rx_event_id) - 1;
+        if (ctx->has_image_key && ctx->rx_image_active &&
+            (strlen(ctx->rx_image_event_id) != n ||
+             memcmp(ctx->rx_image_event_id, e->value, n) != 0))
+            tai_proto_reset_image(ctx);
         memcpy(ctx->rx_event_id, e->value, n);
         ctx->rx_event_id[n] = '\0';
     }
@@ -539,13 +568,14 @@ static void emit_event(tai_ctx_t *ctx, uint16_t event_type,
 }
 
 static void emit_image(tai_ctx_t *ctx, const uint8_t *data, size_t len,
-                       uint8_t format, uint16_t width, uint16_t height,
+                       uint8_t payload_type, uint8_t format, uint16_t width, uint16_t height,
                        uint8_t stream_flag, uint16_t data_id, uint64_t ts_ms)
 {
     if (!ctx->on_image) return;
     tai_image_msg_t m = {0};
     m.data         = data;
     m.len          = len;
+    m.payload_type = payload_type;
     m.format       = format;
     m.width        = width;
     m.height       = height;
@@ -700,6 +730,171 @@ static int media_text(tai_ctx_t *ctx,
     return TAI_OK;
 }
 
+/* Exactly four unsigned decimal fields, bounded by their destination types. */
+static int parse_image_params(const tai_attr_t *a, uint16_t fields[4])
+{
+    const uint32_t limits[4] = {TAI_IMG_PAYLOAD_URL, UINT8_MAX, UINT16_MAX, UINT16_MAX};
+    size_t pos = 0;
+    for (int i = 0; i < 4; i++) {
+        while (pos < a->len && a->value[pos] == ' ') pos++;
+        if (pos == a->len || a->value[pos] < '0' || a->value[pos] > '9')
+            return TAI_PROTO_ERR_PKT_DECODE;
+        uint32_t v = 0;
+        do {
+            unsigned digit = a->value[pos++] - '0';
+            if (digit > limits[i] || v > (limits[i] - digit) / 10)
+                return TAI_PROTO_ERR_PKT_DECODE;
+            v = v * 10 + digit;
+        } while (pos < a->len && a->value[pos] >= '0' && a->value[pos] <= '9');
+        fields[i] = (uint16_t)v;
+        if (pos < a->len && a->value[pos] != ' ')
+            return TAI_PROTO_ERR_PKT_DECODE;
+    }
+    while (pos < a->len && a->value[pos] == ' ') pos++;
+    return pos == a->len ? TAI_OK : TAI_PROTO_ERR_PKT_DECODE;
+}
+
+static int image_base64_digit(uint8_t c)
+{
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+
+/* mbedTLS accepts whitespace and incomplete quartets; require canonical Base64. */
+static int image_base64_size(const uint8_t *body, size_t len, size_t *decoded)
+{
+    if (!len || len % 4) return TAI_PROTO_ERR_PKT_DECODE;
+    size_t pad = (body[len - 1] == '=') + (body[len - 2] == '=');
+    for (size_t i = 0; i < len - pad; i++)
+        if (image_base64_digit(body[i]) < 0) return TAI_PROTO_ERR_PKT_DECODE;
+    for (size_t i = len - pad; i < len; i++)
+        if (body[i] != '=') return TAI_PROTO_ERR_PKT_DECODE;
+    int last = image_base64_digit(body[len - pad - 1]);
+    if ((pad == 1 && (last & 3)) || (pad == 2 && (last & 15)))
+        return TAI_PROTO_ERR_PKT_DECODE;
+    *decoded = len / 4 * 3 - pad;
+    return TAI_OK;
+}
+
+/* TuyaOpen sub-version 2: media header (8), IV (16), ciphertext || tag.
+ * Each complete Packet is authenticated separately, after transport reassembly. */
+static int media_image_keyed(tai_ctx_t *ctx,
+                             const tai_attr_t *attrs, int attr_count,
+                             const uint8_t *payload, size_t payload_len)
+{
+    /* Bound scratch by the complete Packet ceiling. An empty attr block is
+     * indistinguishable from omission here; process_app_packet checks its exact size. */
+    size_t room = AGENTIC_KIT_TAI_FRAG_BUF_SIZE;
+    size_t overhead = 1 + (attr_count ? 4 : 0);
+    if (overhead > room) return TAI_PROTO_ERR_FRAG;
+    room -= overhead;
+    const tai_attr_t *ip = NULL;
+    for (int i = 0; i < attr_count; i++) {
+        size_t n = 4U + attrs[i].len;
+        if (n > room) return TAI_PROTO_ERR_FRAG;
+        room -= n;
+        if (attrs[i].type == TAI_ATTR_IMAGE_PARAMS) {
+            if (ip) return TAI_PROTO_ERR_PKT_DECODE;
+            ip = &attrs[i];
+        }
+    }
+    if (payload_len > room) return TAI_PROTO_ERR_FRAG;
+    if (payload_len < 24) return TAI_PROTO_ERR_MEDIA_HDR;
+    uint16_t data_id; uint8_t flag; uint64_t ts;
+    tai_unpack_media_hdr(payload, 8, &data_id, &flag, &ts);
+    if (data_id != TAI_DATA_ID_IMAGE_DOWN) return TAI_PROTO_ERR_UNEXPECTED;
+    uint16_t fields[4] = {0};
+    if (ip && parse_image_params(ip, fields) != TAI_OK)
+        return TAI_PROTO_ERR_PKT_DECODE;
+
+    const tai_attr_t *eid = tai_attr_find(attrs, attr_count, TAI_ATTR_EVENT_ID);
+    const uint8_t *event = eid ? eid->value : (const uint8_t *)ctx->rx_event_id;
+    size_t event_len = eid ? eid->len : strlen(ctx->rx_event_id);
+    int start = flag == TAI_STREAM_START || flag == TAI_STREAM_ONE_SHOT;
+    uint8_t type;
+    if (start) {
+        if (!ip) return TAI_PROTO_ERR_PKT_DECODE;
+        type = (uint8_t)fields[0];
+    } else {
+        if (!ctx->rx_image_active || ctx->rx_image_data_id != data_id ||
+            strlen(ctx->rx_image_event_id) != event_len ||
+            memcmp(ctx->rx_image_event_id, event, event_len) != 0 ||
+            (ip && memcmp(fields, ctx->rx_image_params, sizeof(fields)) != 0))
+            return TAI_PROTO_ERR_UNEXPECTED;
+        type = (uint8_t)ctx->rx_image_params[0];
+    }
+
+    const uint8_t *body = payload + 24;
+    size_t body_len = payload_len - 24;
+    uint8_t *decoded = NULL, *plain = NULL;
+    size_t decoded_size = 0, plain_size = 0;
+    int rc = TAI_OK;
+    if (!body_len) {
+        /* Reference empty sends contain an IV but no GCM tag. */
+        if (flag == TAI_STREAM_MIDDLE) return TAI_PROTO_ERR_PKT_DECODE;
+    } else if (type != TAI_IMG_PAYLOAD_URL) {
+        if (type == TAI_IMG_PAYLOAD_BASE64) {
+            rc = image_base64_size(body, body_len, &decoded_size);
+            if (rc != TAI_OK) return rc;
+            if (decoded_size < 16) return TAI_PROTO_ERR_PKT_DECODE;
+            decoded = ctx->pal->malloc(decoded_size);
+            if (!decoded) return TAI_PROTO_ERR_IMAGE_PROCESSING;
+            size_t n = 0;
+            if (mbedtls_base64_decode(decoded, decoded_size, &n, body, body_len) != 0 ||
+                n != decoded_size) {
+                rc = TAI_PROTO_ERR_PKT_DECODE;
+                goto done;
+            }
+            body = decoded;
+            body_len = n;
+        }
+        if (body_len < 16) {
+            rc = TAI_PROTO_ERR_PKT_DECODE;
+            goto done;
+        }
+        plain_size = body_len > 16 ? body_len - 16 : 1;
+        plain = ctx->pal->malloc(plain_size);
+        if (!plain) {
+            rc = TAI_PROTO_ERR_IMAGE_PROCESSING;
+            goto done;
+        }
+        rc = tai_image_gcm_decrypt(ctx->image_key, payload + 8,
+                                   body, body_len, plain, plain_size);
+        if (rc != TAI_OK) {
+            rc = rc == TAI_ERR_CRYPTO ? TAI_PROTO_ERR_IMAGE_AUTH
+                                      : TAI_PROTO_ERR_IMAGE_PROCESSING;
+            goto done;
+        }
+        body = plain;
+        body_len -= 16;
+    }
+
+    /* Validate identity before latching, and commit Stream state only on success. */
+    latch_event_id(ctx, attrs, attr_count);
+    if (start) {
+        ctx->rx_image_active = 1;
+        ctx->rx_image_data_id = data_id;
+        memcpy(ctx->rx_image_params, fields, sizeof(fields));
+        memcpy(ctx->rx_image_event_id, ctx->rx_event_id, sizeof(ctx->rx_image_event_id));
+    }
+    emit_image(ctx, body, body_len,
+               type == TAI_IMG_PAYLOAD_URL ? TAI_IMG_PAYLOAD_URL : TAI_IMG_PAYLOAD_RAW,
+               (uint8_t)fields[1], fields[2], fields[3], flag, data_id, ts);
+    if (flag == TAI_STREAM_ONE_SHOT || flag == TAI_STREAM_END)
+        tai_proto_reset_image(ctx);
+done:
+    if (plain) {
+        mbedtls_platform_zeroize(plain, plain_size);
+        ctx->pal->free(plain);
+    }
+    if (decoded) ctx->pal->free(decoded);
+    return rc;
+}
+
 /* IMAGE packet payload: [data_id:2][48-bit stream_flag|ts_ms][image bytes…].
  * A received image is delivered chunk-by-chunk (the caller reassembles by
  * stream_flag). image-params (attr 90) on START/ONE_SHOT carries
@@ -708,6 +903,11 @@ static int media_image(tai_ctx_t *ctx,
                        const tai_attr_t *attrs, int attr_count,
                        const uint8_t *payload, size_t payload_len)
 {
+    if (ctx->has_image_key) {
+        int rc = media_image_keyed(ctx, attrs, attr_count, payload, payload_len);
+        if (rc != TAI_OK) tai_proto_reset_image(ctx);
+        return rc;
+    }
     if (payload_len < 8) {
         TAI_LOGW(ctx->pal, TAG, "image media header truncated (%zu < 8)", payload_len);
         return TAI_PROTO_ERR_MEDIA_HDR;
@@ -715,7 +915,7 @@ static int media_image(tai_ctx_t *ctx,
     uint16_t data_id = 0; uint8_t stream_flag = 0; uint64_t ts_ms = 0;
     tai_unpack_media_hdr(payload, 8, &data_id, &stream_flag, &ts_ms);
 
-    uint8_t format = 0; uint16_t width = 0, height = 0;
+    uint8_t type = 0, format = 0; uint16_t width = 0, height = 0;
     const tai_attr_t *ip = tai_attr_find(attrs, attr_count, TAI_ATTR_IMAGE_PARAMS);
     if (ip && ip->len > 0) {
         char tmp[64];
@@ -724,13 +924,14 @@ static int media_image(tai_ctx_t *ctx,
         tmp[cplen] = '\0';
         unsigned f[4] = {0};
         sscanf(tmp, "%u %u %u %u", &f[0], &f[1], &f[2], &f[3]);
+        type   = (uint8_t)f[0];
         format = (uint8_t)f[1];   /* f[0]=payload_type, f[1]=format, f[2]=w, f[3]=h */
         width  = (uint16_t)f[2];
         height = (uint16_t)f[3];
     }
 
     latch_event_id(ctx, attrs, attr_count);
-    emit_image(ctx, payload + 8, payload_len - 8, format, width, height,
+    emit_image(ctx, payload + 8, payload_len - 8, type, format, width, height,
                stream_flag, data_id, ts_ms);
     return TAI_OK;
 }
@@ -740,6 +941,32 @@ int tai_proto_dispatch(tai_ctx_t *ctx,
                         const tai_attr_t *attrs, int attr_count,
                         const uint8_t *payload, size_t payload_len)
 {
+    /* Never let a truncated/ambiguous Event ID enter the shared latch and later
+     * appear to match a keyed Image Stream that omitted its Attributes. */
+    if (ctx->has_image_key) {
+        /* Control Packets have no body. A legacy signature trailer is not
+         * application data and must not silently pass the connect handshake. */
+        if (payload_len && (pkt_type == TAI_PKT_AUTHENTICATE_RESPONSE ||
+                            pkt_type == TAI_PKT_SESSION_NEW ||
+                            pkt_type == TAI_PKT_PONG ||
+                            pkt_type == TAI_PKT_CONNECTION_CLOSE ||
+                            pkt_type == TAI_PKT_SESSION_CLOSE))
+            return TAI_PROTO_ERR_PKT_DECODE;
+        int seen = 0;
+        for (int i = 0; i < attr_count; i++) {
+            if (attrs[i].type == TAI_ATTR_SECURITY_SUIT &&
+                (attrs[i].len != 36 || attrs[i].value[0] != TAI_SIGN_NONE ||
+                 attrs[i].value[33] != 4 || attrs[i].value[34] != 3 ||
+                 attrs[i].value[35] != 3))
+                return TAI_PROTO_ERR_UNEXPECTED;
+            if (attrs[i].type != TAI_ATTR_EVENT_ID) continue;
+            if (seen++ || !attrs[i].len || attrs[i].len >= sizeof(ctx->rx_event_id) ||
+                memchr(attrs[i].value, '\0', attrs[i].len)) {
+                tai_proto_reset_image(ctx);
+                return TAI_PROTO_ERR_PKT_DECODE;
+            }
+        }
+    }
     switch (pkt_type) {
 
     case TAI_PKT_PONG:
@@ -780,6 +1007,9 @@ int tai_proto_dispatch(tai_ctx_t *ctx,
         if (evt_type == TAI_EVT_END) {
             ctx->event_open = 0;
         }
+        if (evt_type == TAI_EVT_START || evt_type == TAI_EVT_ONE_SHOT ||
+            evt_type == TAI_EVT_END || evt_type == TAI_EVT_CHAT_BREAK)
+            tai_proto_reset_image(ctx);
 
         latch_event_id(ctx, attrs, attr_count);
         emit_event(ctx, evt_type, evt_data, evt_data_len,
@@ -857,6 +1087,8 @@ int tai_proto_dispatch(tai_ctx_t *ctx,
                  "SESSION_CLOSE from server: session=%s code=%u",
                  sid_s, code);
         ctx->session_open = 0;
+        tai_proto_reset_image(ctx);
+        if (ctx->has_image_key) ctx->rx_event_id[0] = '\0';
         tai_emit_disconnect(ctx, TAI_DISCONNECT_SESSION_CLOSE, 0, code);
         break;
     }

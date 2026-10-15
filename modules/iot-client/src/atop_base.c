@@ -293,7 +293,8 @@
      return OPRT_OK;
  }
 
- static int atop_response_data_decode(const pal_t *pal, const char *key, const uint8_t *input, size_t ilen, uint8_t *output, size_t *olen)
+ static int atop_response_data_decode(const pal_t *pal, const char *key, const uint8_t *input, size_t ilen, uint8_t *output, size_t *olen,
+                                      bool sensitive_response)
  {
      int rt = OPRT_OK;
      (void)ilen;  // Parameter kept for API consistency
@@ -301,7 +302,9 @@
      char *value;
      size_t value_length;
 
-     IOT_LOGD("atop_response_data_decode: %s", (char *)input);
+     if (!sensitive_response) {
+         IOT_LOGD("atop_response_data_decode: %s", (char *)input);
+     }
 
      cJSON *root = cJSON_Parse((char *)input);
      if (NULL == root) {
@@ -323,7 +326,9 @@
      value = item->valuestring;
      value_length = strlen(value);
 
-     IOT_LOGD("base64 encode result:\r\n%.*s", (int)value_length, value);
+     if (!sensitive_response) {
+         IOT_LOGD("base64 encode result:\r\n%.*s", (int)value_length, value);
+     }
 
      // base64 decode buffer
      size_t b64buffer_len = value_length * 3 / 4;
@@ -357,12 +362,15 @@
          IOT_LOGE("atop_data_decrpyt error: %d", rt);
          return rt;
      }
-     IOT_LOGD("result:\r\n%.*s", (int)*olen, output);
+     if (!sensitive_response) {
+         IOT_LOGD("result:\r\n%.*s", (int)*olen, output);
+     }
 
      return rt;
  }
 
-static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, atop_base_response_t *response)
+static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, atop_base_response_t *response,
+                                          bool sensitive_response)
 {
     int rt = OPRT_OK;
     (void)ilen;
@@ -416,19 +424,25 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
      }
 
      if (!cJSON_IsString(error_code_item) || error_code_item->valuestring == NULL) {
-         /* Keep the server's explanation in the log even on this malformed
-          * path -- it is often the only clue (e.g. a signature-time-skew
-          * message from a gateway that omits errorCode). */
-         IOT_LOGE("atop rejected without errorCode (errorMsg=%s)",
-                   response->error_msg);
+         /* Sensitive Envelopes may echo secrets in the server's explanation. */
+         if (sensitive_response) {
+             IOT_LOGE("atop rejected without errorCode (sensitive response)");
+         } else {
+             IOT_LOGE("atop rejected without errorCode (errorMsg=%s)",
+                       response->error_msg);
+         }
          cJSON_Delete(root);
          return OPRT_COMMUNICATION_ERROR;
      }
 
      snprintf(response->error_code, sizeof(response->error_code), "%s",
               error_code_item->valuestring);
-     IOT_LOGE("atop rejected: errorCode=%s errorMsg=%s",
-               response->error_code, response->error_msg);
+     if (sensitive_response) {
+         IOT_LOGE("atop rejected (sensitive response)");
+     } else {
+         IOT_LOGE("atop rejected: errorCode=%s errorMsg=%s",
+                   response->error_code, response->error_msg);
+     }
 
      /* Every rejection is the same verdict: the cloud answered and said no.
       * No special-casing of individual errorCodes here (GATEWAY_NOT_EXISTS
@@ -616,15 +630,16 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
       }
       memset(result_buffer, 0, http_response.body_length + 1);
 
-      /* Decoded response data */
+      /* Suppress body diagnostics before decoding, including plaintext Envelopes. */
+      const bool sensitive_response = strcmp(request->api, "thing.km.secret.get.device") == 0;
       rt = atop_response_data_decode(pal, request->key, http_response.body, http_response.body_length, result_buffer,
-                                     &result_buffer_length);
+                                     &result_buffer_length, sensitive_response);
 
       if (OPRT_OK == rt) {
-          rt = atop_response_result_parse_cjson(result_buffer, result_buffer_length, response);
+          rt = atop_response_result_parse_cjson(result_buffer, result_buffer_length, response, sensitive_response);
       } else {
           IOT_LOGD("atop_response_decode error:%d, try parse the plaintext data.", rt);
-          rt = atop_response_result_parse_cjson(http_response.body, http_response.body_length, response);
+          rt = atop_response_result_parse_cjson(http_response.body, http_response.body_length, response, sensitive_response);
       }
 
       http_client_free(pal, &http_response);

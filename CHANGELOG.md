@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Examples — `unbind_demo` checks cloud binding status before client initialization/reconnect and after a removal notice (#44).
 - Examples — `activate_demo --release` prints cloud binding status before and after reset (#44).
 
+### Fixed
+
+- iot-client — Match the request body `t` to the signed URL timestamp in `iot_atop_call()`.
+
 ## [0.5.0] - 2026-09-24
 
 ### Added

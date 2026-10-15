@@ -1,6 +1,6 @@
 # RTC TCP Client (Device ↔ Tuya AI Foundation)
 
-The device-side context that opens a real-time audio/video/text conversation with the
+The device-side context that opens a real-time audio/image/text conversation with the
 Tuya AI Foundation server over a TCP+TLS link, then streams media and events both ways
 in a custom binary framing. This is transport, not business state — it carries turns of a
 conversation, it does not own device DPs (that is the [IoT Client](../iot-client/CONTEXT.md)).
@@ -56,8 +56,11 @@ _Avoid_: event type (a different axis — see ambiguities), fragment flag (that 
 
 **Data ID**:
 A `uint16` tag multiplexing channels within an Event — `AUDIO_UP`/`AUDIO_DOWN`,
-`TEXT_UP`/`TEXT_DOWN`, `IMAGE_UP` (`TAI_DATA_ID_*`). `_UP` is device→server, `_DOWN` is
-server→device.
+`TEXT_UP`/`TEXT_DOWN`, `IMAGE_UP`/`IMAGE_DOWN` (`TAI_DATA_ID_*`). `_UP` is
+device→server, `_DOWN` is server→device. Keyed Sessions advertise only audio/text/image:
+send IDs 1/3/5, receive IDs 2/4/6. TuyaOpen allocates successive even receive IDs in
+configured type order, not by a universal media-type-to-ID mapping. No video/file
+handling is implemented; Packet type constants do not establish support.
 _Avoid_: data type, channel id (informal), stream id.
 
 **Event type**:
@@ -69,8 +72,34 @@ _Avoid_: packet type (the wire kind), stream flag (chunk position), command.
 How each Frame is authenticated: `NONE`, `HMAC_SHA1` (20-byte sig), or `HMAC_SHA256`
 (32-byte sig) (`TAI_SIGN_*`). The names are wire labels, not algorithm choices — there is no
 SHA-1 primitive in `tai_crypto.c`; both signed levels compute HMAC-SHA256 into a 32-byte buffer
-and `HMAC_SHA1` merely ships its first 20 bytes. ClientHello is the one Frame sent unsigned.
+and `HMAC_SHA1` merely ships its first 20 bytes. Without an Image key, ClientHello is
+unsigned and the configured/default signing applies afterward. With an Image key,
+all Frames are unsigned (level 0, no trailer), ignoring `cfg.sign_level`; this is the
+user-approved TuyaOpen alignment, not a negotiated fallback.
 _Avoid_: encryption (signing ≠ confidentiality), auth mode, "the SHA-1 signature".
+
+**Image key**:
+A fixed, application-acquired `TAI_IMAGE_KEY_LEN` (16)-byte binary AES-128 key,
+supplied through `tai_config_t.image_key` and copied into private context storage.
+The same immutable key encrypts uplink and decrypts downlink images. It is
+independent of `local_key` and derived Frame keys; an all-zero key is valid. The
+copy survives disconnect and failed Connection attempts and is wiped at context
+destruction. No TAI lifecycle path requests, refreshes or persists it.
+Encryption in all three image send APIs and the authenticated RAW/Base64 receive
+pipeline with typed URL pass-through are enabled. Key presence selects Frame
+version 3 (reserved bits 2), v2 Attribute layout and the 36-byte ClientHello suite
+`00 || random[32] || 04 03 03`. The suffix selects AES-128-GCM, whole video I-frames
+and whole images as encryption ranges, not media capabilities. Keep public
+`protocol_version` at 0 or `TAI_VER_21`; it is not the Frame version nibble.
+The user explicitly approved unsigned Frames for this profile. Since image GCM
+uses no AAD, verified TLS protects metadata/control traffic, URLs and empty
+markers; each encrypted Image Packet body is authenticated by its own GCM tag.
+Supply a nonempty borrowed `cfg.ca_cert` (full PEM or bare Base64 body, not a path)
+or `cert_bundle_attach`. Raw TCP or missing trust returns `TAI_ERR_TLS` before
+networking. NULL key preserves legacy framing/signing/Session/image behavior.
+Live-cloud compatibility remains unverified. See
+[the security decision and evidence](docs/adr/0002-image-receive-decryption.md).
+_Avoid_: decryption-only key, session key, Frame key, cached credential, rotating secret.
 
 **Keepalive (Ping / Pong)**:
 The liveness exchange the background thread runs: it sends a Ping every `ping_interval_ms`
@@ -144,8 +173,8 @@ _Avoid_: tool call, function call, RPC (too generic).
 ### Layers and threads
 
 Top to bottom: the send API (`tai_send_*`) → Packet builders (`tai_proto_build_*`) → the
-Frame layer — encoding, the HMAC signature, and Fragmentation (`tai_transport.c`) → an I/O
-abstraction (`ctx_io_send` / `ctx_io_recv`, routing to TLS or, in test mode, raw TCP) → the
+Frame layer — encoding, legacy HMAC signatures, and Fragmentation (`tai_transport.c`) → an I/O
+abstraction (`ctx_io_send` / `ctx_io_recv`, routing to TLS or, in no-key test mode, raw TCP) → the
 PAL. Two threads run at once: **caller threads** drive every `tai_send_*`; one **background
 worker** (started by `tai_connect`, joined by `tai_disconnect`) drives receiving and
 Keepalive.
@@ -166,14 +195,16 @@ Every packet — control and media — streams **scatter-gather** through `send_
 no large contiguous frame buffer:
 
 - **Media packets** (audio, image, large text, MCP JSON): a `*_hdr` builder writes only the small
-  application header into `tx_hdr_buf+5`, and the large payload stays in the caller's buffer.
+  application header into `tx_hdr_buf+5`, and the large payload stays in the caller's buffer
+  except keyed images, which use temporary encrypted scratch.
 - **Control packets** (SessionNew/Close, Event start/payloads-end/end, ChatBreak, Ping): the whole
   application packet is assembled in `tx_ctrl_buf` (its attribute block can carry the user
   session/event JSON) and handed to `send_app` → `send_app_sg` with no application header — the
   packet itself is the zero-copy payload.
 
-`send_one_frame_sg` signs the logical `[frame header || app header || payload]` via
-`tai_frame_hmac_sg` (byte-identical to the contiguous HMAC — the receiver is unchanged), then
+For legacy signed Connections, `send_one_frame_sg` signs the logical
+`[frame header || app header || payload]` via `tai_frame_hmac_sg` (byte-identical to
+the contiguous HMAC). Keyed Connections skip signing and the trailer. The sender then
 emits the frame in one of two shapes, split by `AGENTIC_KIT_TAI_FRAME_COALESCE_LIMIT` (default 512 B,
 counting the whole frame: header, app header, payload, signature):
 
@@ -185,8 +216,8 @@ counting the whole frame: header, app header, payload, signature):
   `[frame header || app header]`, the **payload from the caller's buffer**, and the signature.
 
 A logical packet over 32 KB is fragmented across the concat, with the
-app header only in the first Frame. (ClientHello is the one exception: it is sent *unsigned* and
-one-shot, so `tai_connect` frames it inline on the stack rather than through the signing sender.)
+app header only in the first Frame. ClientHello bypasses this scatter-gather path:
+`tai_connect` frames it inline on the stack, unsigned and one-shot in both profiles.
 
 Sequence numbers come from `tai_next_seq` (monotonic, wrapping 65535→1). A failure *before* any
 byte hits the wire (a build/encode error) rolls the counter back and returns that error. A
@@ -208,8 +239,16 @@ signal. Higher-level senders compose Packets into an Event:
   Image (ONE_SHOT) → EventPayloadsEnd → EventEnd.
 - **Standalone**: `tai_ping`, `tai_chat_break`, and `tai_send_mcp_response` are each one Packet.
 
-ClientHello is the one Packet sent at Sign level NONE (unsigned); everything after SessionNew
-is signed.
+All three image-bearing APIs (`tai_send_image`, `tai_send_image_with_text`,
+`tai_send_image_audio_start`) implement encryption with the copied Image key before
+EventStart. A nonempty input needs `len + 32` scratch bytes (16-byte IV, ciphertext,
+16-byte tag); empty input needs 16 bytes (IV only). Scratch is wiped/freed on every
+exit, and input remains untouched. No-key sends retain legacy behavior.
+
+ClientHello is always unsigned. In the legacy profile, SessionNew and subsequent
+Frames use the configured/default Sign level; in the keyed profile every Frame
+is unsigned and the Connection uses TLS, verifying the peer when a nonempty CA or
+cert bundle is supplied and running unverified (one warning) when neither is.
 
 ### Receiving
 
@@ -225,14 +264,20 @@ the worker fire `on_disconnect`.
 
 `tai_process_rx` peels complete Frames off the front of that buffer:
 
-1. Confirm the leading byte looks like a v2.1 Frame; if not, fail-fast (on a reliable ordered
-   TLS stream a desync cannot be recovered by dropping bytes).
+1. Confirm the leading byte matches the selected Frame profile: legacy version 2, or
+   keyed version 2 or 3. The cloud answers its own control/acknowledgement Frames with
+   version 2 and only media with version 3, sharing the v2.1 header layout, so a keyed
+   Connection accepts either; the profile is pinned by the signature length (0), not
+   this nibble, so accepting version 2 is not a downgrade to the legacy signed read. A
+   genuinely unsupported version is fail-fast; an ordered TLS stream cannot resync by
+   dropping bytes.
 2. Read the length field for the full Frame size; wait if the whole Frame has not arrived. A
    Frame that declares more bytes than the receive buffer can hold (`rx_buf`, one max Fragment)
    can never be assembled, so it is fail-fast (`TAI_PROTO_ERR_OVERSIZED`) rather than stalling
    until the liveness timeout — this only trips if the server ignores the advertised
    MAX_FRAGMENT_LEN.
-3. Verify the HMAC; a mismatch is fail-fast (tear down and reconnect).
+3. Verify the HMAC on legacy signed Frames; a mismatch is fail-fast. Keyed Frames
+   have no HMAC and rely on verified TLS plus per-Image-Packet GCM authentication.
 4. Decode the header, then reassemble Fragmentation: `FRAG_NONE` is complete as-is;
    FIRST/MIDDLE/LAST accumulate into the reassembly buffer (`frag_buf`) until LAST, then the
    whole Packet is decoded once. A truncated/oversized fragment, an orphan MIDDLE/LAST, an
@@ -259,11 +304,28 @@ session) — it fires from the dispatch path but does **not** latch the guard, s
 death that later tears the same Connection down is still delivered as a second, distinct
 `on_disconnect`.
 
+Keyed **Image** processing validates the extended header, exact bounded image-params
+and Event identity after complete-Packet reassembly. RAW and strictly decoded Base64
+bodies use AES-128-GCM with a 16-byte IV/tag and no AAD; tag-only bodies authenticate,
+while header-only START/ONE_SHOT/END are zero-length markers (MIDDLE is rejected).
+URL bytes are passed through, never downloaded or decrypted. `payload_type` reports
+RAW for decrypted bytes and URL for URLs; legacy payload bytes remain unchanged.
+Continuations must match the latched Event/Data ID and any repeated parameters;
+completion, Event boundaries, SessionClose, disconnect and errors clear stream state.
+Plaintext is borrowed temporary PAL heap storage, wiped/freed after callback return.
+A failed Packet produces no image callback; the positive fatal details
+`TAI_PROTO_ERR_IMAGE_AUTH` (11) and `TAI_PROTO_ERR_IMAGE_PROCESSING` (12), or existing
+malformed/state details, reach one terminal `on_disconnect(PROTOCOL, detail)`.
+Applications discard incomplete images; no error triggers key acquisition or fallback.
+
 ### Connection lifecycle
 
-`tai_connect`: generate the security-suite random → derive the encrypt and sign keys → open the
-Connection (TLS handshake) → send the unsigned ClientHello → send SessionNew → mark the
-Connection connected and the Session open → start the worker.
+`tai_connect`: for a keyed context first reject raw TCP or missing trust with
+`TAI_ERR_TLS` before networking → generate the security-suite random → derive
+Frame keys only for the legacy profile → open the Connection (required peer
+verification for keyed TLS) → send unsigned ClientHello → send SessionNew →
+confirm the server acknowledgement → mark the Connection connected and the
+Session open → start the worker. The copied Image key is never replaced by HKDF.
 
 `tai_disconnect`: stop and join the worker first → then, **all under the send lock**, send
 SessionClose, close the transport, and reset the receive/reassembly buffers and the connected /
@@ -285,25 +347,34 @@ must not block — captured in the callback-contract block in `tuya_ai.h`.
 - The receive buffer must hold the largest single Frame; because the server fragments anything
   large, a single Frame stays well within it.
 - Reassembly trusts FIRST/MIDDLE/LAST ordering — safe over the reliable, in-order Connection.
-- ClientHello is the only unsigned Frame.
-- Only sign levels 1 and 2 map to a signature length; any other value falls through to
-  `sig_len = 0`, which disables signing in *both* directions — every Frame ships unsigned and
-  `tai_frame_verify` returns OK without looking — while ClientHello's security suite still
-  advertises that level byte. A configured `sign_level` of 0 is not that case: zero reads as
-  "unset" and becomes HMAC_SHA256. Nothing local catches a wrong choice here — the loopback
-  server derives keys and signs through the very same functions as the client, so even a wrong
-  algorithm round-trips.
+- Key presence selects an immutable profile, not merely a receive transform: Frame
+  version 3, unsigned Frames, v2 Attributes and the exact `00 || random[32] || 04 03 03`
+  suite. A suite Attribute, if received, must match its length/sign/range settings.
+- Keyed Connections require TLS (raw TCP is rejected) and verify the peer whenever a
+  nonempty `ca_cert` or `cert_bundle_attach` is supplied. With neither, the Connection
+  still uses TLS but unverified, behind one warning -- the same CA-driven rule the IoT
+  path follows. There is no module knob to relax verification: supplying no trust source
+  is the only way to it, and it is not for production. GCM has no AAD and does not
+  authenticate metadata or control Packets, so an unverified keyed Connection exposes
+  them to a man-in-the-middle. No video/file support follows from the suite range bytes.
+- No-key signing is unchanged: zero `cfg.sign_level` means default HMAC-SHA256;
+  levels 1/2 map to 20/32 bytes. Other legacy values fall through to zero signature
+  length and are not a supported way to select the encrypted-media profile. Keyed
+  contexts deliberately ignore the field and use level 0. Shared encoder/loopback
+  round trips alone are not independent evidence of correct wire bytes.
 
 ## Example dialogue
 
 > **Dev:** I called `tai_connect` and it returned OK — am I in a Session yet?
 > **Expert:** Yes. `tai_connect` opens the Connection (TLS), sends an unsigned ClientHello,
-> then a signed SessionNew, and starts the receive thread. After that you have one Session
+> then SessionNew (signed for legacy, unsigned for keyed), confirms the acknowledgement,
+> and starts the receive thread. After that you have one Session
 > (`vcd-session-…`) ready for Events.
 > **Dev:** So `tai_send_text("hi")` is one packet?
 > **Expert:** No — it's a whole Event: EventStart, a Text packet on data-id `TEXT_UP` with
 > stream flag ONE_SHOT, then EventPayloadsEnd and EventEnd. Each is an application Packet,
-> wrapped in a Frame with a sequence number and an HMAC signature at your sign level.
+> wrapped in a Frame with a sequence number and, for legacy signed Connections, an HMAC.
+> With an Image key, Frames are unsigned over required verified TLS.
 > **Dev:** The reply comes back on `on_text`?
 > **Expert:** Right — server text arrives on `on_text` with a stream flag (START…END for a
 > streamed answer), audio on `on_audio`, and everything else on `on_event`: the inbound

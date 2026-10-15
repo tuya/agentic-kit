@@ -177,7 +177,8 @@ struct tai_ctx {
     const char *agent_token;
 
     /* Protocol configuration */
-    uint8_t  proto_ver;                  /* TAI_VER_21 (reserved for future) */
+    uint8_t  proto_ver;                  /* Application/Attribute layout: TAI_VER_21 */
+    uint8_t  frame_ver;                  /* Wire nibble: 2 legacy, 3 keyed media */
     uint8_t  client_type;                /* TAI_CLIENT_DEVICE / TAI_CLIENT_APP */
     uint32_t biz_code;
     uint64_t biz_tag;
@@ -185,6 +186,7 @@ struct tai_ctx {
     uint8_t  sig_len;                    /* 0, 20, or 32 */
     uint8_t  disable_tls;                /* 1 = raw TCP (testing only) */
     tls_cert_bundle_attach_fn cert_bundle_attach; /* platform cert-bundle callback */
+    const char *ca_cert;                 /* borrowed CA certificate */
 
     /* Session state */
     uint8_t  connected;
@@ -219,10 +221,20 @@ struct tai_ctx {
     /* Received turn id (attr 61) backing callback msg->event_id; "" if none */
     char     rx_event_id[64];
 
+    /* Worker-owned keyed Image Stream identity and validated params. */
+    uint8_t  rx_image_active;
+    uint16_t rx_image_data_id;
+    uint16_t rx_image_params[4];      /* payload type, format, width, height */
+    char     rx_image_event_id[64];
+
     /* Crypto material */
     uint8_t encrypt_random[32];
     uint8_t encrypt_key[32];
     uint8_t sign_key[32];
+
+    /* Fixed application-supplied image key, independent of Frame keys. */
+    uint8_t image_key[TAI_IMAGE_KEY_LEN];
+    uint8_t has_image_key;
 
     /* TLS handle (owned by the shared common/tls module) */
     tls_t *tls;
@@ -450,6 +462,27 @@ int tai_hmac_sha256(const uint8_t *key, size_t key_len,
 int tai_hkdf_sha256(const uint8_t *ikm, size_t ikm_len,
                     const uint8_t *salt, size_t salt_len,
                     uint8_t *out, size_t out_len);
+/* Encrypt into ciphertext || tag with AES-128-GCM, a 16-byte IV/tag and no
+ * AAD. All pointers are required; out needs len + 16 bytes and must not
+ * overlap data, key or IV. Argument/overlap/overflow errors return
+ * TAI_ERR_ARGS, insufficient capacity TAI_ERR_MEM, without writing.
+ * TAI_ERR_CRYPTO wipes len + 16 bytes. Empty input produces a tag here;
+ * the send path handles the reference's IV-only empty image separately. */
+int tai_image_gcm_encrypt(const uint8_t key[TAI_IMAGE_KEY_LEN],
+                          const uint8_t iv[16],
+                          const uint8_t *data, size_t len,
+                          uint8_t *out, size_t out_size);
+/* Authenticate ciphertext || tag with AES-128-GCM, a 16-byte IV/tag and no
+ * AAD. All pointers are required, even for a tag-only body (empty plaintext).
+ * out must have body_len - 16 bytes and must not overlap body, key or IV.
+ * TAI_OK writes exactly body_len - 16 bytes; TAI_ERR_CRYPTO wipes that span.
+ * Invalid arguments/overlap/short body return TAI_ERR_ARGS without writing;
+ * insufficient output capacity returns TAI_ERR_MEM without writing.
+ * This primitive does not establish image wire-format or empty-marker rules. */
+int tai_image_gcm_decrypt(const uint8_t key[TAI_IMAGE_KEY_LEN],
+                          const uint8_t iv[16],
+                          const uint8_t *body, size_t body_len,
+                          uint8_t *out, size_t out_size);
 int tai_random_bytes(const pal_t *pal, uint8_t *buf, size_t len);
 int tai_crypto_derive_keys(uint8_t proto_ver,
                             const uint8_t *ikm,  size_t ikm_len,
@@ -517,6 +550,9 @@ int tai_proto_dispatch   (tai_ctx_t *ctx,
 /* Worker-only: returns 1 while delivery remains paused, 0 once finished.
  * The Packet's bytes stay pinned in rx_buf / frag_buf until it drains. */
 int tai_proto_drain_pending_audio(tai_ctx_t *ctx);
+/* Clear receive Image Stream state, not the fixed key or shared Event ID.
+ * Call when resetting receive state on disconnect / failed Connection. */
+void tai_proto_reset_image(tai_ctx_t *ctx);
 
 /* Admission query — the single judgment behind receive backpressure, shared
  * by the four checkpoints (worker pass top, before each drain read, between

@@ -475,6 +475,39 @@ static int test_unknown_api_reaches_the_cloud(void)
     return 0;
 }
 
+/* The cloud binds the URL t to the body t: a generic caller that passes "{}",
+ * or its own stale t, must still go out with the SDK's timestamp in the body
+ * matching the URL. The mock answers success only when the two agree, so
+ * OPRT_OK here is the assertion. */
+static int test_call_binds_body_timestamp_to_url(void)
+{
+    const struct {
+        const char *data;
+        const char *what;
+    } cases[] = {
+        {NULL,            "default {}"},
+        {"{}",            "empty object"},
+        {"{\"t\":1}",     "stale caller t"},
+        {"{\"k\":\"v\"}", "caller field preserved"},
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        iot_atop_request_t req = { .api = "tuya.test.body.t.matches.url.t",
+                                   .version = "1.0",
+                                   .data = cases[i].data };
+        iot_atop_response_t resp = {0};
+        int rt = iot_atop_call(&g_client, &req, &resp);
+        if (rt != OPRT_OK || resp.result == NULL || strcmp(resp.result, "true") != 0) {
+            printf("  %s: returned %d, result=%s\n", cases[i].what, rt,
+                   resp.result ? resp.result : "(null)");
+            iot_atop_response_free(&g_client, &resp);
+            return -1;
+        }
+        iot_atop_response_free(&g_client, &resp);
+    }
+    return 0;
+}
+
 /* A response larger than AGENTIC_KIT_RESPONSE_BUFFER_SIZE must fail loudly.
  *
  * This is the failure from CHANGELOG: a product whose schema came back at
@@ -493,6 +526,177 @@ static int test_unknown_api_reaches_the_cloud(void)
  * window appends each dispatched line here -- va_copy/truncation
  * discipline included -- and keeps stderr readable. */
 static char http_log_capture[8192];
+
+#define TEST_IMAGE_SECRET "AAECAwQFBgcICQoLDA0ODw=="
+#define TEST_IMAGE_SECRET_RESULT "{\"secretValue\":\"" TEST_IMAGE_SECRET "\"}"
+
+static int check_secret_call(const char *devid, const char *expected, int plaintext)
+{
+    iot_client_t client = g_client;
+    snprintf(client.devid, sizeof(client.devid), "%s", devid);
+    iot_atop_request_t req = { .api = "thing.km.secret.get.device",
+                               .version = "1.0", .data = "{}" };
+    iot_atop_response_t resp = {0};
+
+    test_log_capture_begin(http_log_capture, sizeof http_log_capture);
+    int rt = iot_atop_call(&client, &req, &resp);
+    test_log_capture_end();
+
+    int result = 0;
+    if (rt != OPRT_OK || resp.error_code[0] != '\0' || resp.error_msg[0] != '\0' ||
+        resp.server_time <= 0 ||
+        (expected ? (!resp.result || strcmp(resp.result, expected) != 0) : resp.result != NULL)) {
+        printf("  secret call %s: status %d or result bytes differ\n", devid, rt);
+        result = -1;
+    }
+    if (strstr(http_log_capture, TEST_IMAGE_SECRET) ||
+        strstr(http_log_capture, "secretValue") ||
+        strstr(http_log_capture, "atop_response_data_decode:") ||
+        strstr(http_log_capture, "base64 encode result:") ||
+        strstr(http_log_capture, "result:\r\n")) {
+        printf("  secret call emitted response-body diagnostics\n");
+        result = -1;
+    }
+#if AGENTIC_KIT_IOT_LOG_LEVEL >= LOG_DEBUG
+    /* Positive controls prevent disabled DEBUG or a broken capture from passing. */
+    if (!strstr(http_log_capture, "a=thing.km.secret.get.device&") ||
+        !strstr(http_log_capture, "out post data len:") ||
+        !strstr(http_log_capture, "http request send!") ||
+        (plaintext && !strstr(http_log_capture, "try parse the plaintext data.")) ||
+        (!plaintext && strstr(http_log_capture, "try parse the plaintext data."))) {
+        printf("  expected request/fallback DEBUG diagnostics missing or incorrect\n");
+        result = -1;
+    }
+#else
+    (void)plaintext;
+#endif
+    iot_atop_response_free(&client, &resp);
+    return result;
+}
+
+static int test_secret_api_returns_exact_result_without_logging(void)
+{
+    return check_secret_call(TEST_DEVID, TEST_IMAGE_SECRET_RESULT, 0);
+}
+
+static int test_secret_api_plaintext_fallback_without_logging(void)
+{
+    return check_secret_call("ci_secret_valid_plaintext", TEST_IMAGE_SECRET_RESULT, 1);
+}
+
+static int test_secret_api_malformed_business_results_stay_generic_success(void)
+{
+    const struct {
+        const char *mode;
+        const char *expected;
+    } cases[] = {
+        {"number", "{\"secretValue\":7}"},
+        {"missing", "{}"},
+        {"null", NULL},
+        {"array", "[\"" TEST_IMAGE_SECRET "\"]"},
+        {"string", "\"" TEST_IMAGE_SECRET "\""},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        for (int plaintext = 0; plaintext <= 1; plaintext++) {
+            char devid[64];
+            snprintf(devid, sizeof(devid), "ci_secret_%s%s", cases[i].mode,
+                     plaintext ? "_plaintext" : "");
+            if (check_secret_call(devid, cases[i].expected, plaintext) != 0) return -1;
+        }
+    }
+    return 0;
+}
+
+static int test_secret_api_rejections_without_logging(void)
+{
+    const struct {
+        const char *devid;
+        int status;
+        const char *error_code;
+    } cases[] = {
+        {"ci_secret_reject", OPRT_ATOP_BUSINESS_ERROR, "SECRET_" TEST_IMAGE_SECRET},
+        {"ci_secret_reject_plaintext", OPRT_ATOP_BUSINESS_ERROR, "SECRET_" TEST_IMAGE_SECRET},
+        {"ci_secret_nocode", OPRT_COMMUNICATION_ERROR, ""},
+        {"ci_secret_nocode_plaintext", OPRT_COMMUNICATION_ERROR, ""},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        iot_client_t client = g_client;
+        snprintf(client.devid, sizeof(client.devid), "%s", cases[i].devid);
+        iot_atop_request_t req = { .api = "thing.km.secret.get.device",
+                                   .version = "1.0", .data = "{}" };
+        iot_atop_response_t resp = {0};
+        test_log_capture_begin(http_log_capture, sizeof http_log_capture);
+        int rt = iot_atop_call(&client, &req, &resp);
+        test_log_capture_end();
+
+        int result = 0;
+        if (rt != cases[i].status || resp.result != NULL || resp.server_time <= 0 ||
+            strcmp(resp.error_code, cases[i].error_code) != 0 ||
+            strcmp(resp.error_msg, "mock rejection: " TEST_IMAGE_SECRET) != 0) {
+            printf("  secret rejection %s: status %d or error fields differ\n", cases[i].devid, rt);
+            result = -1;
+        }
+        if (strstr(http_log_capture, TEST_IMAGE_SECRET) ||
+            strstr(http_log_capture, "mock rejection:") ||
+            strstr(http_log_capture, "SECRET_") ||
+            strstr(http_log_capture, "atop_response_data_decode:") ||
+            strstr(http_log_capture, "base64 encode result:") ||
+            strstr(http_log_capture, "result:\r\n")) {
+            printf("  secret rejection emitted response-body diagnostics\n");
+            result = -1;
+        }
+#if AGENTIC_KIT_IOT_LOG_LEVEL >= LOG_ERROR
+        const char *diagnostic = cases[i].error_code[0] ?
+            "atop rejected (sensitive response)" :
+            "atop rejected without errorCode (sensitive response)";
+        if (!strstr(http_log_capture, diagnostic)) {
+            printf("  sanitized ERROR diagnostic missing\n");
+            result = -1;
+        }
+#endif
+#if AGENTIC_KIT_IOT_LOG_LEVEL >= LOG_DEBUG
+        if ((strstr(cases[i].devid, "_plaintext") != NULL) !=
+            (strstr(http_log_capture, "try parse the plaintext data.") != NULL)) {
+            printf("  unexpected Envelope parsing path\n");
+            result = -1;
+        }
+#endif
+        iot_atop_response_free(&client, &resp);
+        if (result != 0) return result;
+    }
+    return 0;
+}
+
+static int test_secret_log_suppression_is_exact_and_request_local(void)
+{
+    /* A similar but distinct API must retain diagnostics after secret calls. */
+    if (check_secret_call(TEST_DEVID, TEST_IMAGE_SECRET_RESULT, 0) != 0) return -1;
+    iot_atop_request_t req = { .api = "thing.km.secret.get.device.extra",
+                               .version = "1.0", .data = "{}" };
+    iot_atop_response_t resp = {0};
+    test_log_capture_begin(http_log_capture, sizeof http_log_capture);
+    int rt = iot_atop_call(&g_client, &req, &resp);
+    test_log_capture_end();
+
+    int result = rt == OPRT_ATOP_BUSINESS_ERROR &&
+                 strcmp(resp.error_code, "UNKNOWN_API") == 0 ? 0 : -1;
+#if AGENTIC_KIT_IOT_LOG_LEVEL >= LOG_DEBUG
+    if (!strstr(http_log_capture, "atop_response_data_decode:") ||
+        !strstr(http_log_capture, "base64 encode result:") ||
+        !strstr(http_log_capture, "result:\r\n")) {
+        printf("  nonsecret API lost its body diagnostics\n");
+        result = -1;
+    }
+#endif
+#if AGENTIC_KIT_IOT_LOG_LEVEL >= LOG_ERROR
+    if (!strstr(http_log_capture, "atop rejected: errorCode=UNKNOWN_API errorMsg=Unknown API: thing.km.secret.get.device.extra")) {
+        printf("  nonsecret API lost its rejection diagnostics\n");
+        result = -1;
+    }
+#endif
+    iot_atop_response_free(&g_client, &resp);
+    return result;
+}
 
 static int test_oversized_response_is_explained(void)
 {
@@ -745,9 +949,15 @@ int main(void)
     RUN_TEST(test_null_body_defaults_to_empty_object);
     RUN_TEST(test_business_error_carries_error_code);
     RUN_TEST(test_unknown_api_reaches_the_cloud);
+    RUN_TEST(test_call_binds_body_timestamp_to_url);
     RUN_TEST(test_null_result_stays_null);
     RUN_TEST(test_gateway_not_exists_is_business_error);
     RUN_TEST(test_response_zeroed_on_bad_request);
+    RUN_TEST(test_secret_api_returns_exact_result_without_logging);
+    RUN_TEST(test_secret_api_plaintext_fallback_without_logging);
+    RUN_TEST(test_secret_api_malformed_business_results_stay_generic_success);
+    RUN_TEST(test_secret_api_rejections_without_logging);
+    RUN_TEST(test_secret_log_suppression_is_exact_and_request_local);
     RUN_TEST(test_oversized_response_is_explained);
     RUN_TEST(test_response_free_is_repeatable);
     RUN_TEST(test_sync_check_guards);

@@ -25,8 +25,12 @@
 #include "../src/tai_internal.h"
 #include "tai_pal_loopback.h"
 #include "test_log.h"
+#include "mbedtls/gcm.h"
+#include "mbedtls/base64.h"
+#include "mbedtls/md.h"
 
 extern const pal_t *tai_pal_posix(void);
+#include "keyed_tls_peer.h"
 
 /* =========================================================================
  * Test harness
@@ -353,13 +357,16 @@ static size_t server_send(tai_ctx_t *ctx,
     uint8_t frame[8300];
     int flen = tai_frame_encode(TAI_FRAG_NONE, seq,
                                  app, (size_t)alen,
-                                 ctx->sign_key, 32,
+                                 ctx->sign_key, ctx->sig_len,
                                  ctx->pal, frame, sizeof(frame));
     if (flen <= 0) {
         fprintf(stderr, "  server_send: frame_encode rc=%d\n", flen);
         return 0;
     }
-    tai_loopback_push_recv(frame, (size_t)flen);
+    if (ctx->has_image_key) {
+        frame[0] = (uint8_t)((frame[0] & 0xf0) | 3);
+        if (keyed_peer_write(frame, (size_t)flen)) return 0;
+    } else tai_loopback_push_recv(frame, (size_t)flen);
     return (size_t)flen;
 }
 
@@ -861,6 +868,468 @@ static void test_image_audio_query(void)
 
     tai_disconnect(ctx);
     tai_ctx_deinit(ctx);
+}
+
+/* Send-only stub: no tai_connect, handshake, receive worker or signing bypass.
+ * These buffers deliberately exceed the SDK's receive reassembly capacity. */
+#define IMAGE_UPLINK_LARGE (100003U + AGENTIC_KIT_TAI_FRAG_BUF_SIZE + \
+                            2U * AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD)
+static struct {
+    uint8_t wire[2 * IMAGE_UPLINK_LARGE + 16384];
+    size_t wire_len;
+    int writes, fail_write, allocs, frees, fail_alloc, keyed;
+    size_t sizes[8];
+    void *blocks[8];
+} image_capture;
+static pal_t image_capture_pal;
+static const uint8_t image_uplink_key[16] = {
+    0x00, 0x91, 0x02, 0x83, 0x04, 0x75, 0x06, 0x67,
+    0x08, 0x59, 0x0a, 0x4b, 0x0c, 0x3d, 0x0e, 0x2f
+};
+static const char image_uplink_text[] = "describe\0this image";
+
+static uint64_t image_capture_time(void) { return UINT64_C(0x0102030405); }
+
+static void *image_capture_malloc(size_t size)
+{
+    int i = image_capture.allocs++;
+    CHECK(i < 8);
+    if (i >= 8) return NULL;
+    image_capture.sizes[i] = size;
+    if (i == image_capture.fail_alloc) return NULL;
+    /* A broken overflow guard must fail, not ask the host for exabytes. */
+    if (size > sizeof(image_capture.wire)) return NULL;
+    uint8_t *p = malloc(size + 16);
+    if (p) memset(p, 0xa5, size + 16);
+    image_capture.blocks[i] = p;
+    return p;
+}
+
+static void image_capture_free(void *ptr)
+{
+    if (!ptr) return;
+    for (int i = 0; i < 8; i++) {
+        if (image_capture.blocks[i] != ptr) continue;
+        uint8_t *p = ptr;
+        size_t size = image_capture.sizes[i];
+        int guard_ok = 1, wiped = 1;
+        for (size_t j = 0; j < 16; j++) guard_ok &= p[size + j] == 0xa5;
+        CHECK(guard_ok);
+        if (image_capture.keyed && i == 0) {
+            for (size_t j = 0; j < size; j++) wiped &= p[j] == 0;
+            CHECK(wiped);  /* inspect BEFORE free, including IV and tag */
+        }
+        image_capture.frees++;
+        image_capture.blocks[i] = NULL;
+        free(ptr);
+        return;
+    }
+    CHECK(0);  /* untracked pointer or double free */
+}
+
+static int image_capture_send(void *handle, const uint8_t *buf, size_t len,
+                              uint32_t timeout_ms)
+{
+    (void)timeout_ms;
+    CHECK(handle == &image_capture);
+    int index = image_capture.writes++;
+    if (index == image_capture.fail_write) return PAL_ERR_NET;
+    CHECK(len <= sizeof(image_capture.wire) - image_capture.wire_len);
+    if (len > sizeof(image_capture.wire) - image_capture.wire_len) return PAL_ERR_NET;
+    memcpy(image_capture.wire + image_capture.wire_len, buf, len);
+    image_capture.wire_len += len;
+    return (int)len;
+}
+
+static void image_capture_reset(int keyed)
+{
+    for (int i = 0; i < 8; i++) {
+        CHECK(image_capture.blocks[i] == NULL);
+        free(image_capture.blocks[i]);  /* contain a leaking implementation */
+        image_capture.blocks[i] = NULL;
+    }
+    memset(image_capture.sizes, 0, sizeof(image_capture.sizes));
+    image_capture.wire_len = 0;
+    image_capture.writes = image_capture.allocs = image_capture.frees = 0;
+    image_capture.fail_write = image_capture.fail_alloc = -1;
+    image_capture.keyed = keyed;
+}
+
+static tai_ctx_t *image_uplink_setup(tai_ctx_t *storage, int keyed)
+{
+    image_capture_reset(keyed);
+    tai_config_t cfg = {
+        .pal = tai_pal_posix(), .disable_tls = 1,
+        .protocol_version = TAI_VER_21, .sign_level = TAI_SIGN_HMAC_SHA256,
+        .image_key = keyed ? image_uplink_key : NULL,
+        .event_user_data_json = "{}",
+    };
+    tai_ctx_t *ctx = tai_ctx_init(storage, &cfg);
+    CHECK(ctx != NULL);
+    if (!ctx) return NULL;
+    image_capture_pal = *cfg.pal;
+    image_capture_pal.tcp_send = image_capture_send;
+    image_capture_pal.time_ms = image_capture_time;
+    image_capture_pal.malloc = image_capture_malloc;
+    image_capture_pal.free = image_capture_free;
+    ctx->pal = &image_capture_pal;
+    ctx->raw_tcp = &image_capture;
+    ctx->connected = ctx->session_open = 1;
+    strcpy(ctx->session_id, "send-only-session");
+    for (size_t i = 0; i < sizeof(ctx->sign_key); i++) {
+        ctx->sign_key[i] = (uint8_t)(0x30 + i);
+        ctx->encrypt_key[i] = (uint8_t)(0xe0 + i);
+    }
+    CHECK_EQ_INT(ctx->frame_ver, keyed ? 3 : 2);
+    CHECK_EQ_INT(ctx->sig_len, keyed ? 0 : 32);
+    CHECK_EQ_INT(ctx->sign_level, keyed ? TAI_SIGN_NONE : TAI_SIGN_HMAC_SHA256);
+    return ctx;
+}
+
+static void image_uplink_teardown(tai_ctx_t *ctx)
+{
+    /* The stub handle is not a real POSIX connection. */
+    ctx->raw_tcp = NULL;
+    tai_ctx_deinit(ctx);
+    image_capture_reset(0);
+}
+
+/* api: 0 = image, 1 = image + text, 2 = image + audio start. */
+static int image_uplink_send(tai_ctx_t *ctx, int api, const uint8_t *image, size_t len)
+{
+    if (api == 0) return tai_send_image(ctx, image, len, TAI_IMG_JPEG, 640, 480);
+    if (api == 1) return tai_send_image_with_text(ctx,
+        image_uplink_text, sizeof(image_uplink_text) - 1,
+        image, len, TAI_IMG_JPEG, 640, 480);
+    return tai_send_image_audio_start(ctx, image, len, TAI_IMG_JPEG, 640, 480,
+                                       TAI_AUDIO_PCM, 1, 16, 16000);
+}
+
+static uint32_t image_wire_uint(const uint8_t *p, size_t n)
+{
+    uint32_t value = 0;
+    while (n--) value = (value << 8) | *p++;
+    return value;
+}
+
+/* Independent peer decoder: no production Frame/Packet decode, HMAC or
+ * image-decrypt helpers. Consume one whole Packet, checking every Frame. */
+static int image_peer_next(const tai_ctx_t *ctx, size_t *offset, uint16_t *seq,
+                            uint8_t *app, size_t cap, captured_pkt_t *pkt,
+                            int *frames)
+{
+    size_t used = 0;
+    *frames = 0;
+    for (;;) {
+        if (image_capture.wire_len - *offset < 5) return -1;
+        const uint8_t *f = image_capture.wire + *offset;
+        size_t flen = 5 + image_wire_uint(f + 3, 2);
+        const size_t sig_len = ctx->has_image_key ? 0 : 32;
+        if ((f[0] & 0x3f) != (ctx->has_image_key ? 0x23 : 0x22) ||
+            flen < 6 + sig_len || flen > image_capture.wire_len - *offset) return -1;
+        if (image_wire_uint(f + 1, 2) != *seq) return -1;
+        if (++*seq == 0) *seq = 1;
+        size_t signed_len = flen - sig_len;
+        uint8_t sample[64], signature[32];
+        const uint8_t *input = f;
+        size_t input_len = signed_len;
+        if (signed_len > 64) {
+            memcpy(sample, f, 32);
+            memcpy(sample + 32, f + signed_len - 32, 32);
+            input = sample;
+            input_len = sizeof(sample);
+        }
+        int rc = mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
+                                 ctx->sign_key, 32, input, input_len, signature);
+        if (sig_len && (rc || memcmp(signature, f + signed_len, sig_len))) return -1;
+        unsigned frag = f[0] >> 6;
+        if ((*frames == 0 && frag != TAI_FRAG_NONE && frag != TAI_FRAG_FIRST) ||
+            (*frames != 0 && frag != TAI_FRAG_MIDDLE && frag != TAI_FRAG_LAST)) return -1;
+        size_t n = signed_len - 5;
+        if (n > AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD || n > cap - used) return -1;
+        memcpy(app + used, f + 5, n);
+        used += n;
+        *offset += flen;
+        ++*frames;
+        if (frag == TAI_FRAG_NONE || frag == TAI_FRAG_LAST) break;
+    }
+    memset(pkt, 0, sizeof(*pkt));
+    if (!used) return -1;
+    pkt->pkt_type = app[0] >> 1;
+    size_t pos = 1;
+    if (app[0] & 1) {
+        if (used < 5) return -1;
+        size_t attr_len = image_wire_uint(app + 1, 4);
+        if (attr_len > used - 5) return -1;
+        size_t end = 5 + attr_len;
+        pos = 5;
+        while (pos < end) {
+            if (end - pos < 4 || pkt->attr_count == AGENTIC_KIT_TAI_MAX_ATTRS) return -1;
+            tai_attr_t *a = &pkt->attrs[pkt->attr_count++];
+            a->type = (uint16_t)image_wire_uint(app + pos, 2);
+            a->len = (uint16_t)image_wire_uint(app + pos + 2, 2);
+            pos += 4;
+            if (a->len > end - pos) return -1;
+            a->value = app + pos;
+            pos += a->len;
+        }
+    }
+    pkt->payload = app + pos;
+    pkt->payload_len = used - pos;
+    return 0;
+}
+
+static void image_peer_check(tai_ctx_t *ctx, int api, const uint8_t *expected,
+                              size_t len, uint16_t first_seq, uint8_t iv[16])
+{
+    static uint8_t app[IMAGE_UPLINK_LARGE + 4096], plain[IMAGE_UPLINK_LARGE];
+    const uint8_t types[] = { TAI_PKT_EVENT, TAI_PKT_TEXT, TAI_PKT_IMAGE,
+                              TAI_PKT_EVENT, TAI_PKT_EVENT };
+    size_t offset = 0;
+    int count = api == 2 ? 2 : (api == 1 ? 5 : 4);
+    for (int i = 0; i < count; i++) {
+        captured_pkt_t pkt;
+        int frames = 0;
+        int rc = image_peer_next(ctx, &offset, &first_seq, app, sizeof(app), &pkt, &frames);
+        CHECK_EQ_INT(rc, 0);
+        if (rc) return;
+        int index = i + (api != 1 && i > 0);
+        CHECK_EQ_INT(pkt.pkt_type, types[index]);
+        if (pkt.pkt_type == TAI_PKT_EVENT) {
+            CHECK_EQ_INT(pkt.payload_len, 2);
+            if (pkt.payload_len == 2)
+                CHECK_EQ_INT(image_wire_uint(pkt.payload, 2),
+                    i == 0 ? TAI_EVT_START : (i == count - 1 ? TAI_EVT_END : TAI_EVT_PAYLOADS_END));
+        } else if (pkt.pkt_type == TAI_PKT_TEXT) {
+            const uint8_t header[] = { 0, TAI_DATA_ID_TEXT_UP, 0, 0 };
+            CHECK_EQ_INT(pkt.payload_len, 4 + sizeof(image_uplink_text) - 1);
+            if (pkt.payload_len == 4 + sizeof(image_uplink_text) - 1) {
+                CHECK(memcmp(pkt.payload, header, 4) == 0);
+                CHECK(memcmp(pkt.payload + 4, image_uplink_text, sizeof(image_uplink_text) - 1) == 0);
+            }
+        } else if (pkt.pkt_type == TAI_PKT_IMAGE) {
+            const uint8_t header[] = { 0, TAI_DATA_ID_IMAGE_UP, 0, 1, 2, 3, 4, 5 };
+            CHECK_EQ_INT(pkt.attr_count, 1);
+            if (pkt.attr_count == 1) {
+                CHECK_EQ_INT(pkt.attrs[0].type, TAI_ATTR_IMAGE_PARAMS);
+                CHECK_EQ_INT(pkt.attrs[0].len, 11);
+                if (pkt.attrs[0].len == 11)
+                    CHECK(memcmp(pkt.attrs[0].value, "0 1 640 480", 11) == 0);
+            }
+            size_t extra = ctx->has_image_key ? (len ? 32 : 16) : 0;
+            CHECK_EQ_INT(pkt.payload_len, 8 + len + extra);
+            if (pkt.payload_len != 8 + len + extra) return;
+            CHECK(memcmp(pkt.payload, header, ctx->disable_tls ? sizeof(header) : 3) == 0);
+            if (len == IMAGE_UPLINK_LARGE) {
+                CHECK(len > sizeof(ctx->frag_buf));
+                CHECK(frames >= 3);
+            }
+            const uint8_t *body = pkt.payload + 8;
+            if (!ctx->has_image_key) {
+                CHECK(memcmp(body, expected, len) == 0);
+                continue;
+            }
+            memcpy(iv, body, 16);
+            if (!len) continue;  /* empty marker is IV only, never a tag */
+            mbedtls_gcm_context gcm;
+            mbedtls_gcm_init(&gcm);
+            rc = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, image_uplink_key, 128);
+            CHECK_EQ_INT(rc, 0);
+            if (!rc) {
+                rc = mbedtls_gcm_auth_decrypt(&gcm, len, body, 16, NULL, 0,
+                                             body + 16 + len, 16, body + 16, plain);
+                CHECK_EQ_INT(rc, 0);
+                if (!rc) CHECK(memcmp(plain, expected, len) == 0);
+            }
+            /* The derived Frame encryption key must NOT authenticate the image. */
+            rc = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, ctx->encrypt_key, 128);
+            CHECK_EQ_INT(rc, 0);
+            if (!rc) CHECK_EQ_INT(mbedtls_gcm_auth_decrypt(&gcm, len, body, 16, NULL, 0,
+                body + 16 + len, 16, body + 16, plain), MBEDTLS_ERR_GCM_AUTH_FAILED);
+            mbedtls_gcm_free(&gcm);
+        }
+    }
+    CHECK_EQ_INT(offset, image_capture.wire_len);
+}
+
+static void image_uplink_check_allocs(size_t len, int keyed)
+{
+    /* EventStart already allocates its JSON wrapper, even without an image key. */
+    CHECK_EQ_INT(image_capture.allocs, keyed ? 2 : 1);
+    CHECK_EQ_INT(image_capture.frees, image_capture.allocs);
+    if (keyed) CHECK_EQ_INT(image_capture.sizes[0], len ? len + 32 : 16);
+    CHECK_EQ_INT(image_capture.sizes[keyed ? 1 : 0], strlen("chatAttributes") + 4 + 32);
+    for (int i = 0; i < 8; i++) CHECK(image_capture.blocks[i] == NULL);
+}
+
+static void test_image_uplink_encrypted(void)
+{
+    SECTION("image_uplink_encrypted");
+    static tai_ctx_t storage;
+    static uint8_t image[IMAGE_UPLINK_LARGE], original[IMAGE_UPLINK_LARGE];
+    for (size_t i = 0; i < sizeof(image); i++) original[i] = (uint8_t)(i * 37 + i / 251);
+    const size_t lengths[] = { 0, 1, 17, 259, IMAGE_UPLINK_LARGE };
+    for (int api = 0; api < 3; api++) {
+        tai_ctx_t *ctx = image_uplink_setup(&storage, 1);
+        if (!ctx) return;
+        for (size_t j = 0; j < sizeof(lengths) / sizeof(lengths[0]); j++) {
+            uint8_t previous_iv[16] = {0};
+            for (int repeat = 0; repeat < 2; repeat++) {
+                image_capture_reset(1);
+                memcpy(image, original, sizeof(image));
+                uint16_t seq = (uint16_t)(ctx->seq + 1);
+                CHECK_EQ_INT(image_uplink_send(ctx, api, image, lengths[j]), TAI_OK);
+                CHECK(memcmp(image, original, sizeof(image)) == 0);
+                uint8_t iv[16] = {0};
+                image_peer_check(ctx, api, original, lengths[j], seq, iv);
+                if (repeat) CHECK(memcmp(iv, previous_iv, 16) != 0);
+                memcpy(previous_iv, iv, 16);
+                CHECK(memcmp(ctx->image_key, image_uplink_key, 16) == 0);
+                image_uplink_check_allocs(lengths[j], 1);
+                CHECK_EQ_INT(ctx->event_open, api == 2);
+                if (api == 2) CHECK_EQ_INT(tai_send_image_audio_end(ctx), TAI_OK);
+            }
+        }
+        image_uplink_teardown(ctx);
+    }
+}
+
+static void test_image_uplink_legacy(void)
+{
+    SECTION("image_uplink_legacy");
+    static tai_ctx_t storage;
+    static uint8_t image[IMAGE_UPLINK_LARGE], original[IMAGE_UPLINK_LARGE];
+    for (size_t i = 0; i < sizeof(image); i++) original[i] = (uint8_t)(i * 19 + 7);
+    const size_t lengths[] = { 0, 1, 17, 259, IMAGE_UPLINK_LARGE };
+    for (int api = 0; api < 3; api++) {
+        for (size_t j = 0; j < sizeof(lengths) / sizeof(lengths[0]); j++) {
+            tai_ctx_t *ctx = image_uplink_setup(&storage, 0);
+            if (!ctx) return;
+            memcpy(image, original, sizeof(image));
+            CHECK_EQ_INT(image_uplink_send(ctx, api, image, lengths[j]), TAI_OK);
+            image_peer_check(ctx, api, original, lengths[j], 1, NULL);
+            CHECK(memcmp(image, original, sizeof(image)) == 0);
+            image_uplink_check_allocs(lengths[j], 0);
+            image_uplink_teardown(ctx);
+        }
+    }
+}
+
+static void test_image_uplink_prepare_failures(void)
+{
+    SECTION("image_uplink_prepare_failures");
+    static tai_ctx_t storage;
+    const uint8_t image[17] = { 0x91, 0, 0x73 };
+    static char oversized[AGENTIC_KIT_TAI_TX_CTRL_BUF_SIZE];
+    memset(oversized, '"', sizeof(oversized) - 1);
+    for (int api = 0; api < 3; api++) {
+        for (int empty = 0; empty < 2; empty++) {
+            for (int failure = 0; failure < 3; failure++) {
+                tai_ctx_t *ctx = image_uplink_setup(&storage, 1);
+                if (!ctx) return;
+                size_t len = empty ? 0 : sizeof(image);
+                /* First allocation: image; second: EventStart JSON. The third
+                 * scenario builds an oversized EventStart after encryption. */
+                if (failure < 2) image_capture.fail_alloc = failure;
+                else ctx->event_user_data_json = oversized;
+                CHECK_EQ_INT(image_uplink_send(ctx, api, image, len), TAI_ERR_MEM);
+                CHECK_EQ_INT(image_capture.writes, 0);
+                CHECK_EQ_INT(image_capture.wire_len, 0);
+                CHECK_EQ_INT(ctx->event_open, 0);
+                CHECK_EQ_INT(ctx->seq, 0);
+                CHECK_EQ_INT(image_capture.allocs, failure == 0 ? 1 : 2);
+                CHECK_EQ_INT(image_capture.frees, failure);
+                CHECK_EQ_INT(image_capture.sizes[0], len ? len + 32 : 16);
+                if (failure == 0) CHECK(ctx->event_id[0] == '\0');
+                image_uplink_teardown(ctx);
+            }
+        }
+    }
+}
+
+static void test_image_uplink_write_failures(void)
+{
+    SECTION("image_uplink_write_failures");
+    static tai_ctx_t storage;
+    static uint8_t image[IMAGE_UPLINK_LARGE], original[IMAGE_UPLINK_LARGE];
+    for (size_t i = 0; i < sizeof(image); i++) original[i] = (uint8_t)(i * 13 + 9);
+    const size_t lengths[] = { 0, 17, IMAGE_UPLINK_LARGE };
+    for (int api = 0; api < 3; api++) {
+        for (size_t j = 0; j < sizeof(lengths) / sizeof(lengths[0]); j++) {
+            tai_ctx_t *ctx = image_uplink_setup(&storage, 1);
+            if (!ctx) return;
+            memcpy(image, original, sizeof(image));
+            CHECK_EQ_INT(image_uplink_send(ctx, api, image, lengths[j]), TAI_OK);
+            int writes = image_capture.writes;
+            CHECK(writes > 0);
+            image_uplink_check_allocs(lengths[j], 1);
+            image_uplink_teardown(ctx);
+            for (int fail = 0; fail < writes; fail++) {
+                ctx = image_uplink_setup(&storage, 1);
+                if (!ctx) return;
+                image_capture.fail_write = fail;
+                CHECK_EQ_INT(image_uplink_send(ctx, api, image, lengths[j]), TAI_ERR_NET);
+                CHECK_EQ_INT(image_capture.writes, fail + 1);
+                if (!fail) CHECK_EQ_INT(image_capture.wire_len, 0);
+                CHECK(memcmp(image, original, sizeof(image)) == 0);
+                image_uplink_check_allocs(lengths[j], 1);
+                image_uplink_teardown(ctx);
+            }
+        }
+    }
+}
+
+static void test_image_uplink_argument_bounds(void)
+{
+    SECTION("image_uplink_argument_bounds");
+    static tai_ctx_t storage;
+    const uint8_t image = 0x7a;
+    for (int keyed = 0; keyed < 2; keyed++) {
+        const size_t overhead = sizeof(storage.tx_hdr_buf) + (keyed ? 32 : 0);
+        const size_t invalid[] = { SIZE_MAX, SIZE_MAX - overhead + 1,
+                                   (size_t)PTRDIFF_MAX, (size_t)PTRDIFF_MAX - overhead + 1 };
+        for (int api = 0; api < 3; api++) {
+            tai_ctx_t *ctx = image_uplink_setup(&storage, keyed);
+            if (!ctx) return;
+            for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+                CHECK_EQ_INT(image_uplink_send(ctx, api, &image, invalid[i]), TAI_ERR_ARGS);
+            }
+            if (api == 1) {
+                const size_t text_invalid[] = { SIZE_MAX,
+                    SIZE_MAX - sizeof(ctx->tx_hdr_buf) + 1,
+                    (size_t)PTRDIFF_MAX - sizeof(ctx->tx_hdr_buf) + 1 };
+                for (size_t i = 0; i < sizeof(text_invalid) / sizeof(text_invalid[0]); i++)
+                    CHECK_EQ_INT(tai_send_image_with_text(ctx, "x", text_invalid[i],
+                        &image, 1, TAI_IMG_JPEG, 640, 480), TAI_ERR_ARGS);
+            }
+            CHECK_EQ_INT(image_uplink_send(ctx, api, NULL, 0), TAI_ERR_ARGS);
+            CHECK_EQ_INT(image_uplink_send(ctx, api, NULL, 1), TAI_ERR_ARGS);
+            CHECK_EQ_INT(image_capture.allocs, 0);
+            CHECK_EQ_INT(image_capture.writes, 0);
+            CHECK_EQ_INT(image_capture.wire_len, 0);
+            CHECK_EQ_INT(ctx->seq, 0);
+            CHECK_EQ_INT(ctx->event_open, 0);
+            CHECK(ctx->event_id[0] == '\0');
+            if (keyed) {
+                /* Accept the exact arithmetic boundary (and >4 GiB), but fail
+                 * allocation before ever reading the one-byte sentinel. */
+                size_t limit = SIZE_MAX < (size_t)PTRDIFF_MAX
+                             ? SIZE_MAX - overhead : (size_t)PTRDIFF_MAX - overhead;
+                size_t valid[] = { limit,
+                    limit > UINT32_MAX ? (size_t)UINT32_MAX + 1 : limit };
+                for (size_t i = 0; i < sizeof(valid) / sizeof(valid[0]); i++) {
+                    image_capture_reset(1);
+                    image_capture.fail_alloc = 0;
+                    CHECK_EQ_INT(image_uplink_send(ctx, api, &image, valid[i]), TAI_ERR_MEM);
+                    CHECK_EQ_INT(image_capture.allocs, 1);
+                    CHECK(image_capture.sizes[0] == valid[i] + 32);
+                    CHECK_EQ_INT(image_capture.writes, 0);
+                    CHECK(ctx->event_id[0] == '\0');
+                }
+            }
+            image_uplink_teardown(ctx);
+        }
+    }
 }
 
 /* =========================================================================
@@ -2684,12 +3153,481 @@ static void test_pal_sleep(void)
     close(listener);
 }
 
+/* Keyed parser tests use a real verified TLS Connection. Legacy comparison
+ * cases retain the loopback PAL. Ciphertext is the independent vector in core. */
+static const uint8_t parser_image_key[TAI_IMAGE_KEY_LEN] = {
+    0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+};
+static const uint8_t parser_image_body[] = {
+    0xc5,0x61,0x77,0xb7,0x7d,0xb3,0x26,0x8b,0xd2,0x1d,0xc5,0x85,0xa9,0x26,0x25,0xdc,
+    0xf9,0xf0,0x2e,0x90,0x7d,0x17,0xb5,0xeb,0xbd,0x93,0x91,0x81,0x5b,0x5a,0x69,0xfb,
+    0x3f,0x39,0x75,0x18,0xc1,0xe0,0x83,0x79,0x48,0xa8,0x6f,0x6a,0xde,0xeb,0x9f,0x2f,
+    0x76,0x14,0x26,0x8f,0x70
+};
+static const uint8_t parser_image_plain[] = {
+    0,255,128,1,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,
+    15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32
+};
+static struct {
+    int released, queries, active, frag_state, fail_alloc, allocs, frees;
+    size_t frag_len, len;
+    uint8_t bytes[AGENTIC_KIT_TAI_FRAG_BUF_SIZE];
+    uint8_t type, flag, format;
+    uint16_t data_id, width, height;
+    uint64_t timestamp;
+    char event[64];
+    pthread_t callback_thread;
+    uint8_t connection_alive;
+} image_parser;
+
+static int image_parser_flow(tai_ctx_t *ctx, void *ud)
+{
+    (void)ud;
+    pthread_mutex_lock(&g_st.mtx);
+    image_parser.queries++;
+    image_parser.frag_len = ctx->frag_len;
+    image_parser.frag_state = ctx->frag_state;
+    image_parser.active = ctx->rx_image_active;
+    int ready = image_parser.released;
+    pthread_mutex_unlock(&g_st.mtx);
+    return ready;
+}
+
+static void image_parser_callback(tai_ctx_t *ctx, const tai_image_msg_t *msg, void *ud)
+{
+    (void)ctx; (void)ud;
+    pthread_mutex_lock(&g_st.mtx);
+    image_parser.len = msg->len;
+    if (msg->len <= sizeof(image_parser.bytes))
+        memcpy(image_parser.bytes, msg->data, msg->len);
+    image_parser.type = msg->payload_type;
+    image_parser.flag = msg->stream_flag;
+    image_parser.format = msg->format;
+    image_parser.width = msg->width;
+    image_parser.height = msg->height;
+    image_parser.data_id = msg->data_id;
+    image_parser.timestamp = msg->timestamp_ms;
+    snprintf(image_parser.event, sizeof(image_parser.event), "%s", msg->event_id);
+    image_parser.callback_thread = pthread_self();
+    g_st.image_calls++;
+    pthread_mutex_unlock(&g_st.mtx);
+}
+
+static void image_parser_disconnect(tai_ctx_t *ctx, const tai_disconnect_msg_t *msg, void *ud)
+{
+    pthread_mutex_lock(&g_st.mtx);
+    image_parser.connection_alive = msg->connection_alive;
+    image_parser.active = ctx->rx_image_active;
+    pthread_mutex_unlock(&g_st.mtx);
+    on_disconnect(ctx, msg, ud);
+}
+
+static void *image_parser_malloc(size_t n)
+{
+    pthread_mutex_lock(&g_st.mtx);
+    int fail = ++image_parser.allocs == image_parser.fail_alloc;
+    pthread_mutex_unlock(&g_st.mtx);
+    return fail ? NULL : malloc(n);
+}
+
+static void image_parser_free(void *p)
+{
+    pthread_mutex_lock(&g_st.mtx);
+    image_parser.frees++;
+    pthread_mutex_unlock(&g_st.mtx);
+    free(p);
+}
+
+static tai_ctx_t *image_parser_setup(tai_ctx_t *storage, pal_t *pal, int keyed)
+{
+    memset(&image_parser, 0, sizeof(image_parser));
+    *pal = keyed ? *tai_pal_posix() : *tai_pal_loopback();
+    tai_config_t options = { .pal = pal, .on_flow_control = image_parser_flow };
+    tai_ctx_t *ctx;
+    if (keyed) {
+        st_reset();
+        int started = keyed_peer_start(0);
+        CHECK_EQ_INT(started, 0);
+        if (started) return NULL;
+        options.host = "127.0.0.1";
+        options.tls_sni = "localhost";
+        options.port = keyed_peer.port;
+        options.ca_cert = keyed_ca;
+        options.image_key = parser_image_key;
+        options.device_id = "keyed-test-device";
+        options.on_text = on_text;
+        options.on_event = on_event;
+        ctx = tai_ctx_init(storage, &options);
+    } else ctx = setup_ctx_config(storage, &options);
+    CHECK(ctx != NULL);
+    if (!ctx) return NULL;
+    ctx->on_image = image_parser_callback;
+    ctx->on_disconnect = image_parser_disconnect;
+    int rc = tai_connect(ctx);
+    if (keyed) {
+        pthread_join(keyed_peer.thread, NULL);
+        CHECK_EQ_INT(keyed_peer.error, 0);
+    }
+    CHECK_EQ_INT(rc, TAI_OK);
+    if (rc != TAI_OK) {
+        tai_ctx_deinit(ctx);
+        if (keyed) keyed_peer_close();
+        return NULL;
+    }
+    CHECK(WAIT_FOR(image_parser.queries > 0, 1000));
+    pthread_mutex_lock(&g_st.mtx);
+    pal->malloc = image_parser_malloc;
+    pal->free = image_parser_free;
+    image_parser.released = 1;
+    pthread_mutex_unlock(&g_st.mtx);
+    return ctx;
+}
+
+static void image_parser_stop(tai_ctx_t *ctx)
+{
+    tai_request_disconnect(ctx);
+    if (ctx->thread_handle) {
+        ctx->pal->thread_join(ctx->thread_handle);
+        ctx->thread_handle = NULL;
+    }
+    pal_t *pal = (pal_t *)ctx->pal;
+    pal->malloc = malloc;
+    pal->free = free;
+    tai_disconnect(ctx);
+    if (ctx->has_image_key) keyed_peer_close();
+}
+
+static size_t image_parser_payload(uint8_t *payload, uint8_t flag, int base64)
+{
+    const uint8_t header[] = {0, 6, 0, 1, 2, 3, 4, 5};
+    memcpy(payload, header, sizeof(header));
+    payload[2] = flag << 6;
+    for (int i = 0; i < 16; i++) payload[8 + i] = (uint8_t)(16 + i);
+    size_t len = sizeof(parser_image_body);
+    if (base64) {
+        int rc = mbedtls_base64_encode(payload + 24, 128, &len,
+                                       parser_image_body, sizeof(parser_image_body));
+        CHECK_EQ_INT(rc, 0);
+        if (rc) return 0;
+    } else memcpy(payload + 24, parser_image_body, len);
+    return 24 + len;
+}
+
+static int image_parser_frame(tai_ctx_t *ctx, uint8_t frag,
+                               const uint8_t *app, size_t len, uint16_t *seq)
+{
+    uint8_t frame[AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD + 37];
+    int n = tai_frame_encode(frag, (*seq)++, app, len, ctx->sign_key,
+                             ctx->sig_len, ctx->pal, frame, sizeof(frame));
+    CHECK(n > 0);
+    if (n <= 0) return 0;
+    if (ctx->has_image_key) {
+        frame[0] = (uint8_t)((frame[0] & 0xf0) | 3);
+        int rc = keyed_peer_write(frame, (size_t)n);
+        CHECK_EQ_INT(rc, 0);
+        return rc == 0;
+    }
+    tai_loopback_push_recv(frame, (size_t)n);
+    return 1;
+}
+
+/* Split the attr prefix, IV and tag for the small vector, and use bounded
+ * Frames for large Packets. Observe worker-owned reassembly at admission gates,
+ * not via racy test-thread reads or sleeps that could pass without parsing. */
+static void image_parser_fragmented(tai_ctx_t *ctx, const uint8_t *app,
+                                    size_t len, uint16_t *seq)
+{
+    pthread_mutex_lock(&g_st.mtx);
+    int calls = g_st.image_calls;
+    pthread_mutex_unlock(&g_st.mtx);
+    size_t off = 0;
+    while (off < len) {
+        size_t end = off == 0 ? 3 : len;
+        if (len < 256 && off == 3) end = 5 + tai_r32(app + 1) + 10;
+        else if (len < 256 && off > 0 && off < len - 7) end = len - 7;
+        if (end - off > AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD)
+            end = off + AGENTIC_KIT_TAI_MAX_FRAGMENT_PAYLOAD;
+        uint8_t frag = off == 0 ? TAI_FRAG_FIRST
+                     : end == len ? TAI_FRAG_LAST : TAI_FRAG_MIDDLE;
+        if (!image_parser_frame(ctx, frag, app + off, end - off, seq)) return;
+        if (end != len) {
+            CHECK(WAIT_FOR(image_parser.frag_state && image_parser.frag_len == end, 1000));
+            pthread_mutex_lock(&g_st.mtx);
+            CHECK_EQ_INT(g_st.image_calls, calls);
+            CHECK_EQ_INT(g_st.disconnect_calls, 0);
+            pthread_mutex_unlock(&g_st.mtx);
+        }
+        off = end;
+    }
+}
+
+static void image_parser_check_fatal(tai_ctx_t *ctx, int detail, int images, int prior_closes)
+{
+    CHECK(WAIT_FOR(g_st.disconnect_calls > prior_closes, 1000));
+    image_parser_stop(ctx); /* join before asserting exactly one terminal callback */
+    CHECK_EQ_INT(g_st.disconnect_calls, prior_closes + 1);
+    CHECK_EQ_INT(g_st.disconnect_reason, TAI_DISCONNECT_PROTOCOL);
+    CHECK_EQ_INT(g_st.disconnect_detail, detail);
+    CHECK_EQ_INT(g_st.disconnect_code, 0);
+    CHECK_EQ_INT(image_parser.connection_alive, 0);
+    CHECK_EQ_INT(g_st.image_calls, images);
+    CHECK_EQ_INT(g_st.text_calls, 0);
+    CHECK_EQ_INT(image_parser.active, 0);
+    CHECK_EQ_INT(ctx->rx_image_active, 0);
+    CHECK_EQ_INT(ctx->frag_len, 0);
+    CHECK_EQ_INT(ctx->frag_state, 0);
+    CHECK(memcmp(ctx->image_key, parser_image_key, TAI_IMAGE_KEY_LEN) == 0);
+}
+
+static void test_image_parser_fragmented(void)
+{
+    SECTION("image_TLS_fragmented_RAW_Base64");
+    static tai_ctx_t storage;
+    for (int base64 = 0; base64 <= 1; base64++) {
+        pal_t pal;
+        tai_ctx_t *ctx = image_parser_setup(&storage, &pal, 1);
+        if (!ctx) return;
+        uint8_t payload[160], app[256];
+        size_t len = image_parser_payload(payload, TAI_STREAM_ONE_SHOT, base64);
+        tai_attr_t attrs[] = {
+            tai_attr_strv(TAI_ATTR_IMAGE_PARAMS, base64 ? "1 2 640 480" : "0 2 640 480"),
+            tai_attr_strv(TAI_ATTR_EVENT_ID, "parser-image"),
+        };
+        int n = tai_packet_encode(TAI_VER_21, TAI_PKT_IMAGE, attrs, 2,
+                                  payload, len, app, sizeof(app));
+        CHECK(n > 0);
+        uint16_t seq = 100;
+        if (n > 0) image_parser_fragmented(ctx, app, (size_t)n, &seq);
+        CHECK(WAIT_FOR(g_st.image_calls == 1, 1000));
+        CHECK(WAIT_FOR(!image_parser.active && image_parser.frees == base64 + 1, 1000));
+        image_parser_stop(ctx);
+        CHECK_EQ_INT(image_parser.len, sizeof(parser_image_plain));
+        CHECK(memcmp(image_parser.bytes, parser_image_plain, sizeof(parser_image_plain)) == 0);
+        CHECK_EQ_INT(image_parser.type, TAI_IMG_PAYLOAD_RAW);
+        CHECK_EQ_INT(image_parser.flag, TAI_STREAM_ONE_SHOT);
+        CHECK_EQ_INT(image_parser.format, TAI_IMG_PNG);
+        CHECK_EQ_INT(image_parser.width, 640);
+        CHECK_EQ_INT(image_parser.height, 480);
+        CHECK_EQ_INT(image_parser.data_id, 6);
+        CHECK_EQ_INT(image_parser.timestamp, UINT64_C(0x0102030405));
+        CHECK(strcmp(image_parser.event, "parser-image") == 0);
+        CHECK(!pthread_equal(pthread_self(), image_parser.callback_thread));
+        CHECK_EQ_INT(image_parser.allocs, base64 + 1);
+        CHECK_EQ_INT(image_parser.frees, base64 + 1);
+        CHECK_EQ_INT(g_st.image_calls, 1);
+        CHECK_EQ_INT(g_st.disconnect_calls, 0);
+        tai_ctx_deinit(ctx);
+    }
+}
+
+static void test_image_parser_rejections(void)
+{
+    SECTION("image_TLS_fail_fast_and_legacy_attrs");
+    static tai_ctx_t storage;
+    /* 0: tag, 1/2: hidden duplicate params/Event ID, 3: partial TLV header,
+     * 4: truncated TLV value, 5: block overflow, 6/7/8: scratch allocation. */
+    for (int test = 0; test < 9; test++) {
+        for (int keyed = 1; keyed >= (test >= 1 && test <= 4 ? 0 : 1); keyed--) {
+            pal_t pal;
+            tai_ctx_t *ctx = image_parser_setup(&storage, &pal, keyed);
+            if (!ctx) return;
+            uint8_t payload[160], app[1024];
+            int base64 = test >= 7;
+            size_t len = image_parser_payload(payload, TAI_STREAM_ONE_SHOT, base64);
+            tai_attr_t attrs[AGENTIC_KIT_TAI_MAX_ATTRS + 1];
+            attrs[0] = tai_attr_strv(TAI_ATTR_IMAGE_PARAMS, base64 ? "1 2 640 480" : "0 2 640 480");
+            attrs[1] = tai_attr_strv(TAI_ATTR_EVENT_ID, "parser-image");
+            int count = 2;
+            if (test == 1 || test == 2) {
+                for (int i = 2; i < AGENTIC_KIT_TAI_MAX_ATTRS; i++)
+                    attrs[i] = tai_attr_bytesv(0xfffe, NULL, 0);
+                attrs[AGENTIC_KIT_TAI_MAX_ATTRS] = attrs[test - 1];
+                count = AGENTIC_KIT_TAI_MAX_ATTRS + 1;
+            }
+            if (test == 0) payload[len - 1] ^= 1; /* valid Frame HMAC, bad GCM tag */
+            int n = tai_packet_encode(TAI_VER_21, TAI_PKT_IMAGE, attrs, count,
+                                      payload, len, app, sizeof(app));
+            CHECK(n > 0);
+            if (n <= 0) { image_parser_stop(ctx); tai_ctx_deinit(ctx); return; }
+            if (test == 3 || test == 4) {
+                size_t block = tai_r32(app + 1), pos = 5 + block;
+                size_t extra = test == 3 ? 3 : 4;
+                memmove(app + pos + extra, app + pos, (size_t)n - pos);
+                memset(app + pos, 0, extra);
+                if (test == 4) tai_w16(app + pos + 2, 1);
+                tai_w32(app + 1, (uint32_t)(block + extra));
+                n += (int)extra;
+            } else if (test == 5) tai_w32(app + 1, UINT32_MAX);
+            pthread_mutex_lock(&g_st.mtx);
+            if (test >= 6) image_parser.fail_alloc = test == 8 ? 2 : 1;
+            pthread_mutex_unlock(&g_st.mtx);
+            uint16_t seq = 100;
+            if (test == 0) image_parser_fragmented(ctx, app, (size_t)n, &seq);
+            else image_parser_frame(ctx, TAI_FRAG_NONE, app, (size_t)n, &seq);
+            if (keyed) {
+                server_send_text(ctx, "must not dispatch", 17, TAI_STREAM_ONE_SHOT, 0, seq++);
+                image_parser_check_fatal(ctx, test == 0 ? TAI_PROTO_ERR_IMAGE_AUTH
+                    : test >= 6 ? TAI_PROTO_ERR_IMAGE_PROCESSING : TAI_PROTO_ERR_PKT_DECODE, 0, 0);
+                CHECK_EQ_INT(image_parser.allocs, test == 0 ? 1 : test >= 6 ? (test == 8 ? 2 : 1) : 0);
+                CHECK_EQ_INT(image_parser.frees, test == 0 || test == 8 ? 1 : 0);
+            } else {
+                CHECK(WAIT_FOR(g_st.image_calls == 1, 1000));
+                image_parser_stop(ctx);
+                CHECK_EQ_INT(g_st.disconnect_calls, 0);
+                CHECK_EQ_INT(image_parser.len, len - 8);
+                CHECK(memcmp(image_parser.bytes, payload + 8, len - 8) == 0);
+            }
+            tai_ctx_deinit(ctx);
+        }
+    }
+}
+
+static void test_image_parser_capacity(void)
+{
+    SECTION("image_TLS_exact_continuation_capacity");
+    static tai_ctx_t storage;
+    static uint8_t app[AGENTIC_KIT_TAI_FRAG_BUF_SIZE + 5];
+    static uint8_t plain[AGENTIC_KIT_TAI_FRAG_BUF_SIZE];
+    for (int test = 0; test < 4; test++) {
+        pal_t pal;
+        tai_ctx_t *ctx = image_parser_setup(&storage, &pal, 1);
+        if (!ctx) return;
+        uint8_t start[160];
+        image_parser_payload(start, TAI_STREAM_START, 0);
+        tai_attr_t attrs[] = {
+            tai_attr_strv(TAI_ATTR_IMAGE_PARAMS, "0 2 640 480"),
+            tai_attr_strv(TAI_ATTR_EVENT_ID, "parser-image"),
+        };
+        CHECK(server_send(ctx, TAI_PKT_IMAGE, attrs, 2, start, 24, 100) > 0);
+        CHECK(WAIT_FOR(g_st.image_calls == 1 && image_parser.active, 1000));
+        /* Omitted attrs: exact ceiling/+1. Explicit empty block: exact/+1. */
+        size_t prefix = test < 2 ? 1 : 5;
+        size_t total = AGENTIC_KIT_TAI_FRAG_BUF_SIZE + (test & 1);
+        size_t len = total - prefix - 24 - 16;
+        for (size_t i = 0; i < len; i++) plain[i] = (uint8_t)(i * 19 + i / 251);
+        app[0] = (TAI_PKT_IMAGE << 1) | (test >= 2);
+        if (test >= 2) tai_w32(app + 1, 0);
+        memcpy(app + prefix, start, 24);
+        app[prefix + 2] = TAI_STREAM_END << 6;
+        mbedtls_gcm_context gcm;
+        mbedtls_gcm_init(&gcm);
+        int rc = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, parser_image_key, 128);
+        if (!rc) rc = mbedtls_gcm_crypt_and_tag(&gcm, MBEDTLS_GCM_ENCRYPT, len,
+            start + 8, 16, NULL, 0, plain, app + prefix + 24, 16, app + total - 16);
+        mbedtls_gcm_free(&gcm);
+        CHECK_EQ_INT(rc, 0);
+        if (rc) { image_parser_stop(ctx); tai_ctx_deinit(ctx); return; }
+        uint16_t seq = 101;
+        image_parser_fragmented(ctx, app, total, &seq);
+        if (test & 1) image_parser_check_fatal(ctx, TAI_PROTO_ERR_FRAG, 1, 0);
+        else {
+            CHECK(WAIT_FOR(g_st.image_calls == 2 && !image_parser.active, 1000));
+            image_parser_stop(ctx);
+            CHECK_EQ_INT(image_parser.len, len);
+            CHECK(memcmp(image_parser.bytes, plain, len) == 0);
+            CHECK_EQ_INT(image_parser.flag, TAI_STREAM_END);
+            CHECK_EQ_INT(image_parser.type, TAI_IMG_PAYLOAD_RAW);
+            CHECK(strcmp(image_parser.event, "parser-image") == 0);
+            CHECK_EQ_INT(g_st.disconnect_calls, 0);
+            CHECK_EQ_INT(g_st.image_calls, 2);
+        }
+        tai_ctx_deinit(ctx);
+    }
+}
+
+static void test_image_parser_resets(void)
+{
+    SECTION("image_TLS_lifecycle_resets");
+    static tai_ctx_t storage;
+    for (int reset = 0; reset < 7; reset++) {
+        pal_t pal;
+        tai_ctx_t *ctx = image_parser_setup(&storage, &pal, 1);
+        if (!ctx) return;
+        uint8_t payload[160];
+        size_t len = image_parser_payload(payload, TAI_STREAM_START, 0);
+        tai_attr_t attrs[] = {
+            tai_attr_strv(TAI_ATTR_IMAGE_PARAMS, "0 2 640 480"),
+            tai_attr_strv(TAI_ATTR_EVENT_ID, "parser-image"),
+        };
+        CHECK(server_send(ctx, TAI_PKT_IMAGE, attrs, 2, payload, len, 100) > 0);
+        CHECK(WAIT_FOR(g_st.image_calls == 1 && image_parser.active, 1000));
+        if (reset == 4) {
+            uint8_t app[256];
+            int n = tai_packet_encode(TAI_VER_21, TAI_PKT_IMAGE, attrs, 2,
+                                      payload, len, app, sizeof(app));
+            CHECK(n > 10);
+            uint16_t seq = 101;
+            if (n > 10) image_parser_frame(ctx, TAI_FRAG_FIRST, app, 10, &seq);
+            CHECK(WAIT_FOR(image_parser.frag_state && image_parser.frag_len == 10, 1000));
+            image_parser_stop(ctx);
+            CHECK_EQ_INT(g_st.image_calls, 1);
+            CHECK_EQ_INT(ctx->frag_len, 0);
+            CHECK_EQ_INT(ctx->frag_state, 0);
+            CHECK_EQ_INT(ctx->rx_image_active, 0);
+            CHECK(ctx->rx_image_event_id[0] == 0 && ctx->rx_event_id[0] == 0);
+            CHECK(memcmp(ctx->image_key, parser_image_key, TAI_IMAGE_KEY_LEN) == 0);
+            int started = keyed_peer_start(0);
+            CHECK_EQ_INT(started, 0);
+            if (!started) {
+                ctx->port = keyed_peer.port;
+                int rc = tai_connect(ctx);
+                pthread_join(keyed_peer.thread, NULL);
+                CHECK_EQ_INT(rc, TAI_OK);
+                CHECK_EQ_INT(keyed_peer.error, 0);
+                CHECK(memcmp(ctx->image_key, parser_image_key, TAI_IMAGE_KEY_LEN) == 0);
+                if (rc == TAI_OK) {
+                    payload[2] = TAI_STREAM_ONE_SHOT << 6;
+                    CHECK(server_send(ctx, TAI_PKT_IMAGE, attrs, 2, payload, len, 100) > 0);
+                    CHECK(WAIT_FOR(g_st.image_calls == 2, 1000));
+                    CHECK(memcmp(image_parser.bytes, parser_image_plain, sizeof(parser_image_plain)) == 0);
+                }
+                image_parser_stop(ctx);
+            }
+            CHECK_EQ_INT(g_st.disconnect_calls, 0);
+        } else {
+            if (reset == 3) {
+                CHECK(server_send(ctx, TAI_PKT_SESSION_CLOSE, NULL, 0, NULL, 0, 101) > 0);
+                CHECK(WAIT_FOR(g_st.disconnect_calls == 1, 1000));
+                pthread_mutex_lock(&g_st.mtx);
+                CHECK_EQ_INT(g_st.disconnect_reason, TAI_DISCONNECT_SESSION_CLOSE);
+                CHECK_EQ_INT(image_parser.connection_alive, 1);
+                pthread_mutex_unlock(&g_st.mtx);
+            } else {
+                /* Same/omitted IDs must reset without relying on an ID change. */
+                if (reset == 6) {
+                    uint8_t event[2];
+                    tai_w16(event, TAI_EVT_CHAT_BREAK);
+                    CHECK(server_send(ctx, TAI_PKT_EVENT, NULL, 0,
+                                      event, sizeof(event), 101) > 0);
+                } else {
+                    CHECK(server_send_event_id(ctx, reset == 0 ? TAI_EVT_END :
+                        reset == 1 ? TAI_EVT_START : TAI_EVT_CHAT_BREAK,
+                        reset == 2 ? "next-event" : "parser-image", 101) > 0);
+                }
+                CHECK(WAIT_FOR(g_st.event_calls == 1, 1000));
+                if (reset >= 5)
+                    CHECK(strcmp(g_st.last_event_event_id, "parser-image") == 0);
+            }
+            CHECK(WAIT_FOR(!image_parser.active, 1000));
+            payload[2] = TAI_STREAM_MIDDLE << 6;
+            CHECK(server_send(ctx, TAI_PKT_IMAGE, NULL, 0, payload, len, 102) > 0);
+            image_parser_check_fatal(ctx, TAI_PROTO_ERR_UNEXPECTED, 1, reset == 3);
+        }
+        tai_ctx_deinit(ctx);
+        uint8_t zero[TAI_IMAGE_KEY_LEN] = {0};
+        CHECK_EQ_INT(ctx->has_image_key, 0);
+        CHECK(memcmp(ctx->image_key, zero, sizeof(zero)) == 0);
+    }
+}
+
 /* =========================================================================
  * main
  * ========================================================================= */
+#include "test_keyed_connection.h"
+
 int main(void)
 {
-    printf("=== Tuya AI -- integration tests (loopback PAL) ===\n");
+    printf("=== Tuya AI -- integration tests (loopback PAL and verified TLS) ===\n");
     /* Logging is suppressed by default; set TAI_LOOPBACK_VERBOSE=1 to
      * enable -- the gate the loopback PAL's old lb_log handler applied,
      * now a mode default of this build's compile-time sink. */
@@ -2707,7 +3645,20 @@ int main(void)
     test_text_query();
     test_audio_roundtrip();
     test_image_query();
+    test_image_uplink_encrypted();
+    test_image_uplink_legacy();
+    test_image_uplink_prepare_failures();
+    test_image_uplink_write_failures();
+    test_image_uplink_argument_bounds();
     test_image_recv();
+    test_keyed_tls_connection();
+    test_keyed_tls_without_trust();
+    test_keyed_tls_rejections();
+    test_keyed_tls_worker_unknown_version();
+    test_image_parser_fragmented();
+    test_image_parser_rejections();
+    test_image_parser_capacity();
+    test_image_parser_resets();
     test_image_audio_query();
     test_disconnect_eof();
     test_session_close_then_transport();

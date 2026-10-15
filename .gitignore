@@ -10,6 +10,12 @@ venv
 *.pcm
 *.mp3
 *.o
+
+# Generated demo output (e.g. examples/posix image_generation_demo)
+generated-images/
+
+# Local credentials for activated devices (never commit)
+.envrc
 third_party/*
 !third_party/mbedtls
 !third_party/cJSON

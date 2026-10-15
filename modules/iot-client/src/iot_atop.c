@@ -32,22 +32,32 @@ _Static_assert(IOT_ATOP_ERROR_CODE_LEN >= ATOP_ERROR_CODE_LEN,
 _Static_assert(IOT_ATOP_ERROR_MSG_LEN >= ATOP_ERROR_MSG_LEN,
                "public error_msg buffer must not truncate the envelope's");
 
-/* A generic call forwards the caller's body untouched, so the only thing worth
- * checking locally is that it is a JSON object at all. Catching a typo here
- * saves an HTTPS round trip, and the cloud's rejection reason for malformed
- * input is far less specific than "your JSON does not parse". */
-static int atop_body_is_json_object(const char *data)
+/* A generic call forwards the caller's body, but every ATOP request body must
+ * carry the request timestamp: each typed wrapper in atop.c ends its body with
+ * "t", and the cloud binds the URL `t` to the body `t` -- a body without one is
+ * rejected on the sign path. So the caller's object is parsed, its `t` forced to
+ * the SDK's own timestamp (the same one that signs the URL), and re-serialized.
+ * A malformed non-object body is still caught here, before spending an HTTPS
+ * round trip, and the cloud's rejection reason for it is far less specific than
+ * "your JSON does not parse". */
+static int atop_body_prepare(const char *data, uint32_t timestamp, char **out)
 {
+    *out = NULL;
     /* require_null_terminated: plain cJSON_Parse() stops at the first complete
      * value and would wave through "{}garbage" -- exactly the snprintf-slip
      * class this check exists to catch locally. */
     cJSON *root = cJSON_ParseWithOpts(data, NULL, 1);
-    if (root == NULL) {
+    if (root == NULL || !cJSON_IsObject(root)) {
+        cJSON_Delete(root);
         return OPRT_INVALID_PARAMETER;
     }
-    bool is_object = cJSON_IsObject(root);
+    /* Overwrite any caller-supplied t: the URL signs the SDK's timestamp, so a
+     * stale caller value would sign one t and send another. */
+    cJSON_DeleteItemFromObject(root, "t");
+    cJSON_AddNumberToObject(root, "t", (double)timestamp);
+    *out = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
-    return is_object ? OPRT_OK : OPRT_INVALID_PARAMETER;
+    return (*out != NULL) ? OPRT_OK : OPRT_MALLOC_FAILED;
 }
 
 int iot_atop_call(iot_client_t *client,
@@ -79,12 +89,17 @@ int iot_atop_call(iot_client_t *client,
         return OPRT_UNINITIALIZED;
     }
 
-    const char *body = (request->data != NULL && request->data[0] != '\0')
+    const char *data = (request->data != NULL && request->data[0] != '\0')
                            ? request->data
                            : "{}";
-    int rt = atop_body_is_json_object(body);
+    uint32_t timestamp = (uint32_t)time(NULL);
+
+    char *body = NULL;
+    int rt = atop_body_prepare(data, timestamp, &body);
     if (rt != OPRT_OK) {
-        IOT_LOGE("iot_atop_call: data is not a JSON object");
+        IOT_LOGE("iot_atop_call: %s",
+                 rt == OPRT_INVALID_PARAMETER ? "data is not a JSON object"
+                                              : "failed to prepare request body");
         return rt;
     }
 
@@ -98,8 +113,8 @@ int iot_atop_call(iot_client_t *client,
         .api       = request->api,
         .version   = request->version,
         .devid     = client->devid,
-        .timestamp = (uint32_t)time(NULL),
-        .data      = (void *)body,
+        .timestamp = timestamp,
+        .data      = body,
         .datalen   = strlen(body),
         .host      = host[0] ? host : NULL,
         .port      = port,
@@ -109,6 +124,9 @@ int iot_atop_call(iot_client_t *client,
 
     atop_base_response_t atop_response = {0};
     rt = atop_base_request(client->pal, &atop_request, &atop_response);
+    /* The body is encrypted into atop_base's own buffer inside the call, so it
+     * is ours to release as soon as the request returns. */
+    client->pal->free(body);
 
     /* Carry the cloud's verdict back on every path. For a generic call this is
      * the whole point: the caller knows what its interface can reject on, and
