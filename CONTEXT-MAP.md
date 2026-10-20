@@ -5,6 +5,8 @@ and decisions.
 
 ## Contexts
 
+- [Business Client](./modules/biz-client/CONTEXT.md) — typed device-side cloud
+  business services, initially AI role management and language/timbre queries.
 - [IoT Client](./modules/iot-client/CONTEXT.md) — device ↔ Tuya cloud: activation, the
   Data Point model, MQTT reporting/downlink. ADRs: `modules/iot-client/docs/adr/`.
 - [RTC TCP Client](./modules/rtc-tcp-client/CONTEXT.md) — device ↔ Tuya AI Foundation
@@ -16,6 +18,8 @@ and decisions.
 
 ## Relationships
 
+- **Business Client → IoT Client**: uses only `iot_atop_call()` and its public
+  response-release contract. It does not depend on RTC or own application tasks.
 - **IoT Client → RTC TCP Client**: the IoT Client obtains an AI session token
   (`iot_client_get_session_token`) that the RTC client uses to open a Session.
   Applications may also keep MQTT active as an independent control path:

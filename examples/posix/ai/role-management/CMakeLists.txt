@@ -1,0 +1,13 @@
+cmake_minimum_required(VERSION 3.20)
+project(agentic_kit_role_example C)
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+if(NOT TARGET tuya_biz_client)
+    set(AGENTIC_KIT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(AGENTIC_KIT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../../../.."
+        "${CMAKE_BINARY_DIR}/_agentic_kit" EXCLUDE_FROM_ALL)
+endif()
+add_executable(role_management_demo role_demo.c role_demo_main.c)
+target_link_libraries(role_management_demo PRIVATE tuya_biz_client)
+target_compile_options(role_management_demo PRIVATE -Wall -Wextra -Werror)

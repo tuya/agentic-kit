@@ -224,6 +224,25 @@ target_link_libraries(tuya_iot_client PUBLIC
 )
 
 # -----------------------------------------------------------------------------
+# biz-client module (typed device-side cloud services)
+# -----------------------------------------------------------------------------
+set(BIZ_CLIENT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/modules/biz-client")
+set(BIZ_CLIENT_SOURCES
+    "${BIZ_CLIENT_DIR}/src/biz_client.c"
+    "${BIZ_CLIENT_DIR}/src/ai_role.c"
+)
+add_library(tuya_biz_client STATIC ${BIZ_CLIENT_SOURCES})
+target_include_directories(tuya_biz_client
+    PUBLIC "${BIZ_CLIENT_DIR}/include"
+    PRIVATE "${cjson_source_dir}"
+)
+target_link_libraries(tuya_biz_client PUBLIC tuya_iot_client
+    PRIVATE ${AGENTIC_KIT_CJSON_TARGET} agentic_kit_common)
+if(UNIX)
+    target_link_libraries(tuya_biz_client PRIVATE m)
+endif()
+
+# -----------------------------------------------------------------------------
 # rtc-client module (prebuilt binary)
 # -----------------------------------------------------------------------------
 set(STEAM_CLIENT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/modules/rtc-client")
@@ -270,6 +289,21 @@ target_link_libraries(tuya_ble PUBLIC
 # Tests
 # -----------------------------------------------------------------------------
 if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
+    # Fake only the public ATOP boundary, so service parsing/ownership can be
+    # checked without network credentials or a subprocess. Register in ctest.
+    add_executable(biz_ai_role_test ${BIZ_CLIENT_SOURCES}
+        "${BIZ_CLIENT_DIR}/test/ai_role_test.c")
+    target_include_directories(biz_ai_role_test PRIVATE
+        "${BIZ_CLIENT_DIR}/include" "${IOT_CLIENT_DIR}/include"
+        "${PAL_DIR}" "${COMMON_DIR}" "${cjson_source_dir}")
+    target_compile_options(biz_ai_role_test PRIVATE -Wall -Wextra -Werror)
+    target_link_libraries(biz_ai_role_test PRIVATE
+        ${AGENTIC_KIT_CJSON_TARGET} agentic_kit_common)
+    if(UNIX)
+        target_link_libraries(biz_ai_role_test PRIVATE m)
+    endif()
+    add_test(NAME biz_ai_role_test COMMAND biz_ai_role_test)
+
     set(AI_TCP_TESTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/modules/rtc-tcp-client/test")
     set(IOT_CLIENT_TESTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/modules/iot-client/test")
     set(TUYA_BLE_TESTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/modules/tuya-ble/test")
