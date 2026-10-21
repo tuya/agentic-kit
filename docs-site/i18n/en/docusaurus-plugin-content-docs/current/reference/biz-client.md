@@ -23,6 +23,13 @@ Initialize IoT first; free results before destroying Biz Client and finish
 all calls before IoT teardown. Instances keep separate contexts and label
 languages; the application owns serialized scheduling.
 
+## Logging {#logging}
+
+`AGENTIC_KIT_BIZ_LOG_LEVEL` defaults to the SDK-wide `AGENTIC_KIT_LOG_LEVEL`
+and can only lower biz-client's compile-time log ceiling. Set it to `0` to
+disable this module's logs; higher values are clamped to the global ceiling.
+See [compile-time configuration](../guides/compile-time-knobs.md) for overrides.
+
 ## Role APIs {#role-api}
 
 All operations take a Biz Client first and optional

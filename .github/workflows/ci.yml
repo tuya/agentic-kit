@@ -47,10 +47,15 @@ jobs:
         run: pip install $PIP_DEPS
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPython3_EXECUTABLE=$(which python3)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPython3_EXECUTABLE=$(which python3) -DAGENTIC_KIT_ENABLE_LAN=ON
 
       - name: Build
         run: cmake --build build -j 4
+
+      - name: Build without LAN
+        run: |
+          cmake -S . -B build-no-lan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPython3_EXECUTABLE=$(which python3) -DAGENTIC_KIT_ENABLE_LAN=OFF -DAGENTIC_KIT_BUILD_TESTS=OFF
+          cmake --build build-no-lan --target tuya_iot_client tuya_ai_tcp -j 4
 
       - name: FreeRTOS PAL header compatibility
         run: cmake --build build --target check_freertos_pal
@@ -79,6 +84,7 @@ jobs:
         run: >
           cmake -S . -B build-asan
           -DCMAKE_BUILD_TYPE=Debug
+          -DAGENTIC_KIT_ENABLE_LAN=ON
           -DPython3_EXECUTABLE=$(which python3)
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -g -O1"
           -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
@@ -121,7 +127,7 @@ jobs:
       # examples/posix fetches qrcodegen / quirc / stb via FetchContent at
       # configure time, and links the prebuilt rtc-client lib (linux-gnu-amd64).
       - name: Configure
-        run: cmake -S examples/posix -B build-examples -DPython3_EXECUTABLE=$(which python3)
+        run: cmake -S examples/posix -B build-examples -DPython3_EXECUTABLE=$(which python3) -DAGENTIC_KIT_ENABLE_LAN=ON
 
       - name: Build
         run: cmake --build build-examples -j 4

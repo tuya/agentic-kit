@@ -10,6 +10,8 @@
 #include <time.h>
 
 static int calls, frees, live, fail_after = -1;
+static size_t fail_size;
+static int size_failures;
 static int response_rc;
 static const char *response_json;
 static char api[128];
@@ -21,6 +23,7 @@ static tuya_biz_client_t *biz;
 
 static void *allocate(size_t n)
 {
+    if (fail_size && n == fail_size) { ++size_failures; return NULL; }
     if (fail_after == 0) return NULL;
     if (fail_after > 0) --fail_after;
     void *p = malloc(n);
@@ -275,6 +278,144 @@ static int allocation_failures_release_everything(void)
     return 0;
 }
 
+static int partial_lists_are_discarded(void)
+{
+    cJSON_Delete(request_body); request_body = NULL;
+    int baseline = live;
+    response("{\"items\":[{\"roleId\":\"r1\"},{\"roleId\":\"r2\",\"speed\":0}],\"totalCount\":10}");
+    tuya_ai_role_list_t roles = {0};
+    CHECK(tuya_ai_role_list_templates(biz, &roles, NULL) == OPRT_INVALID_RESULT);
+    CHECK(!roles.items && !roles.count && roles.total_count == 0);
+    cJSON_Delete(request_body); request_body = NULL;
+    CHECK(live == baseline);
+
+    response("[{\"langCode\":\"en\"},{\"langCode\":\"zh\",\"hasDefault\":\"true\"}]");
+    tuya_ai_language_list_t languages = {0};
+    CHECK(tuya_ai_role_list_languages(biz, &languages, NULL) == OPRT_INVALID_RESULT);
+    CHECK(!languages.items && !languages.count);
+    cJSON_Delete(request_body); request_body = NULL;
+    CHECK(live == baseline);
+
+    response("{\"records\":[{\"voiceId\":\"v1\"},{\"voiceId\":\"v2\",\"supportLangs\":[false]}],\"totalCount\":10}");
+    tuya_ai_timbre_list_t timbres = {0};
+    CHECK(tuya_ai_role_list_timbres(biz, NULL, 1, 2, &timbres, NULL) == OPRT_INVALID_RESULT);
+    CHECK(!timbres.items && !timbres.count && timbres.total_count == 0);
+    cJSON_Delete(request_body); request_body = NULL;
+    CHECK(live == baseline);
+    return 0;
+}
+
+static int list_allocation_failures(void)
+{
+    cJSON_Delete(request_body); request_body = NULL;
+    int baseline = live;
+    response("[{\"roleId\":\"r1\"},{\"roleId\":\"r2\"}]");
+    tuya_ai_role_list_t roles = {0};
+    size_failures = 0; fail_size = 2 * sizeof(*roles.items);
+    int rc = tuya_ai_role_list_templates(biz, &roles, NULL);
+    fail_size = 0;
+    CHECK(size_failures == 1 && rc == OPRT_MALLOC_FAILED);
+    CHECK(!roles.items && !roles.count && roles.total_count == 0);
+    cJSON_Delete(request_body); request_body = NULL;
+    CHECK(live == baseline);
+
+    response("[{\"langCode\":\"en\"},{\"langCode\":\"zh\"}]");
+    tuya_ai_language_list_t languages = {0};
+    size_failures = 0; fail_size = 2 * sizeof(*languages.items);
+    rc = tuya_ai_role_list_languages(biz, &languages, NULL);
+    fail_size = 0;
+    CHECK(size_failures == 1 && rc == OPRT_MALLOC_FAILED);
+    CHECK(!languages.items && !languages.count);
+    cJSON_Delete(request_body); request_body = NULL;
+    CHECK(live == baseline);
+
+    response("[{\"voiceId\":\"v1\"},{\"voiceId\":\"v2\"}]");
+    tuya_ai_timbre_list_t timbres = {0};
+    size_failures = 0; fail_size = 2 * sizeof(*timbres.items);
+    rc = tuya_ai_role_list_timbres(biz, NULL, 1, 2, &timbres, NULL);
+    fail_size = 0;
+    CHECK(size_failures == 1 && rc == OPRT_MALLOC_FAILED);
+    CHECK(!timbres.items && !timbres.count && timbres.total_count == 0);
+    cJSON_Delete(request_body); request_body = NULL;
+    CHECK(live == baseline);
+    return 0;
+}
+
+static int all_list_envelopes(void)
+{
+    const char *keys[] = {NULL, "datas", "list", "records", "rows", "content", "data", "items"};
+    for (size_t i = 0; i < sizeof(keys)/sizeof(keys[0]); ++i) {
+        char json[192];
+        if (keys[i]) snprintf(json, sizeof(json),
+            "{\"%s\":[{\"langCode\":\"en\"},{\"langCode\":\"zh\"}],\"totalCount\":\"ignored\"}", keys[i]);
+        else strcpy(json, "[{\"langCode\":\"en\"},{\"langCode\":\"zh\"}]");
+        response(json);
+        tuya_ai_language_list_t languages = {0};
+        CHECK(tuya_ai_role_list_languages(biz, &languages, NULL) == OPRT_OK);
+        CHECK(languages.count == 2 && !strcmp(languages.items[1].code, "zh"));
+        CHECK(!languages.items[0].name[0] && !languages.items[0].has_default);
+        tuya_ai_language_list_free(biz, &languages);
+
+        if (keys[i]) snprintf(json, sizeof(json),
+            "{\"%s\":[{\"voiceId\":\"v1\"},{\"voiceId\":\"v2\"}],\"totalCount\":7}", keys[i]);
+        else strcpy(json, "[{\"voiceId\":\"v1\"},{\"voiceId\":\"v2\"}]");
+        response(json);
+        tuya_ai_timbre_list_t timbres = {0};
+        CHECK(tuya_ai_role_list_timbres(biz, NULL, 1, 2, &timbres, NULL) == OPRT_OK);
+        CHECK(timbres.count == 2 && !strcmp(timbres.items[1].id, "v2"));
+        CHECK(!timbres.items[0].name[0] && !timbres.items[0].support_langs[0]);
+        CHECK(timbres.total_count == (keys[i] ? 7 : -1));
+        tuya_ai_timbre_list_free(biz, &timbres);
+    }
+    response("[]");
+    tuya_ai_language_list_t languages = {0};
+    CHECK(tuya_ai_role_list_languages(biz, &languages, NULL) == OPRT_OK);
+    CHECK(!languages.items && !languages.count);
+    response("{\"items\":[],\"totalCount\":0}");
+    tuya_ai_timbre_list_t timbres = {0};
+    CHECK(tuya_ai_role_list_timbres(biz, NULL, 1, 2, &timbres, NULL) == OPRT_OK);
+    CHECK(!timbres.items && !timbres.count && timbres.total_count == 0);
+    return 0;
+}
+
+static int request_language_capacity(void)
+{
+    char lang[33]; memset(lang, 'a', sizeof(lang)); lang[31] = '\0';
+    tuya_biz_client_t *ctx = NULL;
+    CHECK(tuya_biz_client_create(&iot, lang, &ctx) == OPRT_OK);
+    response("[]");
+    tuya_ai_role_list_t roles = {0};
+    CHECK(tuya_ai_role_list_templates(ctx, &roles, NULL) == OPRT_OK);
+    CHECK(strlen(str("requestLang")) == 31 && !strcmp(str("requestLang"), lang));
+    tuya_ai_role_list_free(ctx, &roles);
+    tuya_biz_client_destroy(ctx);
+    lang[31] = 'a'; lang[32] = '\0';
+    ctx = (void *)1;
+    int before = calls;
+    CHECK(tuya_biz_client_create(&iot, lang, &ctx) == OPRT_INVALID_PARAMETER && !ctx);
+    CHECK(calls == before);
+    return 0;
+}
+
+static int fixed_role_id_capacity(void)
+{
+    tuya_ai_role_t role = { .type = TUYA_AI_ROLE_CUSTOM };
+    memset(role.role_id, 'r', sizeof(role.role_id) - 1);
+    tuya_ai_role_edit_t edit = { .name = "Updated" };
+    char id[TUYA_AI_ROLE_ID_LEN];
+    response("true");
+    CHECK(tuya_ai_role_apply_edit(biz, &role, &edit, id, NULL) == OPRT_OK);
+    CHECK(strlen(id) == sizeof(role.role_id) - 1 && !strcmp(str("roleId"), role.role_id));
+
+    /* The public field is genuinely unterminated; adjacent bytes are nonzero. */
+    memset(role.role_id, 'r', sizeof(role.role_id));
+    memset(role.template_id, 't', sizeof(role.template_id));
+    int before = calls;
+    CHECK(tuya_ai_role_apply_edit(biz, &role, &edit, id, NULL) == OPRT_INVALID_PARAMETER);
+    CHECK(!id[0] && calls == before);
+    return 0;
+}
+
 int main(void)
 {
     cJSON_Hooks hooks = {allocate, release}; cJSON_InitHooks(&hooks);
@@ -284,7 +425,9 @@ int main(void)
     int (*tests[])(void) = { lifecycle, bound_and_templates, list_shapes_and_pagination,
         bind_and_delete, template_edit_creates_and_binds, custom_edit_preserves_omitted_fields,
         languages_and_timbres, malformed_results_and_rejections, invalid_arguments_do_not_call_cloud,
-        failed_creation_and_overlong_fields, allocation_failures_release_everything };
+        failed_creation_and_overlong_fields, allocation_failures_release_everything,
+        partial_lists_are_discarded, list_allocation_failures, all_list_envelopes,
+        request_language_capacity, fixed_role_id_capacity };
     int failed = 0;
     for (size_t i = 0; i < sizeof(tests)/sizeof(tests[0]); ++i) failed += tests[i]();
     cJSON_Delete(request_body); tuya_biz_client_destroy(biz);
