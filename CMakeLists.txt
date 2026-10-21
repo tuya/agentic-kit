@@ -308,6 +308,51 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     set(IOT_CLIENT_TESTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/modules/iot-client/test")
     set(TUYA_BLE_TESTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/modules/tuya-ble/test")
 
+    # Compile the actual FreeRTOS PAL against host-only kernel/lwIP shims and
+    # exercise its clock callbacks. The test shims are never IDF AK_SRCS.
+    foreach(clock_config IN ITEMS "16_1000" "32_1000" "32_100" "32_128" "32_2000" "64_1000")
+        string(REPLACE "_" ";" clock_parts "${clock_config}")
+        list(GET clock_parts 0 clock_bits)
+        list(GET clock_parts 1 clock_hz)
+        set(clock_target "pal_freertos_time_${clock_config}_test")
+        add_executable(${clock_target}
+            "${PAL_DIR}/pal_freertos.c" "${PAL_DIR}/test/test_freertos_time.c")
+        target_include_directories(${clock_target} PRIVATE
+            "${PAL_DIR}/test" "${PAL_DIR}" "${COMMON_DIR}")
+        target_compile_definitions(${clock_target} PRIVATE
+            TEST_TICK_BITS=${clock_bits} TEST_TICK_HZ=${clock_hz}
+            AGENTIC_KIT_LOG_LEVEL=0 gettimeofday=pal_test_gettimeofday)
+        if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(${clock_target} PRIVATE -Wall -Wextra -Werror)
+        endif()
+        add_test(NAME ${clock_target} COMMAND ${clock_target})
+    endforeach()
+
+    # Inject clock_gettime only in this target to exercise the production
+    # POSIX PAL when UTC is unset, unavailable, or corrected.
+    add_executable(pal_posix_time_test
+        "${PAL_DIR}/pal_posix.c" "${PAL_DIR}/test/test_posix_time.c")
+    target_include_directories(pal_posix_time_test PRIVATE
+        "${PAL_DIR}" "${COMMON_DIR}")
+    target_compile_definitions(pal_posix_time_test PRIVATE
+        AGENTIC_KIT_LOG_LEVEL=0 clock_gettime=pal_test_clock_gettime)
+    target_link_libraries(pal_posix_time_test PRIVATE Threads::Threads)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(pal_posix_time_test PRIVATE -Wall -Wextra -Werror)
+    endif()
+    add_test(NAME pal_posix_time_test COMMAND pal_posix_time_test)
+
+    # Offline cache/path/concurrency regressions run in both CI CTest jobs.
+    add_test(NAME freertos_pal_cache_test
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_check_freertos_pal.py")
+
+    # Explicit networked check, separate from the offline CTest suite.
+    add_custom_target(check_freertos_pal
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_freertos_pal.py"
+            --cc "${CMAKE_C_COMPILER}"
+        COMMENT "Check the PAL against pinned official FreeRTOS 10/11 headers"
+        VERBATIM)
+
     add_executable(tai_unit_tests
         ${AI_TCP_SOURCES}
         "${AI_TCP_TESTS_DIR}/test_core.c"

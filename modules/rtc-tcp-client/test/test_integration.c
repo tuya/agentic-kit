@@ -418,7 +418,7 @@ static size_t server_send_audio(tai_ctx_t *ctx,
 {
     uint8_t payload[4096];
     int hlen = tai_pack_media_hdr(TAI_VER_21, TAI_DATA_ID_AUDIO_DOWN,
-                                   stream_flag, ctx->pal->time_ms(),
+                                   stream_flag, ctx->pal->wal_clock_time(),
                                    payload, sizeof(payload));
     if (hlen <= 0) return 0;
     if ((size_t)hlen + alen > sizeof(payload)) return 0;
@@ -444,7 +444,7 @@ static size_t server_send_image(tai_ctx_t *ctx,
 {
     uint8_t payload[4096];
     int hlen = tai_pack_media_hdr(TAI_VER_21, TAI_DATA_ID_IMAGE_UP,
-                                   stream_flag, ctx->pal->time_ms(),
+                                   stream_flag, ctx->pal->wal_clock_time(),
                                    payload, sizeof(payload));
     if (hlen <= 0) return 0;
     if ((size_t)hlen + ilen > sizeof(payload)) return 0;
@@ -497,7 +497,7 @@ static int build_audio_app(tai_ctx_t *ctx, uint8_t stream_flag,
 {
     uint8_t payload[8192];
     int hlen = tai_pack_media_hdr(TAI_VER_21, TAI_DATA_ID_AUDIO_DOWN,
-                                   stream_flag, ctx->pal->time_ms(),
+                                   stream_flag, ctx->pal->wal_clock_time(),
                                    payload, sizeof(payload));
     if (hlen <= 0 || (size_t)hlen + alen > sizeof(payload)) return -1;
     if (alen) memcpy(payload + hlen, audio, alen);
@@ -2623,6 +2623,89 @@ static void test_long_receive_pause_liveness(void)
     tai_ctx_deinit(ctx);
 }
 
+static uint64_t adjusted_wall_ms;
+
+static uint64_t test_wall_ms(void)
+{
+    pthread_mutex_lock(&g_st.mtx);
+    uint64_t value = adjusted_wall_ms;
+    pthread_mutex_unlock(&g_st.mtx);
+    return value;
+}
+
+static void test_wall_clock_does_not_change_liveness(void)
+{
+    SECTION("wall_clock_does_not_change_liveness");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx(ctx_mem);
+    CHECK(ctx != NULL);
+    if (!ctx) return;
+    pal_t pal = *ctx->pal;
+    pal.wal_clock_time = test_wall_ms;
+    ctx->pal = &pal;
+    ctx->ping_interval_ms = 5000;
+    ctx->ping_timeout_ms = 800;
+    adjusted_wall_ms = 1700000000000ULL;
+    int rc = tai_connect(ctx);
+    CHECK_EQ_INT(rc, TAI_OK);
+    if (rc == TAI_OK) {
+        pthread_mutex_lock(&g_st.mtx);
+        adjusted_wall_ms += 86400000ULL;
+        pthread_mutex_unlock(&g_st.mtx);
+        sleep_ms(100);
+        pthread_mutex_lock(&g_st.mtx);
+        CHECK_EQ_INT(g_st.disconnect_calls, 0);
+        adjusted_wall_ms -= 2 * 86400000ULL;
+        pthread_mutex_unlock(&g_st.mtx);
+        sleep_ms(100);
+        pthread_mutex_lock(&g_st.mtx);
+        CHECK_EQ_INT(g_st.disconnect_calls, 0);
+        pthread_mutex_unlock(&g_st.mtx);
+        /* Frozen UTC must still expire a genuinely idle Connection. */
+        CHECK(WAIT_FOR(g_st.disconnect_calls > 0, 2000));
+        tai_disconnect(ctx);
+        CHECK_EQ_INT(g_st.disconnect_detail, TAI_TRANSPORT_PING_TIMEOUT);
+    }
+    tai_ctx_deinit(ctx);
+}
+
+static void test_connect_warns_when_utc_unavailable(void)
+{
+    SECTION("connect_warns_when_utc_unavailable");
+    static uint8_t ctx_mem[sizeof(struct tai_ctx)];
+    tai_ctx_t *ctx = setup_ctx(ctx_mem);
+    CHECK(ctx != NULL);
+    if (!ctx) return;
+    pal_t pal = *ctx->pal;
+    pal.wal_clock_time = test_wall_ms;
+    ctx->pal = &pal;
+    adjusted_wall_ms = 0;   /* PAL reports UTC unavailable */
+    char capture[2048];
+    test_log_capture_begin(capture, sizeof capture);
+    int rc = tai_connect(ctx);
+    test_log_capture_end();
+    CHECK_EQ_INT(rc, TAI_OK);
+    CHECK(strstr(capture, "UTC unavailable") != NULL);
+    tai_disconnect(ctx);   /* joins the worker before the static ctx is reused */
+    tai_ctx_deinit(ctx);
+}
+
+static void test_pal_clock_contract(void)
+{
+    SECTION("pal_clock_contract");
+    const pal_t *pal = tai_pal_posix();
+    uint64_t before = (uint64_t)time(NULL) * 1000U;
+    uint64_t wall = pal->wal_clock_time();
+    uint64_t after = (uint64_t)time(NULL) * 1000U + 999U;
+    CHECK(wall >= before && wall <= after);
+    pal_t incomplete = *pal;
+    incomplete.wal_clock_time = NULL;
+    CHECK(!pal_is_valid(&incomplete));
+    incomplete = *pal;
+    incomplete.time_ms = NULL;
+    CHECK(!pal_is_valid(&incomplete));
+}
+
 static void check_pal_sleep(const pal_t *pal, void *tcp)
 {
     uint8_t byte = 0;
@@ -2704,6 +2787,9 @@ int main(void)
     test_partial_frame_blocking_recv();
     test_long_receive_pause_liveness();
     test_pal_sleep();
+    test_pal_clock_contract();
+    test_wall_clock_does_not_change_liveness();
+    test_connect_warns_when_utc_unavailable();
     test_text_query();
     test_audio_roundtrip();
     test_image_query();

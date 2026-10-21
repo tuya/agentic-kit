@@ -15,10 +15,10 @@ The RTC TCP Client uses a PAL (Platform Abstraction Layer) for cross-platform po
 | TCP | `tcp_connect`, `tcp_send`, `tcp_recv`, `tcp_close`, `tcp_poll` | TCP connection management, sending, receiving, and polling |
 | Threads | `thread_create`, `thread_join` | Background receive thread |
 | Mutexes | `mutex_create`, `mutex_lock`, `mutex_unlock`, `mutex_destroy` | Thread synchronization |
-| Time | `time_ms` | Obtain a millisecond timestamp |
+| Time | `time_ms`, `wal_clock_time` | Monotonic milliseconds for deadlines; Unix UTC milliseconds |
 | Memory | `malloc`, `free` | Dynamic memory allocation |
 
-> **Note:** The PAL only needs to implement raw TCP (`tcp_*`), polling (`tcp_poll`), mutex (`mutex_*`), and time (`time_ms`) interfaces. TLS does not need to be implemented in the PAL. TLS now resides in the shared library `common/tls.c` (TLS-over-TCP shared by mqtt/http in iot-client and rtc-tcp-client; the old rtc-tcp-client `src/tai_tls.c` has been removed). Internally, the TLS handshake reuses the PAL's `tcp_poll` / `mutex_*` / `time_ms`, so these PAL interfaces must be implemented correctly.
+> **Note:** The PAL only needs to implement raw TCP (`tcp_*`), polling (`tcp_poll`), mutex (`mutex_*`), and time (`wal_clock_time`, `time_ms`) interfaces. TLS does not need to be implemented in the PAL. TLS now resides in the shared library `common/tls.c` (TLS-over-TCP shared by mqtt/http in iot-client and rtc-tcp-client; the old rtc-tcp-client `src/tai_tls.c` has been removed). Internally, the TLS handshake reuses the PAL's `tcp_poll` / `mutex_*` / `time_ms`, so these PAL interfaces must be implemented correctly.
 
 ### Random Number Generation (RNG) {#随机数-rng}
 
@@ -43,20 +43,22 @@ static void *my_tcp_connect(const char *host, uint16_t port, uint32_t timeout_ms
 // ... Implement the other functions ...
 
 const pal_t my_platform_pal = {
-    .tcp_connect   = my_tcp_connect,
-    .tcp_send      = my_tcp_send,
-    .tcp_recv      = my_tcp_recv,
-    .tcp_close     = my_tcp_close,
-    .tcp_poll      = my_tcp_poll,
-    .time_ms       = my_time_ms,
-    .malloc        = my_malloc,
-    .free          = my_free,
-    .mutex_create  = my_mutex_create,
-    .mutex_lock    = my_mutex_lock,
-    .mutex_unlock  = my_mutex_unlock,
-    .mutex_destroy = my_mutex_destroy,
-    .thread_create = my_thread_create,
-    .thread_join   = my_thread_join,
+    .tcp_connect    = my_tcp_connect,
+    .tcp_send       = my_tcp_send,
+    .tcp_recv       = my_tcp_recv,
+    .tcp_close      = my_tcp_close,
+    .tcp_poll       = my_tcp_poll,
+    .time_ms        = my_time_ms,
+    .wal_clock_time = my_wal_clock_time,
+    .malloc         = my_malloc,
+    .free           = my_free,
+    .mutex_create   = my_mutex_create,
+    .mutex_lock     = my_mutex_lock,
+    .mutex_unlock   = my_mutex_unlock,
+    .mutex_destroy  = my_mutex_destroy,
+    .thread_create  = my_thread_create,
+    .thread_join    = my_thread_join,
+    .sleep_ms       = my_sleep_ms,
 };
 ```
 
@@ -64,7 +66,7 @@ const pal_t my_platform_pal = {
 
 ```c
 tai_config_t cfg = {
-    .pal = &my_platform_pal,
+    .pal            = &my_platform_pal,
     // ... Other configuration
 };
 ```
@@ -82,7 +84,7 @@ Compile the source files under `modules/rtc-tcp-client/src/` together with your 
 | TCP | lwIP socket API |
 | Threads | `xTaskCreate` / `vTaskDelete` |
 | Mutexes | `xSemaphoreCreateRecursiveMutex` |
-| Time | `xTaskGetTickCount() * portTICK_PERIOD_MS` |
+| Time | `time_ms`: FreeRTOS ticks; `wal_clock_time`: libc `gettimeofday()` |
 | Memory | `pvPortMalloc` / `vPortFree` |
 
 Reference implementations: `pal/pal_freertos.c` and `examples/esp-idf/components/agentic_kit/`
@@ -94,7 +96,7 @@ Reference implementations: `pal/pal_freertos.c` and `examples/esp-idf/components
 | TCP | `socket` / `connect` / `send` / `recv` |
 | Threads | `pthread_create` / `pthread_join` |
 | Mutexes | `pthread_mutex_*` |
-| Time | `clock_gettime(CLOCK_MONOTONIC)` |
+| Time | `time_ms`: `CLOCK_MONOTONIC`; `wal_clock_time`: `CLOCK_REALTIME` (both via `clock_gettime`) |
 | Memory | `malloc` / `free` |
 
 Reference implementation: `pal/pal_posix.c`
@@ -105,11 +107,76 @@ Reference implementation: `pal/pal_posix.c`
 |----------|--------------|
 | Threads | `xTaskCreate` |
 | Mutexes | `xSemaphoreCreateRecursiveMutex` |
-| Time | `xTaskGetTickCount() * portTICK_PERIOD_MS` |
+| Time | See `pal_freertos.c` for `time_ms`; `wal_clock_time` defaults to libc `gettimeofday()` and can be replaced for the platform |
 
 > **Note:** The `mutex_create` contract in `pal.h` (see the header comment) requires a **recursive mutex**. Therefore, you must use `xSemaphoreCreateRecursiveMutex` with `xSemaphoreTakeRecursive` / `xSemaphoreGiveRecursive`, not the non-recursive `xSemaphoreCreateMutex`; otherwise, reentrant locking paths deadlock.
 
 The TCP implementation depends on the specific network stack, such as lwIP or AT commands.
+
+### FreeRTOS Monotonic Time {#freertos-tick-clock}
+
+The FreeRTOS clock implementation is private to `pal/pal_freertos.c`. Applications read time through the `pal_t` callbacks, without a separate time header:
+
+```c
+#include "pal.h"
+
+static void measure_work(const pal_t *pal)
+{
+    uint64_t start_ms = pal->time_ms();
+    /* Perform work. */
+    uint64_t elapsed_ms = pal->time_ms() - start_ms;
+    (void)elapsed_ms;
+}
+```
+
+- Call `time_ms` from task context after the scheduler starts, never from an ISR. Establish new timing origins after a kernel restart.
+- Internally, `vTaskSetTimeOutState()` reads ticks and their overflow count without a tick hook or timing task. It supports 16/32/64-bit `TickType_t`. Snapshot consistency depends on the `TimeOut_t` layout and critical-section implementation in FreeRTOS V10.4.3/V11.1.0; the timeout bookkeeping API does not promise a stable extended clock. Recheck kernel upgrades and vendor forks. For 16/32-bit ticks, `UBaseType_t` must be at least 32 bits and the kernel overflow count must remain representable.
+- Conversion uses `configTICK_RATE_HZ`, including fractional-millisecond ticks and rates above 1000 Hz. It avoids intermediate multiplication overflow and saturates at `UINT64_MAX` if the millisecond range is exhausted.
+- Resolution follows the tick frequency; tickless-idle sleep time follows the port's kernel tick compensation.
+
+Reproduce the official-header checks with `cmake --build build --target check_freertos_pal`, or `python3 tools/check_freertos_pal.py --cc cc`. The script pins upstream V10.4.3/V11.1.0 commits and checks five tick-width configurations. It downloads headers and verifies compilation only, not kernel execution or critical sections. For offline checks, `--kernels-dir` accepts git checkouts of both pinned versions.
+
+### FreeRTOS UTC Clock {#freertos-wall-clock}
+
+Cloud protocols call `pal->wal_clock_time()` directly for UTC milliseconds and convert to Unix seconds at the protocol call sites with `(uint32_t)(pal->wal_clock_time() / 1000U)`; RTC media timestamps continue using UTC milliseconds.
+
+`time_ms` keeps its monotonic timing contract; the new `wal_clock_time` returns milliseconds since 1970-01-01 UTC. Both are mandatory. Custom PALs retain their existing tick/uptime implementation in `time_ms`, supply synchronized UTC in `wal_clock_time`, and rebuild the SDK and its consumers.
+
+The default `pal_wal_clock_time()` in `pal_freertos.c` reads UTC through libc `gettimeofday()` and converts seconds and microseconds to milliseconds. It returns zero if the read fails or Unix seconds are non-positive. This implementation requires a platform/libc that provides `gettimeofday()`, such as the ESP-IDF libc/lwIP environment; the FreeRTOS kernel itself provides no UTC clock. The application maintains that clock through RTC/SNTP and can use the factory PAL directly when this source is suitable:
+
+```c
+const pal_t *pal = tai_pal_freertos();
+if (iot_init(pal) != OPRT_OK) {
+    return;
+}
+tai_config_t cfg = {
+    .pal = pal,
+    /* ... */
+};
+```
+
+If the platform provides `gettimeofday()` but its UTC source is unsuitable, replace the callback before initialization. The application implements `app_utc_ms()` below to return Unix UTC milliseconds, or zero when time is unavailable:
+
+```c
+static pal_t app_pal;
+
+/* Run once at startup, before the SDK or worker threads. */
+app_pal = *tai_pal_freertos();
+app_pal.wal_clock_time = app_utc_ms;
+if (iot_init(&app_pal) != OPRT_OK) {
+    return;
+}
+tai_config_t cfg = {
+    .pal = &app_pal,
+    /* ... */
+};
+```
+
+Keep a custom PAL alive throughout SDK use, share it between IoT and TAI, and do not modify it after initialization. If the toolchain lacks `gettimeofday()`, adapt `pal_freertos.c` or supply a libc compatibility implementation; replacing a callback at runtime does not remove that compile/link dependency. A custom UTC source can read a hardware RTC directly. Without an RTC, it can compute synchronized UTC plus elapsed monotonic time, protecting shared anchor reads and updates.
+
+The SDK performs no network synchronization or background clock work and never falls back to monotonic time. A positive reading does not prove synchronization has completed; the application must still establish valid UTC. The POSIX `CLOCK_REALTIME` implementation and default initialization behavior remain unchanged.
+
+UTC may step forwards or backwards and must not be used for timeouts. TLS/MQTT/RTC deadlines and Keepalive use `time_ms`; cloud signing, DP reports and RTC media timestamps use `wal_clock_time`. Store UTC without a timezone offset; apply timezones only when displaying calendar dates. When certificate-time checks are enabled, libc/mbedTLS must use the same UTC source.
 
 ## ESP-IDF-Specific Considerations {#esp-idf-特殊注意事项}
 

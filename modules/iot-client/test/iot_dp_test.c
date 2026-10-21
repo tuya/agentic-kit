@@ -6,8 +6,9 @@
  * iot_dp_dispatch_downlink / iot_dp_deinit) plus the public iot_dp_* API
  * directly on a hand-built iot_client_t — no MQTT needed.
  *
- * Two cases use mocks (reusing the existing harness pattern):
+ * Three cases use mocks (reusing the existing harness pattern):
  *   - report round-trip via message_mock.py (publish -> echo -> dispatch);
+ *   - report with PAL UTC unavailable: still publishes, logs why it carries t=0;
  *   - schema upgrade via atop_mock.py (tuya.device.schema.newest.get).
  */
 
@@ -27,6 +28,7 @@
 #include "iot_dp.h"
 #include "iot_dp_internal.h"
 #include "atop.h"
+#include "test_log.h"
 
 /* ---- mock endpoints (match atop_test.c / iot_client_message_test.c) ---- */
 #define MSG_MOCK_PORT   11885
@@ -523,6 +525,62 @@ out:
     return rc;
 }
 
+static uint64_t unavailable_utc_ms(void)
+{
+    return 0;
+}
+
+/* No report is emitted when restored DPs are clean or no values are known;
+ * repeated polling must not warn about the timestamp of a discarded report. */
+static int test_empty_reports_do_not_warn_when_utc_unavailable(void)
+{
+    pal_t utc_less = *get_default_pal();
+    utc_less.wal_clock_time = unavailable_utc_ms;
+    iot_client_t *restored = make_client(&utc_less, TEST_SCHEMA);
+    iot_client_t *empty[] = {
+        make_client(&utc_less, TEST_SCHEMA),
+        make_client(&utc_less, "[]"),
+        make_client(&utc_less, NULL),
+    };
+    int rc = -1;
+    char capture[4096];
+
+    if (!restored) goto out;
+    for (size_t i = 0; i < sizeof empty / sizeof empty[0]; i++) {
+        if (!empty[i]) goto out;
+    }
+    if (iot_dp_restore_json(restored, "{\"dps\":{\"1\":true}}") != OPRT_OK) {
+        printf("  restore failed\n");
+        goto out;
+    }
+
+    test_log_capture_begin(capture, sizeof capture);
+    int reports_ok = 1;
+    for (int repeat = 0; repeat < 3; repeat++) {
+        if (iot_dp_report_all_dirty(restored) != OPRT_OK) reports_ok = 0;
+        for (size_t i = 0; i < sizeof empty / sizeof empty[0]; i++) {
+            if (iot_dp_report_all_dirty(empty[i]) != OPRT_OK) reports_ok = 0;
+            if (iot_dp_report_all(empty[i]) != OPRT_OK) reports_ok = 0;
+        }
+    }
+    test_log_capture_end();
+    if (!reports_ok) {
+        printf("  empty report should be a network-free no-op\n");
+        goto out;
+    }
+    if (strstr(capture, "UTC unavailable")) {
+        printf("  empty report logged a UTC warning\n");
+        goto out;
+    }
+    rc = 0;
+out:
+    destroy_client(restored);
+    for (size_t i = 0; i < sizeof empty / sizeof empty[0]; i++) {
+        destroy_client(empty[i]);
+    }
+    return rc;
+}
+
 /* ============================================================================
  * Mock-backed tests
  * ============================================================================ */
@@ -561,6 +619,59 @@ static int test_report_roundtrip(void)
     printf("  echoed report: %s\n", msg_cb_data);
     if (!strstr(msg_cb_data, "\"protocol\":4") || !strstr(msg_cb_data, "\"1\":true")) {
         printf("  report payload mismatch\n"); goto out;
+    }
+    rc = 0;
+out:
+    iot_client_message_disconnect(client);
+    iot_dp_deinit(client);
+    if (client->schema) pal->free(client->schema);
+    client->mqtt_url[0] = '\0';
+    client->cacert = NULL;
+    pal->free(client);
+    return rc;
+}
+
+/* [10b] report with PAL UTC unavailable: still publishes (echoed back with
+ * t=0), and the warning explains why. */
+static int test_report_warns_when_utc_unavailable(void)
+{
+    const pal_t *pal = get_default_pal();
+    pal_t utc_less = *pal;
+    utc_less.wal_clock_time = unavailable_utc_ms;
+    iot_client_t *client = (iot_client_t *)pal->malloc(sizeof(iot_client_t));
+    if (!client) return -1;
+    memset(client, 0, sizeof(iot_client_t));
+    client->pal = &utc_less;
+    strncpy(client->devid, TEST_DEVID, sizeof(client->devid) - 1);
+    strncpy(client->secret_key, TEST_SECRET_KEY, sizeof(client->secret_key) - 1);
+    strncpy(client->local_key, TEST_LOCAL_KEY, sizeof(client->local_key) - 1);
+    snprintf(client->mqtt_url, sizeof(client->mqtt_url), "%s", MSG_MOCK_URL);
+    client->cacert = g_cacert;
+    client->message_callback = msg_callback;
+    client->schema = pal_strdup(pal, TEST_SCHEMA);
+    iot_dp_rebuild(client);
+
+    int rc = -1;
+    char capture[2048];
+    if (iot_client_message_connect(client) != OPRT_OK) { printf("  connect failed\n"); goto out; }
+
+    /* drain the mock's initial raw message */
+    msg_cb_count = 0;
+    for (int i = 0; i < 20 && msg_cb_count == 0; i++) iot_client_message_process(client, 50);
+    msg_cb_count = 0;
+    msg_cb_data[0] = '\0';
+
+    iot_dp_value_t v = { .type = IOT_DP_TYPE_BOOL, .value.boolean = true };
+    test_log_capture_begin(capture, sizeof capture);
+    if (iot_dp_report(client, 1, &v) != OPRT_OK) { test_log_capture_end(); printf("  iot_dp_report failed\n"); goto out; }
+
+    for (int i = 0; i < 40 && msg_cb_count == 0; i++) iot_client_message_process(client, 50);
+    test_log_capture_end();
+    if (msg_cb_count == 0) { printf("  no echo received\n"); goto out; }
+    printf("  echoed report: %s\n", msg_cb_data);
+    if (!strstr(msg_cb_data, "\"t\":0") || strstr(capture, "UTC unavailable") == NULL) {
+        printf("  t=0 report missing from payload or warning missing from log\n");
+        goto out;
     }
     rc = 0;
 out:
@@ -710,9 +821,11 @@ int main(void)
     RUN_TEST(test_schema_obj_format);
     RUN_TEST(test_writability_modes);
     RUN_TEST(test_validate_json);
+    RUN_TEST(test_empty_reports_do_not_warn_when_utc_unavailable);
 
     /* mock-backed */
     RUN_TEST(test_report_roundtrip);
+    RUN_TEST(test_report_warns_when_utc_unavailable);
     RUN_TEST(test_schema_check_update);
     RUN_TEST(test_schema_newest_no_update);
 

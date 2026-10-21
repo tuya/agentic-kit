@@ -219,6 +219,8 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 
 ### 3. 初始化与升级查询 {#3-初始化与升级查询}
 
+FreeRTOS PAL 默认通过 `gettimeofday()` 读取 libc UTC，应用需先通过平台 RTC/SNTP 完成校时。只有该 UTC 源不适用时才需要替换回调（见[FreeRTOS UTC 时钟](./porting-to-new-platform.md#freertos-wall-clock)）。
+
 ```c
 #include "iot_client.h"
 #include "iot_ota.h"
@@ -241,8 +243,12 @@ iot_client_config_t iot_cfg = {
     .cert_bundle_attach = (tls_cert_bundle_attach_fn)esp_crt_bundle_attach,
 };
 
+/* 默认 PAL 读取已由应用同步的 libc UTC，与其他 SDK 模块共用。 */
+const pal_t *pal = tai_pal_freertos();
 /* iot_init(pal) 必须在 iot_client_init 前调用，否则 iot_client_init 返回 NULL */
-iot_init(tai_pal_freertos());
+if (iot_init(pal) != OPRT_OK) {
+    return;
+}
 
 iot_client_t *iot = iot_client_init(&iot_cfg);
 

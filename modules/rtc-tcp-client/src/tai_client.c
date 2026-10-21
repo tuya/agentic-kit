@@ -416,6 +416,13 @@ int tai_connect(tai_ctx_t *ctx)
 
     TAI_LOGI(ctx->pal, TAG, "connecting to %s:%u", ctx->host, ctx->port);
 
+    /* An unsynchronized PAL (wal_clock_time returns 0) stamps every media and
+     * Ping header with 0, with no other device-visible signal. Warn once per
+     * Connection instead of per packet. */
+    if (ctx->pal->wal_clock_time() == 0) {
+        TAI_LOGW(ctx->pal, TAG, "PAL reports UTC unavailable; media and Ping timestamps will be 0");
+    }
+
     /* 1. Generate 32-byte random for security-suit */
     rc = tai_random_bytes(ctx->pal, ctx->encrypt_random, 32);
     if (rc != 0) {

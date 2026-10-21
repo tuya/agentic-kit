@@ -28,6 +28,9 @@ static void *allocate(size_t n)
     return p;
 }
 static void release(void *p) { if (p) { --live; free(p); } }
+/* PAL contract (ADR 0003): wal_clock_time is mandatory. Fixed UTC above the
+ * Nov-2023 sync floor so the "t" gate in biz_call passes deterministically. */
+static uint64_t fixed_utc_ms(void) { return 1700000001000ULL; }
 
 int iot_atop_call(iot_client_t *client, const iot_atop_request_t *req,
                   iot_atop_response_t *out)
@@ -275,7 +278,8 @@ static int allocation_failures_release_everything(void)
 int main(void)
 {
     cJSON_Hooks hooks = {allocate, release}; cJSON_InitHooks(&hooks);
-    pal.malloc = allocate; pal.free = release; iot.pal = &pal;
+    pal.malloc = allocate; pal.free = release; pal.wal_clock_time = fixed_utc_ms;
+    iot.pal = &pal;
     if (tuya_biz_client_create(&iot, NULL, &biz) != OPRT_OK) return 1;
     int (*tests[])(void) = { lifecycle, bound_and_templates, list_shapes_and_pagination,
         bind_and_delete, template_edit_creates_and_binds, custom_edit_preserves_omitted_fields,

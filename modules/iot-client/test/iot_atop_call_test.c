@@ -26,8 +26,10 @@
 #include <time.h>
 
 #include "iot_atop.h"
+#include "cJSON.h"
 #include "iot_client.h"
 #include "iot_internal.h"
+#include "http_client_interface.h"
 #include "test_log.h"
 #include "log.h"
 
@@ -692,6 +694,103 @@ static int test_binding_status_after_reset_destroys_client(void)
     return rt == OPRT_OK && status == IOT_BINDING_STATUS_UNBOUND ? 0 : -1;
 }
 
+static uint64_t fixed_wall_ms(void)
+{
+    return 1600000000123ULL;
+}
+
+static int test_signing_uses_pal_wall_clock(void)
+{
+    pal_t pal = *g_client.pal;
+    pal.wal_clock_time = fixed_wall_ms;
+    iot_client_t client = g_client;
+    client.pal = &pal;
+    iot_atop_request_t request = {
+        .api = "tuya.test.echo.timestamp", .version = "1.0", .data = "{}"
+    };
+    iot_atop_response_t response = {0};
+    int rc = iot_atop_call(&client, &request, &response);
+    int result = -1;
+    if (rc == OPRT_OK && response.result) {
+        cJSON *json = cJSON_Parse(response.result);
+        const cJSON *timestamp = cJSON_GetObjectItem(json, "timestamp");
+        const cJSON *verified = cJSON_GetObjectItem(json, "signature_verified");
+        if (cJSON_IsString(timestamp) &&
+            strcmp(timestamp->valuestring, "1600000000") == 0 &&
+            cJSON_IsTrue(verified)) result = 0;
+        cJSON_Delete(json);
+    }
+    iot_atop_response_free(&client, &response);
+    return result;
+}
+
+static uint64_t unavailable_wall_ms(void)
+{
+    return 0;
+}
+
+/* t=0 (PAL reports UTC unavailable) still signs and reaches the peer; the
+ * warning is the only device-visible trace of the misconfiguration. */
+static int test_signing_warns_when_utc_unavailable(void)
+{
+    pal_t pal = *g_client.pal;
+    pal.wal_clock_time = unavailable_wall_ms;
+    iot_client_t client = g_client;
+    client.pal = &pal;
+    iot_atop_request_t request = {
+        .api = "tuya.test.echo.timestamp", .version = "1.0", .data = "{}"
+    };
+    iot_atop_response_t response = {0};
+    test_log_capture_begin(http_log_capture, sizeof http_log_capture);
+    int rc = iot_atop_call(&client, &request, &response);
+    test_log_capture_end();
+
+    int result = -1;
+    if (rc == OPRT_OK && response.result) {
+        cJSON *json = cJSON_Parse(response.result);
+        const cJSON *timestamp = cJSON_GetObjectItem(json, "timestamp");
+        if (cJSON_IsString(timestamp) && strcmp(timestamp->valuestring, "0") == 0 &&
+            strstr(http_log_capture, "UTC unavailable") != NULL) result = 0;
+        cJSON_Delete(json);
+    }
+    iot_atop_response_free(&client, &response);
+    return result;
+}
+
+static int test_peer_rejects_invalid_signature(void)
+{
+    static const char base[] =
+        "/d.json?a=tuya.test.echo.timestamp&devId=" TEST_DEVID "&et=3&t=";
+    const char *cases[] = {
+        "1600000000&v=1.0",  /* Missing sign. */
+        "1600000000&v=1.0&sign=00000000000000000000000000000000",
+        /* The signature is valid for t=1600000000, not this altered t. */
+        "1600000001&v=1.0&sign=06962ff5a62cd85b7ce8d1577f82dec2",
+    };
+    static const uint8_t body[] = "data=00";
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        char path[256];
+        snprintf(path, sizeof(path), "%s%s", base, cases[i]);
+        http_client_request_t request = {
+            .cacert = g_cacert, .host = MOCK_HOST, .port = MOCK_PORT,
+            .method = "POST", .path = path, .body = body,
+            .body_length = sizeof(body) - 1, .timeout_ms = 3000,
+            .pal = g_client.pal,
+        };
+        http_client_response_t response = {0};
+        http_client_status_t rc = http_client_request(&request, &response);
+        int rejected = rc == HTTP_CLIENT_SUCCESS && response.status_code == 403 &&
+                       response.body && strstr((const char *)response.body,
+                                               "Invalid ATOP signature");
+        http_client_free(g_client.pal, &response);
+        if (!rejected) {
+            printf("  invalid signature case %zu was not rejected by the peer\n", i);
+            return -1;
+        }
+    }
+    return 0;
+}
+
 int main(void)
 {
     printf("========== ATOP Generic Call Test Suite ==========\n");
@@ -740,6 +839,9 @@ int main(void)
     RUN_TEST(test_binding_status_request_guards);
 
     /* Round trips */
+    RUN_TEST(test_signing_uses_pal_wall_clock);
+    RUN_TEST(test_signing_warns_when_utc_unavailable);
+    RUN_TEST(test_peer_rejects_invalid_signature);
     RUN_TEST(test_call_returns_result_json);
     RUN_TEST(test_call_returns_json_array);
     RUN_TEST(test_null_body_defaults_to_empty_object);

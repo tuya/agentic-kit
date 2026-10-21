@@ -7,6 +7,17 @@ conversation, it does not own device DPs (that is the [IoT Client](../iot-client
 
 ## Language
 
+**UTC timestamp / Monotonic time**:
+Media timestamps and Ping payloads use the Unix UTC millisecond clock
+(`pal_t.wal_clock_time`). Connection deadlines, Keepalive and receive-drain budgets use
+elapsed milliseconds (`pal_t.time_ms`), which are never adjusted during UTC
+synchronization. The application owns UTC synchronization before opening a
+Connection. The FreeRTOS default reads libc `gettimeofday()`; platforms may
+replace that callback when their UTC source is not exposed through libc.
+The shared PAL decision is recorded in the
+[IoT Client's ADR 0003](../iot-client/docs/adr/0003-pal-separates-utc-and-monotonic-time.md).
+_Avoid_: uptime (for media timestamps), wall-clock time (for a timeout budget).
+
 **Connection**:
 The single TCP+TLS link to the AI server, opened by `tai_connect` (TLS handshake →
 ClientHello → SessionNew → start the background receive thread) and torn down by

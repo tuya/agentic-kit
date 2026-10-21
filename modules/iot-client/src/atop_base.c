@@ -490,6 +490,11 @@ static int atop_response_result_parse_cjson(const uint8_t *input, size_t ilen, a
       params[idx].key = "et";
       params[idx++].value = "3";
 
+      /* t=0 means the PAL reports UTC unavailable (wal_clock_time contract);
+       * the cloud will likely reject the request, so say so instead of failing silently. */
+      if (request->timestamp == 0) {
+          IOT_LOGW("atop request %s signed with t=0; PAL reports UTC unavailable", request->api);
+      }
       char ts_str[11];
       snprintf(ts_str, sizeof(ts_str), "%" PRIu32, request->timestamp);
       params[idx].key = "t";
