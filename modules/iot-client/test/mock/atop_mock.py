@@ -245,6 +245,12 @@ def handle_activate_request(request_data, config):
         # In real scenario, this would validate credentials and generate device ID
         device_id = config.get('device_id') or f"mock_device_{int(time.time())}"
         sec_key = config.get('sec_key') or "mock_sec_key_1234567890abcdef"
+
+        # Sentinel: a token containing NOSCHEMA models a product with no
+        # datapoint schema on the cloud (e.g. a BLE-only product) -- the
+        # activation result then carries neither schemaId nor schema, and the
+        # SDK must still activate successfully.
+        omit_schema = 'NOSCHEMA' in token
         
         response = {
             "success": True,
@@ -271,7 +277,10 @@ def handle_activate_request(request_data, config):
                 "cadVer": "1.0.3"
             }
         }
-        
+        if omit_schema:
+            response['result'].pop('schemaId', None)
+            response['result'].pop('schema', None)
+
         return json.dumps(response, separators=(',', ':'))
     except Exception as e:
         print(f"❌ Error handling activate request: {e}", file=sys.stderr)

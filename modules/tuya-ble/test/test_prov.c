@@ -47,6 +47,46 @@ static int mock_wifi_scan(uint16_t count, const char *ccode, uint32_t token, voi
     return 0;
 }
 
+static int test_init_accepts_eight_char_product_key(void)
+{
+    /* Tuya issues 8-char productIds for real products; the state keeps a
+     * zero-padded 16-byte copy (bound format / close carry), while the
+     * unbound advertisement writes the true length with no padding. */
+    static const char pk8[] = "7c59ctlo";
+    static const uint8_t padded16[16] = {
+        '7','c','5','9','c','t','l','o', 0,0,0,0,0,0,0,0
+    };
+    tuya_ble_prov_state_t state;
+    tuya_ble_prov_cfg_ext_t cfg = make_cfg(NULL);
+    cfg.product_key = pk8;
+
+    EXPECT_TRUE(tuya_ble_prov_init(&state, &cfg) == 0);
+    EXPECT_TRUE(memcmp(state.product_key_pad, padded16, sizeof(padded16)) == 0);
+    EXPECT_TRUE(state.cfg.product_key == state.product_key_pad);
+
+    /* The unbound advertisement carries the true-length form on the wire:
+     * flags(3) + uuid-list(4) + [len][type][uuid(2)][frame(2)][00][idlen=8][8B key]. */
+    EXPECT_TRUE(state.adv_len == 3 + 4 + 1 + 1 + 2 + 2 + 1 + 1 + 8);
+    EXPECT_TRUE(state.adv_data[7] == 3 + 2 + 2 + 8);   /* AD structure length */
+    EXPECT_TRUE(state.adv_data[14] == 8);              /* id length byte */
+    EXPECT_TRUE(memcmp(&state.adv_data[15], pk8, sizeof(pk8) - 1) == 0);
+
+    /* close() re-inits through the interior pointer: the key must survive
+     * the state wipe via the carry copy, or the next advertisement is
+     * built from an empty product_key. */
+    tuya_ble_prov_close(&state);
+    EXPECT_TRUE(memcmp(state.product_key_pad, padded16, sizeof(padded16)) == 0);
+    EXPECT_TRUE(state.cfg.product_key == state.product_key_pad);
+
+    /* Lengths outside Tuya's 8..16 range are still rejected. */
+    cfg = make_cfg(NULL);
+    cfg.product_key = "short";
+    EXPECT_TRUE(tuya_ble_prov_init(&state, &cfg) != 0);
+    cfg.product_key = "abcdefghijklmnopq"; /* 17 chars */
+    EXPECT_TRUE(tuya_ble_prov_init(&state, &cfg) != 0);
+    return 0;
+}
+
 static int test_wifi_list_capability_advertisement(void)
 {
     tuya_ble_prov_state_t state;
@@ -211,6 +251,7 @@ static int test_on_data_rejects_invalid_args(void)
 }
 
 int test_wire(void);
+int test_control(void);
 
 int main(void)
 {
@@ -219,6 +260,7 @@ int main(void)
      * the compile-time sink's mode. */
     test_log_set_mode(TEST_LOG_QUIET);
     EXPECT_TRUE(test_init_rejects_invalid_args() == 0);
+    EXPECT_TRUE(test_init_accepts_eight_char_product_key() == 0);
     EXPECT_TRUE(test_wifi_list_capability_advertisement() == 0);
     EXPECT_TRUE(test_init_builds_adv_and_rsp_data() == 0);
     EXPECT_TRUE(test_get_read_payload_matches_adv_data() == 0);
@@ -228,6 +270,7 @@ int main(void)
     EXPECT_TRUE(test_on_data_rejects_invalid_args() == 0);
 
     EXPECT_TRUE(test_wire() == 0);
+    EXPECT_TRUE(test_control() == 0);
 
     printf("PASS test_prov\n");
     return 0;

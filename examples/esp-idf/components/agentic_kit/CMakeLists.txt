@@ -32,6 +32,7 @@ set(AK_SRCS
 
     # tuya-ble
     ${AK_DIR}/modules/tuya-ble/src/tuya_ble_bigdata.c
+    ${AK_DIR}/modules/tuya-ble/src/tuya_ble_dp.c
     ${AK_DIR}/modules/tuya-ble/src/tuya_ble_prov.c
     ${AK_DIR}/modules/tuya-ble/src/tuya_ble_trsmitr.c
 
@@ -40,6 +41,7 @@ set(AK_SRCS
     ${AK_DIR}/common/tls.c
     ${AK_DIR}/common/log.c
     ${AK_DIR}/common/rng.c
+    ${AK_DIR}/common/json_lexical.c
 
     # vendored coreHTTP
     ${AK_DIR}/third_party/coreHTTP/source/core_http_client.c

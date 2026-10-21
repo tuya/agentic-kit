@@ -73,4 +73,9 @@ void tuya_ble_prov_flush_credentials(tuya_ble_prov_state_t *state);
 
 /* Called only after bounded Trsmitr reassembly, on the BLE owner context. */
 void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t packet_len);
+int tuya_ble_dp_on_frame(tuya_ble_prov_state_t *state, uint16_t cmd,
+                         const uint8_t *data, uint16_t len);
+/* Unsolicited/query-result DP reports have Frame ACK_SN zero (TuyaOpen). */
+int tuya_ble_prov_send_report_frame(tuya_ble_prov_state_t *state, uint16_t cmd,
+                                   const uint8_t *data, uint16_t len);
 #endif
