@@ -10,7 +10,7 @@ const developerUrl = process.env.DOCUSAURUS_CURRENT_LOCALE === 'en'
 const config: Config = {
   title: 'Tuya Agentic-kit',
   tagline: 'Multimodal AI SDK for IoT Devices',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/agentic-kit-favicon.svg',
 
   future: {
     v4: true,

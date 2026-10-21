@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 308 64" role="img" aria-labelledby="title">
+  <title id="title">Agentic-kit</title>
+  <rect width="64" height="64" rx="14" fill="#ed5024"/>
+  <path d="M16 45 30 17a2.25 2.25 0 0 1 4 0l14 28M22 34h20" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="6"/>
+  <circle cx="48" cy="17" r="4" fill="#fff"/>
+  <text x="82" y="40.5" fill="#1b1d21" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="29" font-weight="700" letter-spacing="-1.25">Agentic-kit</text>
+</svg>

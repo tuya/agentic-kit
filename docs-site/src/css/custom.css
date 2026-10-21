@@ -222,3 +222,30 @@
   color: #c83f17;
 }
 .reference-docs .article [class^="admonitionHeading"] svg { width: 1.1em; height: 1.1em; }
+
+/* Agentic-kit has its own product mark, with Tuya's compact orange geometry. */
+.reference-home .brand-logo img {
+  width: 32px;
+  height: 32px;
+}
+
+.reference-home .brand-cluster,
+.reference-home .brand-home {
+  gap: 10px;
+}
+
+.reference-docs .tuya-logo.agentic-kit-mark {
+  width: 32px;
+  height: 32px;
+}
+
+.reference-docs .brand-name-link {
+  gap: 8px;
+}
+
+@media (max-width: 620px) {
+  .reference-home .brand-logo img {
+    width: 28px;
+    height: 28px;
+  }
+}
