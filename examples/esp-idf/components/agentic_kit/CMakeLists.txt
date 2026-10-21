@@ -32,6 +32,7 @@ set(AK_SRCS
 
     # tuya-ble
     ${AK_DIR}/modules/tuya-ble/src/tuya_ble_bigdata.c
+    ${AK_DIR}/modules/tuya-ble/src/tuya_ble_dp.c
     ${AK_DIR}/modules/tuya-ble/src/tuya_ble_prov.c
     ${AK_DIR}/modules/tuya-ble/src/tuya_ble_trsmitr.c
 

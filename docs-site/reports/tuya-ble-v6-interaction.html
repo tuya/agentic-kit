@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Tuya BLE V6.0 App、设备与云端交互说明：GATT、首次绑定、已绑定重连、安全模式及密钥切换。">
+  <title>Tuya BLE V6 · App 与设备交互说明</title>
+  <style>
+    :root { --ink:#172b43; --muted:#52657b; --blue:#165ba9; --line:#d4dde8; --soft:#f3f7fc; --paper:#fff; --mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; scroll-padding-top:24px; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif; font-size:16px; line-height:1.8; }
+    a { color:var(--blue); text-underline-offset:3px; }
+    a:hover { text-decoration-thickness:2px; }
+    button, a, [tabindex] { -webkit-tap-highlight-color:transparent; }
+    :focus-visible { outline:3px solid #397ecd; outline-offset:4px; }
+    .skip-link { position:absolute; left:16px; top:-100px; padding:8px 16px; background:#fff; z-index:5; }
+    .skip-link:focus { top:12px; }
+    .page { width:min(1180px,calc(100% - 80px)); margin:auto; }
+    .masthead { display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid var(--line); padding:24px 0 19px; font-size:13px; letter-spacing:.05em; }
+    .masthead strong { font-weight:650; }
+    .masthead span { color:var(--muted); }
+    header { padding:54px 0 38px; }
+    .eyebrow { margin:0 0 12px; color:var(--blue); font-size:13px; font-weight:700; letter-spacing:.14em; }
+    h1 { font-size:clamp(30px,4.2vw,48px); line-height:1.32; letter-spacing:-.04em; max-width:880px; margin:0 0 22px; font-weight:750; }
+    .lead { font-size:20px; line-height:1.75; max-width:850px; margin:0; color:var(--muted); }
+    .scope { font-size:13px; margin:20px 0 0; color:var(--muted); }
+    .layout { display:grid; grid-template-columns:180px minmax(0,1fr); gap:48px; padding-bottom:64px; }
+    .toc { align-self:start; position:sticky; top:28px; font-size:14px; border-top:2px solid var(--ink); padding-top:14px; }
+    .toc p { font-size:12px; font-weight:700; letter-spacing:.09em; margin:0 0 10px; color:var(--muted); }
+    .toc a { display:block; padding:6px 0; color:var(--muted); text-decoration:none; }
+    .toc a:hover { color:var(--blue); }
+    main { min-width:0; }
+    section { border-top:1px solid var(--line); padding-top:25px; margin-bottom:44px; }
+    section:first-child { border-top:2px solid var(--ink); }
+    h2 { font-size:25px; line-height:1.45; letter-spacing:-.025em; margin:0 0 16px; }
+    .section-number { display:inline-block; color:var(--blue); font-size:13px; letter-spacing:.05em; vertical-align:middle; margin-right:12px; }
+    h3 { font-size:19px; line-height:1.5; margin:26px 0 10px; }
+    h4 { font-size:16px; line-height:1.5; margin:24px 0 8px; }
+    p { margin:0 0 14px; }
+    .muted, .note { color:var(--muted); }
+    .note { font-size:14px; }
+    .role-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:25px; margin:20px 0 18px; }
+    .role-list div { padding-top:11px; border-top:2px solid var(--line); }
+    .role-list dt { margin-bottom:8px; font-weight:700; }
+    .role-list dd { margin:0; font-size:14px; color:var(--muted); }
+    code { font-family:var(--mono); font-size:.89em; overflow-wrap:anywhere; }
+    .callout { border-left:3px solid var(--blue); padding:12px 18px; background:var(--soft); margin:20px 0; }
+    .callout p:last-child { margin-bottom:0; }
+    .callout strong { color:var(--blue); }
+    .table-scroll { max-width:100%; overflow-x:auto; margin:15px 0; }
+    table { border-collapse:collapse; width:100%; font-size:14px; line-height:1.7; text-align:left; }
+    caption { caption-side:top; text-align:left; font-size:13px; color:var(--muted); padding-bottom:9px; }
+    th, td { padding:12px 13px; border-bottom:1px solid var(--line); vertical-align:top; }
+    th { background:var(--soft); font-weight:650; }
+    thead { border-top:1px solid var(--line); }
+    tbody th { background:transparent; }
+    .gatt-table { min-width:620px; }
+    .gatt-table td:first-child { min-width:110px; }
+    .gatt-table code { display:block; font-size:12px; word-break:break-all; }
+    .mode-table { min-width:650px; }
+    .cmd-table { min-width:720px; }
+    .cmd-table code { white-space:nowrap; }
+    .cmd-table tbody th { min-width:96px; }
+    .cmd-table th span { display:block; color:var(--muted); font-family:var(--mono); font-size:11px; font-weight:400; }
+    .controls { background:var(--soft); border-top:1px solid var(--line); border-bottom:1px solid var(--line); padding:18px 20px; margin:22px 0 26px; }
+    .control-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+    .control-label { min-width:64px; font-size:13px; font-weight:650; }
+    .button-group { display:flex; gap:6px; flex-wrap:wrap; }
+    button { border:1px solid #b6c5d7; border-radius:4px; padding:7px 14px; background:#fff; color:var(--ink); font:inherit; font-size:14px; line-height:1.4; cursor:pointer; }
+    button:hover { border-color:var(--blue); }
+    button[aria-pressed="true"] { background:var(--blue); border-color:var(--blue); color:#fff; }
+    .reading-key { border-top:1px solid var(--line); margin:16px 0 0; padding-top:12px; color:var(--blue); font-size:14px; }
+    .reading-key strong { font-weight:700; }
+    [hidden] { display:none!important; }
+    .flow-title { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+    .flow-title h3 { margin:2px 0 8px; font-size:23px; }
+    .flow-title span { font-family:var(--mono); color:var(--muted); font-size:12px; letter-spacing:.05em; }
+    figure { margin:20px 0; }
+    .diagram-scroll { overflow-x:auto; border:1px solid var(--line); background:#fff; }
+    .sequence { display:block; width:100%; min-width:820px; height:auto; font-family:inherit; }
+    .sequence text { fill:var(--ink); font-size:13px; }
+    .sequence .lane-name { font-size:16px; font-weight:700; }
+    .sequence .lane-role { fill:var(--muted); font-size:12px; }
+    .sequence .lane { stroke:#b8c7d8; stroke-dasharray:4 6; }
+    .sequence .arrow { stroke:var(--blue); stroke-width:1.8; fill:none; }
+    .sequence .cloud-arrow { stroke:#63788f; }
+    .sequence .key-text { fill:var(--blue); font-size:12px; }
+    .sequence .small-text { fill:var(--muted); font-size:12px; }
+    .sequence .step-band { fill:#f5f8fc; }
+    .sequence .transition { stroke-width:2.8; }
+    figcaption { color:var(--muted); font-size:13px; margin-top:9px; }
+    .steps { margin:24px 0 0; padding-left:24px; }
+    .steps li { padding:0 0 15px 5px; }
+    .steps li::marker { color:var(--blue); font-weight:700; }
+    .steps strong { font-weight:650; }
+    .steps p { margin:3px 0 0; font-size:14px; color:var(--muted); }
+    .flow-source { font-size:13px; margin-top:18px; }
+    .flow-panel + .flow-panel { border-top:1px solid var(--line); padding-top:28px; margin-top:32px; }
+    .check-list { padding-left:21px; margin:15px 0; }
+    .check-list li { margin-bottom:12px; padding-left:4px; }
+    .check-list li::marker { color:var(--blue); }
+    .source-list { padding-left:22px; font-size:14px; }
+    .source-list li { margin-bottom:10px; padding-left:4px; }
+    .source-list span { display:block; color:var(--muted); font-size:13px; }
+    footer { border-top:1px solid var(--line); padding:20px 0 30px; font-size:12px; color:var(--muted); }
+    .print-only { display:none; }
+    @media (max-width:1000px) {
+      .page { width:calc(100% - 48px); }
+      .layout { grid-template-columns:145px minmax(0,1fr); gap:28px; }
+      .role-list { gap:15px; }
+    }
+    @media (max-width:760px) {
+      .page { width:calc(100% - 36px); }
+      .masthead { padding-top:18px; font-size:11px; }
+      .masthead span { text-align:right; }
+      header { padding:34px 0 28px; }
+      .lead { font-size:18px; }
+      .layout { display:block; }
+      .toc { position:static; display:flex; flex-wrap:wrap; gap:3px 18px; padding:12px 0 20px; border-top:1px solid var(--line); }
+      .toc p { width:100%; margin-bottom:1px; }
+      .toc a { font-size:13px; padding:3px 0; }
+      h2 { font-size:23px; }
+      .role-list { grid-template-columns:1fr; gap:15px; }
+      .role-list dt { margin-bottom:3px; }
+      .controls { padding:16px 14px; }
+      .control-label { width:100%; }
+      .control-row { gap:6px; }
+      th, td { padding:10px; }
+      section { margin-bottom:34px; }
+      .callout { padding:12px 14px; }
+    }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+    @media print {
+      @page { size:A4; margin:15mm; }
+      html { scroll-behavior:auto; }
+      body { color:#172b43; font-size:10pt; line-height:1.6; }
+      .page { width:auto; max-width:none; }
+      .masthead { padding:0 0 10px; font-size:8pt; }
+      header { padding:20px 0; }
+      h1 { font-size:27pt; max-width:none; margin-bottom:12px; }
+      .lead { font-size:12pt; }
+      .scope, .note, figcaption { font-size:8pt; }
+      .layout { display:block; padding-bottom:0; }
+      .toc, .controls, .skip-link, .screen-only { display:none!important; }
+      .print-only { display:block; }
+      .flow-panel[hidden] { display:block!important; }
+      .flow-panel + .flow-panel { margin-top:24px; padding-top:20px; }
+      section { padding-top:15px; margin-bottom:24px; }
+      h2 { font-size:17pt; break-after:avoid; }
+      h3, h4, .flow-title { break-after:avoid; }
+      h3, .flow-title h3 { font-size:14pt; }
+      h4 { font-size:11pt; }
+      .role-list { display:grid; grid-template-columns:repeat(3,1fr); gap:15px; }
+      .role-list dd, table, .steps p, .source-list { font-size:8.5pt; }
+      .table-scroll, .diagram-scroll { overflow:visible; }
+      .gatt-table, .mode-table, .cmd-table { min-width:0; }
+      .gatt-table code { font-size:7.4pt; }
+      th, td { padding:7px 8px; }
+      tr { break-inside:avoid; }
+      thead { display:table-header-group; }
+      .sequence { min-width:0; width:100%; }
+      figure { break-inside:avoid; margin:14px 0; }
+      .steps li { padding-bottom:9px; break-inside:avoid; }
+      .callout { break-inside:avoid; }
+      .source-list li { break-inside:avoid; }
+      a { color:inherit; }
+      footer { padding:12px 0 0; }
+      * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+  <div class="page">
+    <div class="masthead"><strong>TUYA BLE / V6.0</strong><span>协议阅读摘要 · App / 设备 / 云端</span></div>
+    <header>
+      <p class="eyebrow">CONNECTION → AUTHENTICATION → BUSINESS</p>
+      <h1>App 负责连接与转发，<br>设备与云端共同完成绑定认证</h1>
+      <p class="lead">首次绑定通过云端签发凭据；已绑定重连使用已有凭据建立新会话。两条流程最终都进入 App 与设备之间的加密业务通信。</p>
+      <p class="scope">依据 Tuya BLE V6.0 协议整理。本页用于理解交互，不替代规范，也不代表已验证 SDK 的实现符合性。<a href="#sources">查看原文锚点</a></p>
+    </header>
+    <div class="layout">
+      <nav class="toc" aria-label="文档目录">
+        <p>阅读导航</p>
+        <a href="#overview">01 · 三方职责</a>
+        <a href="#transport">02 · BLE 发现与通道</a>
+        <a href="#discovery">　连接前的设备识别</a>
+        <a href="#flows">03 · 交互时序</a>
+        <a href="#modes">04 · 模式与密钥</a>
+        <a href="#security">05 · 安全约束</a>
+        <a href="#boundary">06 · 业务功能层</a>
+        <a href="#cmd-ranges">　功能码分段</a>
+        <a href="#caps">　设备信息与能力位</a>
+        <a href="#dp-path">　DP 通路</a>
+        <a href="#domains">　其余功能域</a>
+        <a href="#provisioning">　配网流程</a>
+        <a href="#chunking">　分包预算</a>
+        <a href="#gaps">　联调误判</a>
+        <a href="#sources">07 · 原文来源</a>
+      </nav>
+      <main id="main">
+        <section id="overview" aria-labelledby="overview-title">
+          <h2 id="overview-title"><span class="section-number">01</span>先区分三方职责</h2>
+          <p>BLE 连接由 App 发起；绑定授权依赖设备与云端共享的根密钥。App 参与握手、持有会话所需材料，并在设备与云端之间转发证明和凭据。</p>
+          <dl class="role-list">
+            <div><dt>设备 · Peripheral</dt><dd>广播、提供 GATT 服务，保管 <code>auth_key</code>，校验云端授权，保存绑定凭据并执行业务。</dd></div>
+            <div><dt>App · Central</dt><dd>扫描并连接设备，协商传输、订阅 Notify、发起协议请求，转发云端授权与设备证明。</dd></div>
+            <div><dt>云端 · 授权方</dt><dd>保管 <code>auth_key</code>，验证设备身份与一次性随机数，签发绑定凭据及 <code>verify_key</code>。</dd></div>
+          </dl>
+          <div class="callout"><p><strong>根密钥不经过 App。</strong><code>auth_key</code> 只保存在设备与云端。App 首次绑定取得的是 <code>authValue</code> 与 <code>serverRandom</code>，并不取得 <code>auth_key</code>。</p></div>
+        </section>
+
+        <section id="transport" aria-labelledby="transport-title">
+          <h2 id="transport-title"><span class="section-number">02</span>BLE 发现、通道与分包</h2>
+          <h3 id="discovery">连接前：App 如何发现并认出设备</h3>
+          <p>首次绑定与已绑定重连都先经过 BLE 扫描：设备发送广播，App 接收广播及扫描响应，识别候选设备后再发起连接。重连图中的“建立连接”之前，也需要这个发现阶段。</p>
+          <ol class="steps">
+            <li><strong>扫描并识别涂鸦 V6 广播。</strong><p>广播的 Service Data（AD type <code>0x16</code>）使用服务 UUID <code>0xFD50</code>。其中两字节、大端序的 <code>Frame Control</code> 包含版本位（bit 12–15，V6 为 <code>6</code>）、<code>Bound Flag</code>（bit 11，<code>0</code> 未绑定、<code>1</code> 已绑定）以及 <code>ID Include</code>（bit 8，指示是否携带 ID）。App 据此判断协议与绑定状态；不能假定每个广播包都有 ID。</p></li>
+            <li><strong>读取发现阶段的身份线索。</strong><p>用于发现的广播若携带该 ID 字段，未绑定时为明文 <code>PID / ProductKey</code>，表示产品而非唯一设备；已绑定时为 <code>HMAC-SHA-256(secret_key, device_uuid)</code> 按协议 ID 长度取值。这里的 <code>device_uuid</code> 使用原始十六进制数据，不能套用旧版协议的 ASCII、PKCS7 或 AES 处理方式。</p></li>
+            <li><strong>结合扫描响应与绑定记录匹配候选设备。</strong><p>扫描响应的 Manufacturer Data（AD type <code>0xFF</code>，Company ID <code>0x07D0</code>）还包含通信能力、<code>security_mode</code> 及 <code>Flag + ID</code>。<code>ID Flag = 0</code> 时，ID 是经公开 SHA-256 / XOR 规则混淆的 16 字节 <code>device_uuid</code>；<code>ID Flag = 1</code> 时，是明文的涂鸦分配 MAC。此身份字段中的 MAC 不应直接当成当前 BLE 连接地址。App 可结合这些标识与已有绑定记录识别设备；若广播带已绑定 ID，可用记录中的 <code>secret_key</code> 与 <code>device_uuid</code> 计算 HMAC 并按协议 ID 长度比对。这是一种根据字段定义推导的 App 侧匹配方法，原文没有规定唯一的 App 搜索算法。</p></li>
+            <li><strong>连接后再认证。</strong><p>找到候选设备后，App 建立 BLE 连接、准备 Notify 通道，再执行 <code>0x1000</code> 握手与 <code>0x1001</code> 加密请求 / 应答。广播中的安全模式只用于提示，实际模式由设备固件决定。</p></li>
+          </ol>
+          <div class="callout"><p><strong>发现不等于认证。</strong>广播与扫描响应帮助 App 找到候选设备。UUID 的公开混淆不提供身份认证，已绑定 ID 的 HMAC 比对也不是“解密广播”；真正进入安全会话仍需连接后的加密校验。</p></div>
+          <p class="flow-source"><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#XEtvdogoHo2R9xxm7GicrZUzn1b">原文：Service Data 与 Frame Control</a> · <a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#VG4wdlF1eoplt4xq3qgc8bPonic">广播 ID</a> · <a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#PnW0ddbxjotrdnx9Qs8cdfRqnrh">扫描响应</a></p>
+          <h3>连接后的 GATT 通道</h3>
+          <p>服务 UUID 为 <code>0xFD50</code>。请求与响应使用不同特征，App 在协议交互前订阅设备的 Notify。</p>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="GATT 通道表，可横向滚动">
+            <table class="gatt-table">
+              <caption>表 1 · App 与设备的 GATT 传输方向</caption>
+              <thead><tr><th scope="col">方向</th><th scope="col">GATT 操作</th><th scope="col">特征 UUID</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">App → 设备</th><td>Write Without Response</td><td><code>00000001-0000-1001-8001-00805F9B07D0</code></td></tr>
+                <tr><th scope="row">设备 → App</th><td>Notify</td><td><code>00000002-0000-1001-8001-00805F9B07D0</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>默认 ATT MTU 为 <strong>23 字节</strong>，单次特征值最多为 <strong>20 字节</strong>（<code>ATT MTU − 3</code>）。协议头等开销还会占用空间，因此 20 字节不能全部当作业务数据；较大的消息需要分包与重组。</p>
+          <p class="note">握手中的 <code>dataMTU</code> 是另一个具名协议字段，不应直接等同于 ATT MTU。Write Without Response 描述 GATT 写入方式，协议仍可通过 Notify 返回响应。</p>
+          <p class="flow-source"><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#doxcnBIw9jBHqjt2fkUMvnimC7g">原文：GATT 通道</a></p>
+        </section>
+
+        <section id="flows" aria-labelledby="flows-title">
+          <h2 id="flows-title"><span class="section-number">03</span>两条交互路径</h2>
+          <p>先看是否已绑定，以及 App 是否持有对应的 <code>login_key</code> 与 <code>secret_key</code>。这些前提决定进入首次绑定，还是直接重建安全会话。</p>
+          <div class="controls" id="flow-controls" hidden>
+            <div class="control-row"><span class="control-label" id="flow-label">交互路径</span><div class="button-group" role="group" aria-labelledby="flow-label"><button type="button" data-flow="binding" aria-pressed="true" aria-controls="binding-flow">首次绑定</button><button type="button" data-flow="reconnect" aria-pressed="false" aria-controls="reconnect-flow">已绑定重连</button></div></div>
+            <div class="control-row"><span class="control-label" id="mode-label">安全模式</span><div class="button-group" role="group" aria-labelledby="mode-label"><button type="button" data-mode="0" aria-pressed="false">Mode 0</button><button type="button" data-mode="1" aria-pressed="false">Mode 1</button><button type="button" data-mode="2" aria-pressed="true">Mode 2</button></div></div>
+            <p class="reading-key" id="reading-key" role="status" aria-live="polite" aria-atomic="true"></p>
+            <p class="note" style="margin:8px 0 0">选择器仅辅助阅读，不改变设备模式。图中保留全部模式的密钥标注；打印包含两条完整流程。</p>
+          </div>
+          <p class="print-only note">以下同时列出首次绑定与已绑定重连。密钥标注按模式区分，详见表 2。</p>
+
+          <article class="flow-panel" id="binding-flow" aria-labelledby="binding-title">
+            <div class="flow-title"><h3 id="binding-title">首次绑定</h3><span>UNBOUND → BOUND</span></div>
+            <p class="note">从发现未绑定设备开始；云端验证设备证明后，签发本次绑定使用的凭据。</p>
+            <figure>
+              <div class="diagram-scroll" tabindex="0" role="region" aria-label="首次绑定三方时序图，可横向滚动；完整文字步骤在图后">
+                <svg class="sequence" viewBox="0 0 1000 860" role="img" aria-labelledby="bind-svg-title bind-svg-desc" xmlns="http://www.w3.org/2000/svg">
+                  <title id="bind-svg-title">首次绑定：设备、App、云端三方时序</title>
+                  <desc id="bind-svg-desc">按时间自上而下：发现广播，云端授权，BLE 连接，明文握手，加密查询，云端签发凭据，提交绑定，切换密钥后成功响应，进入业务。图后列有完整文字步骤。</desc>
+                  <defs><marker id="bind-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#165ba9"/></marker></defs>
+                  <rect x="0" y="0" width="1000" height="72" fill="#f3f7fc"/>
+                  <text x="130" y="30" text-anchor="middle" class="lane-name">设备</text><text x="130" y="52" text-anchor="middle" class="lane-role">Peripheral</text>
+                  <text x="500" y="30" text-anchor="middle" class="lane-name">App</text><text x="500" y="52" text-anchor="middle" class="lane-role">Central</text>
+                  <text x="870" y="30" text-anchor="middle" class="lane-name">云端</text><text x="870" y="52" text-anchor="middle" class="lane-role">授权与签发</text>
+                  <path class="lane" d="M130 72V840 M500 72V840 M870 72V840"/>
+                  <path class="arrow" d="M130 108H498" marker-end="url(#bind-arrow)"/><text x="315" y="97" text-anchor="middle">广播：设备发现与能力提示</text>
+                  <path class="arrow cloud-arrow" d="M500 155H868" marker-end="url(#bind-arrow)"/><text x="685" y="144" text-anchor="middle">申请本次绑定授权</text>
+                  <path class="arrow cloud-arrow" d="M870 199H502" marker-end="url(#bind-arrow)"/><text x="685" y="188" text-anchor="middle">authValue + serverRandom</text>
+                  <path class="arrow" d="M500 252H132" marker-end="url(#bind-arrow)"/><text x="315" y="241" text-anchor="middle">BLE 连接 / MTU / 订阅 Notify</text>
+                  <rect class="step-band" x="24" y="272" width="560" height="107"/>
+                  <path class="arrow" d="M500 307H132" marker-end="url(#bind-arrow)"/><text x="315" y="294" text-anchor="middle">0x1000：Flags / dataMTU / mRandom / serverRandom</text>
+                  <path class="arrow" d="M130 352H498" marker-end="url(#bind-arrow)"/><text x="315" y="340" text-anchor="middle">sRandom；Mode 1/2 双向交换 P-256 公钥</text>
+                  <text x="315" y="370" text-anchor="middle" class="key-text">明文握手 → HKDF：临时密钥 key21（0）/ key22（1、2）</text>
+                  <path class="arrow" d="M500 413H132" marker-end="url(#bind-arrow)"/><text x="315" y="402" text-anchor="middle">0x1001：加密查询（key21 / key22）</text>
+                  <path class="arrow" d="M130 459H498" marker-end="url(#bind-arrow)"/><text x="315" y="447" text-anchor="middle">设备信息 + RegisterKey（key21 / key22）</text>
+                  <path class="arrow cloud-arrow" d="M500 513H868" marker-end="url(#bind-arrow)"/><text x="685" y="502" text-anchor="middle">转交 RegisterKey + sRandom</text>
+                  <path class="arrow cloud-arrow" d="M870 560H502" marker-end="url(#bind-arrow)"/><text x="685" y="548" text-anchor="middle">验证设备，签发绑定凭据 + verify_key</text>
+                  <text x="685" y="581" text-anchor="middle" class="small-text">device_id / login_key / secret_key / 可选凭据</text>
+                  <path class="arrow" d="M500 624H132" marker-end="url(#bind-arrow)"/><text x="315" y="612" text-anchor="middle">0x1002：绑定请求（仍为 key21 / key22）</text>
+                  <rect x="27" y="647" width="249" height="64" rx="2" fill="#eaf2fc" stroke="#b7cde8"/>
+                  <text x="151" y="672" text-anchor="middle">校验 verify_key，保存凭据</text><text x="151" y="695" text-anchor="middle" class="key-text">更新 bound，派生会话密钥</text>
+                  <path class="arrow transition" d="M130 755H498" marker-end="url(#bind-arrow)"/><text x="315" y="741" text-anchor="middle">0x1002：成功响应，已用新会话密钥</text>
+                  <text x="315" y="778" text-anchor="middle" class="key-text">key24（Mode 0）/ key25（Mode 1、2）</text>
+                  <path class="arrow" d="M132 823H498" marker-start="url(#bind-arrow)" marker-end="url(#bind-arrow)"/><text x="315" y="810" text-anchor="middle">同一会话密钥：加密业务通信</text>
+                </svg>
+              </div>
+              <figcaption>图 1 · 时间自上而下。绑定请求使用临时密钥；成功响应已切换到新会话密钥。括号中的数字表示安全模式。</figcaption>
+            </figure>
+            <ol class="steps">
+              <li><strong>发现与授权。</strong><p>App 从广播发现设备，向云端取得 <code>authValue</code> 与 <code>serverRandom</code>，随后建立 BLE 连接、处理 MTU 并订阅 Notify。</p></li>
+              <li><strong><code>0x1000</code> 明文握手。</strong><p>交换 <code>Flags</code>、<code>dataMTU</code>、<code>mRandom</code> / <code>sRandom</code> 等材料；Mode 1/2 还交换 P-256 临时公钥。双方通过 HKDF-SHA256 派生临时密钥：Mode 0 用 <code>key21</code>，Mode 1/2 用 <code>key22</code>。</p></li>
+              <li><strong><code>0x1001</code> 加密查询与设备证明。</strong><p>设备返回版本、能力、绑定状态等信息，以及 <code>RegisterKey = HMAC-SHA256_auth_key(serverRandom)</code>。App 把 <code>RegisterKey</code> 与 <code>sRandom</code> 转交云端。</p></li>
+              <li><strong>云端验证并签发凭据。</strong><p>云端验证一次性的 <code>serverRandom</code> 与 <code>RegisterKey</code>，签发 <code>device_id</code>、<code>login_key</code>、<code>secret_key</code>、可选凭据及 <code>verify_key</code>；签名覆盖本次 <code>sRandom</code> 和全部云端下发字段。</p></li>
+              <li><strong><code>0x1002</code> 提交并保存绑定。</strong><p>App 仍用临时密钥 <code>key21</code> / <code>key22</code> 转发请求。设备使用 <code>auth_key</code> 校验 <code>verify_key</code>，验证范围包括 <code>sRandom</code> 及全部云端下发字段；成功后保存凭据、设置已绑定状态，并派生会话密钥。</p></li>
+              <li><strong>成功响应即完成密钥切换。</strong><p><code>0x1002</code> 的<strong>成功响应</strong>已经使用 <code>key24</code>（Mode 0）或 <code>key25</code>（Mode 1/2）；之后业务沿用该会话密钥。配对状态值为 <code>0</code> 成功、<code>1</code> 失败、<code>2</code> 已绑定；此处的切换描述仅指成功响应。</p></li>
+            </ol>
+            <p class="flow-source"><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#GGwTduqtZoOdRHxYxAYcTEuNnvb">原文：V6 配对指令</a> · <a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#Rlx7d7Blio5AJ7xRwKEcF9Y2nUe">6.4 交互流程</a></p>
+          </article>
+
+          <article class="flow-panel" id="reconnect-flow" aria-labelledby="reconnect-title">
+            <div class="flow-title"><h3 id="reconnect-title">已绑定重连</h3><span>BOUND → NEW SESSION</span></div>
+            <p class="note">前提：设备已绑定，App 已持有对应的 <code>login_key</code> 与 <code>secret_key</code>。在这些前提下，无需首次绑定的云端往返，也不执行 <code>0x1002</code>。</p>
+            <figure>
+              <div class="diagram-scroll" tabindex="0" role="region" aria-label="已绑定重连三方时序图，可横向滚动；完整文字步骤在图后">
+                <svg class="sequence" viewBox="0 0 1000 512" role="img" aria-labelledby="reconnect-svg-title reconnect-svg-desc" xmlns="http://www.w3.org/2000/svg">
+                  <title id="reconnect-svg-title">已绑定重连：App 与设备建立新会话，云端无首次绑定往返</title>
+                  <desc id="reconnect-svg-desc">三条泳道分别为设备、App 与云端。App 扫描广播与扫描响应，结合已有绑定记录识别候选设备，再连接并明文握手。双方派生新会话密钥，以加密查询请求和应答完成双向认证，随后恢复业务。Mode 2 执行新的 ECDH；Mode 0 和 1 不执行。</desc>
+                  <defs><marker id="reconnect-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#165ba9"/></marker></defs>
+                  <rect x="0" y="0" width="1000" height="72" fill="#f3f7fc"/>
+                  <text x="130" y="30" text-anchor="middle" class="lane-name">设备</text><text x="130" y="52" text-anchor="middle" class="lane-role">已绑定</text>
+                  <text x="500" y="30" text-anchor="middle" class="lane-name">App</text><text x="500" y="52" text-anchor="middle" class="lane-role">已有 login_key + secret_key</text>
+                  <text x="870" y="30" text-anchor="middle" class="lane-name">云端</text><text x="870" y="52" text-anchor="middle" class="lane-role">无需首次绑定往返</text>
+                  <path class="lane" d="M130 72V492 M500 72V492 M870 72V492"/>
+                  <path class="arrow" d="M130 111H498" marker-end="url(#reconnect-arrow)"/><text x="315" y="100" text-anchor="middle">广播 / 扫描响应：App 结合绑定记录识别候选设备</text>
+                  <path class="arrow" d="M500 165H132" marker-end="url(#reconnect-arrow)"/><text x="315" y="154" text-anchor="middle">建立 BLE 连接，准备 Notify 通道</text>
+                  <rect class="step-band" x="24" y="186" width="560" height="125"/>
+                  <path class="arrow" d="M500 222H132" marker-end="url(#reconnect-arrow)"/><text x="315" y="210" text-anchor="middle">0x1000：本次 mRandom / 握手材料</text>
+                  <path class="arrow" d="M130 264H498" marker-end="url(#reconnect-arrow)"/><text x="315" y="252" text-anchor="middle">本次 sRandom；仅 Mode 2 交换新 P-256 公钥</text>
+                  <text x="315" y="295" text-anchor="middle" class="key-text">派生新会话密钥：key24（0、1）/ key25（2）</text>
+                  <path class="arrow" d="M500 348H132" marker-end="url(#reconnect-arrow)"/><text x="315" y="336" text-anchor="middle">0x1001：会话密钥加密查询，设备验证</text>
+                  <path class="arrow" d="M130 396H498" marker-end="url(#reconnect-arrow)"/><text x="315" y="384" text-anchor="middle">0x1001：加密应答，App 验证；RegisterKey = 0</text>
+                  <path class="arrow" d="M132 464H498" marker-start="url(#reconnect-arrow)" marker-end="url(#reconnect-arrow)"/><text x="315" y="450" text-anchor="middle">恢复业务：继续使用本次会话密钥</text>
+                  <text x="870" y="326" text-anchor="middle" class="small-text">本流程不重新签发</text><text x="870" y="347" text-anchor="middle" class="small-text">绑定凭据</text>
+                </svg>
+              </div>
+              <figcaption>图 2 · 先通过广播发现候选设备，再连接并认证；重连建立的是新会话。图中的云端泳道用于说明当前前提下不存在首次绑定的授权往返。</figcaption>
+            </figure>
+            <ol class="steps">
+              <li><strong>扫描并匹配候选设备。</strong><p>App 从设备广播与扫描响应取得发现信息，结合已有绑定记录识别候选设备。具体字段与匹配说明见<a href="#discovery">连接前的设备识别</a>；扫描匹配尚未完成身份认证。</p></li>
+              <li><strong>建立连接并交换新材料。</strong><p>App 建立 BLE 连接、准备 Notify 通道，以 <code>0x1000</code> 交换新的 <code>mRandom</code> 与 <code>sRandom</code>。Mode 2 还执行新的 P-256 ECDH；Mode 0/1 不执行 ECDH。</p></li>
+              <li><strong>派生本次会话密钥。</strong><p>Mode 0/1 使用 <code>key24</code>，Mode 2 使用 <code>key25</code>。它们来自本次握手；重连不直接复用上一次连接的会话密钥。</p></li>
+              <li><strong><code>0x1001</code> 加密请求与应答完成双向认证。</strong><p>设备验证 App 的加密查询，App 验证设备的加密应答，证明双方持有正确凭据。重连时 <code>RegisterKey = 0</code>。</p></li>
+              <li><strong>直接恢复业务。</strong><p>继续使用本次会话密钥交换业务消息。此流程没有 <code>0x1002</code>，也没有首次绑定的云端往返。</p></li>
+            </ol>
+            <p class="flow-source"><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#X8vzdfjwno3DkRxsJC4cfLDWnfe">原文：已绑定重连</a></p>
+          </article>
+        </section>
+
+        <section id="modes" aria-labelledby="modes-title">
+          <h2 id="modes-title"><span class="section-number">04</span>安全模式决定 ECDH 与密钥路径</h2>
+          <p>三种模式均使用 <strong>AES-CCM 与 16 字节 MIC</strong>。Mode 0 的业务同样加密；区别在于是否引入 ECDH，以及何时引入。</p>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="安全模式和密钥矩阵，可横向滚动">
+            <table class="mode-table">
+              <caption>表 2 · 模式、ECDH 与成功路径中的密钥对应关系</caption>
+              <thead><tr><th scope="col">模式</th><th scope="col">首次绑定 ECDH</th><th scope="col">绑定临时密钥</th><th scope="col">绑定成功响应及业务</th><th scope="col">重连 ECDH</th><th scope="col">重连会话密钥</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">Mode 0</th><td>无</td><td><code>key21</code></td><td><code>key24</code></td><td>无</td><td><code>key24</code></td></tr>
+                <tr><th scope="row">Mode 1</th><td>P-256</td><td><code>key22</code></td><td><code>key25</code></td><td>无</td><td><code>key24</code></td></tr>
+                <tr><th scope="row">Mode 2</th><td>P-256</td><td><code>key22</code></td><td><code>key25</code></td><td>P-256</td><td><code>key25</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">表中的 <code>key21</code> 等是协议密钥标识，用于区分派生路径与阶段；相同标识不表示不同连接使用相同密钥值。设备固件决定安全模式，认证失败后不能自动降级。</p>
+          <p class="flow-source"><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#BYYRd5ticoZU4lxC28scK0iwnEe">原文：安全模式</a></p>
+        </section>
+
+        <section id="security" aria-labelledby="security-title">
+          <h2 id="security-title"><span class="section-number">05</span>认证成立与接收校验的边界</h2>
+          <ul class="check-list">
+            <li><strong>明文仅限握手。</strong>只有 <code>Key_type = 0</code> 的 <code>0x1000</code> 允许明文；建立 BLE 连接或完成明文握手，还不代表对端已经通过认证。</li>
+            <li><strong>首个加密包验证后才进入认证状态。</strong>必须成功解密并通过 MIC 校验，才能确认对端持有正确密钥。</li>
+            <li><strong>两个方向独立维护 SeqNum。</strong>接收端严格校验序号以拒绝重放；只有通过解密与 MIC 验证的加密包才能推进接收序号，明文握手不推进接收序号。</li>
+            <li><strong>云端字段必须完整验证。</strong>设备校验的 <code>verify_key</code> 应覆盖本次 <code>sRandom</code> 和全部云端下发字段，避免 App 修改凭据或重放旧绑定数据。</li>
+            <li><strong>校验失败应终止连接。</strong>长度、密钥类型、状态、安全模式、MIC 与序号等必须校验；原文 6.5 要求任一校验失败即丢弃并断开。失败后不得自动切换到较低安全模式。</li>
+          </ul>
+          <p class="flow-source"><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#DCygdosSqodXE9xZCs5c7FvTnXb">原文：6.5 接收校验与异常处理</a></p>
+        </section>
+
+        <section id="boundary" aria-labelledby="boundary-title">
+          <h2 id="boundary-title"><span class="section-number">06</span>业务功能层：认证完成之后做什么</h2>
+          <p>认证只解决“这条通道可信”。V6 原文没有另起一套业务：认证之后<strong>沿用同一份文档里逐版本累积下来的功能码与数据格式</strong>，包括 DP 控制、查询与上报，OTA，时间与天气，语音，透传与配件通道。本节把这套功能码按域拆开，说明谁发起、谁应答，以及发之前必须先满足什么。</p>
+
+          <h3 id="cmd-ranges">功能码怎么分段</h3>
+          <p>四位数功能码粗略划分了“认证层 / 业务层请求 / 业务层上行”，但段位只表示大致归属，<strong>方向必须逐条看</strong>。</p>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="功能码段位表，可横向滚动">
+            <table class="cmd-table">
+              <caption>表 3 · 功能码段位与方向</caption>
+              <thead><tr><th scope="col">段位</th><th scope="col">归属</th><th scope="col">典型功能码</th><th scope="col">方向</th></tr></thead>
+              <tbody>
+                <tr><th scope="row"><code>0x1000</code>–<code>0x1002</code></th><td>V6 认证层</td><td>握手 / 加密查询 / 配对</td><td>App 发起</td></tr>
+                <tr><th scope="row"><code>0x00xx</code></th><td>业务层请求</td><td><code>0x0027</code> DP 下发、<code>0x0021</code> 发送配网信息、<code>0x001C</code> 发送 SSID</td><td>App → 设备</td></tr>
+                <tr><th scope="row"><code>0x80xx</code></th><td>业务层上行</td><td><code>0x8006</code> DP 上报、<code>0x801D</code> 连接状态上报</td><td>设备 → App</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout"><p><strong><code>0x80xx</code> 不等于“一定是设备上行”。</strong>透传通道里 <code>0x801B</code> 是下行、<code>0x801C</code> 是上行，两者同处 <code>0x80xx</code> 段而方向相反——只按段位推断方向，在透传上会直接走错。</p></div>
+          <p class="note">功能码之间没有算术关系：带数据源的下发 / 上报是 <code>0x0028</code> / <code>0x8008</code>，查询是 <code>0x0029</code>，带数据源加时间戳的只有上报 <code>0x8009</code>。靠“下发码加固定偏移”推断上行码，推不出来。<code>0x0000</code> / <code>0x0001</code> 虽然也在 <code>0x00xx</code> 段，但原文标注它们属于 ≤PV5 的旧配对流程，见本节末尾。</p>
+
+          <h3 id="caps">先读设备信息：能力位决定后面能做什么</h3>
+          <p><code>0x0000</code> 的响应在 V4.x 期间不断追加字段。这些不是背景说明，而是<strong>后续哪些功能可用的开关</strong>：没读 <code>combosflag</code> 就开 Combo 通道，设备不会理你；不知道 <code>packetMaxSize</code> 就切分包，长包会被截断。</p>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="设备信息能力字段表，可横向滚动">
+            <table class="cmd-table">
+              <caption>表 4 · <code>0x0000</code> 响应里与业务相关的能力字段</caption>
+              <thead><tr><th scope="col">字段</th><th scope="col">含义</th><th scope="col">决定什么</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">设备能力 bit8 = <code>psk</code><br>bit9 = 挂载配件</th><td>原文“修订说明”专门更正过这两位</td><td>是否按配件流程处理；<code>0x8020</code>–<code>0x8022</code> 是否有意义</td></tr>
+                <tr><th scope="row">LINK 层加密标志</th><td>设备具备 LINK 层加密能力</td><td>业务帧能否要求加密传输</td></tr>
+                <tr><th scope="row">强制 LINK 层加密</th><td>设备<strong>要求</strong>先加密再收发业务帧</td><td>明文阶段能不能发业务帧（通常不能）</td></tr>
+                <tr><th scope="row"><code>Flag2.bit0</code></th><td>当前连接<strong>是否已</strong>完成 LINK 层加密</td><td>与上一行区分：一个是“要求”，一个是“现状”</td></tr>
+                <tr><th scope="row">BT / BLE 双模</th><td>设备同时具备经典蓝牙与 BLE</td><td>是否需要走 <code>0x0060</code> 查询 BT 设备信息</td></tr>
+                <tr><th scope="row">beacon 能力 · 是否需要 <code>beaconKey</code></th><td>设备是否使用 beacon</td><td><code>0x0001</code> 配对请求里是否必须带 <code>beaconKey</code></td></tr>
+                <tr><th scope="row">WIFI / BLE 配网优先级</th><td>产品偏好的配网路径</td><td>App 先走哪条配网链路</td></tr>
+                <tr><th scope="row"><code>combosflag</code></th><td>Combo 通道能力位</td><td><code>0x801E</code> / <code>0x801F</code> 透传通道是否可用</td></tr>
+                <tr><th scope="row"><code>packetMaxSize</code></th><td>应用层分包上限</td><td>单个协议包最大可用载荷，见下节</td></tr>
+                <tr><th scope="row">附件通道号及版本</th><td>配件走哪个通道、什么版本</td><td>配件类指令的路由</td></tr>
+                <tr><th scope="row"><code>sl</code> · 蓝牙 MAC</th><td>Wi-Fi 设备标记、设备蓝牙地址</td><td>设备识别与重连匹配</td></tr>
+                <tr><th scope="row">低功耗在线逻辑能力</th><td>设备是否具备低功耗在线上报</td><td>睡眠设备的在线状态判断方式</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">能力位只说明“设备支持”，不说明“本次连接已完成”。判断授权与加密状态，要看 <code>Flag2.bit0</code> 与首个加密包是否已通过 MIC 校验，两者不能互相替代。</p>
+
+          <h3 id="dp-path">DP 通路：一条主线加两条扩展轴</h3>
+          <p>DP 是 V6 文档里最常被引用的业务，它的功能码按“时间戳”和“数据源”两个维度各扩展了一次。</p>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="DP 功能码表，可横向滚动">
+            <table class="cmd-table">
+              <caption>表 5 · DP 相关功能码</caption>
+              <thead><tr><th scope="col">功能码</th><th scope="col">方向</th><th scope="col">内容</th><th scope="col">要点</th></tr></thead>
+              <tbody>
+                <tr><th scope="row"><code>0x0027</code><br><span>PV≥4.0</span></th><td>App → 设备</td><td>DP 下发</td><td rowspan="2">单 DP 的数据长度字段为 <strong>2 字节</strong>（原文明确“单 dp 点数据长度变为 2 字节”）。按 1 字节解析会让后续所有 DP 错位。</td></tr>
+                <tr><th scope="row"><code>0x8006</code><br><span>PV≥4.0</span></th><td>设备 → App</td><td>DP 上报</td></tr>
+                <tr><th scope="row"><code>0x8007</code><br><span>PV≥4.0</span></th><td>设备 → App</td><td>带时间戳 DP 上报</td><td>时间戳来自设备侧时钟，需先经“设备请求云端实时时间”同步</td></tr>
+                <tr><th scope="row"><code>0x0028</code><br><span>PV≥4.5</span></th><td>App → 设备</td><td>带数据源 DP 下发</td><td rowspan="4"><strong>数据源</strong>标识这条 DP 属于哪个来源（子设备 / 配件）。多子设备产品里，没有数据源就无法区分同号 DP。</td></tr>
+                <tr><th scope="row"><code>0x0029</code><br><span>PV≥4.5</span></th><td>App → 设备</td><td>带数据源 DP 查询</td></tr>
+                <tr><th scope="row"><code>0x8008</code><br><span>PV≥4.5</span></th><td>设备 → App</td><td>带数据源 DP 上报</td></tr>
+                <tr><th scope="row"><code>0x8009</code><br><span>PV≥4.5</span></th><td>设备 → App</td><td>带数据源 + 时间戳 DP 上报</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">同一份命令索引里还保留更早一代的 DP 功能码：<code>0x0002</code> dp 点数据下发、<code>0x8001</code> dp 点数据上报、<code>0x8003</code> 带时间戳上报、<code>0x8004</code> 带标志上报、<code>0x8005</code> 带标志与时间戳上报（原文未给这五条标 PV）。表 5 列的是现行一族，实现时以产品对接的协议版本为准。</p>
+          <p><code>0x8006</code> 与 <code>0x8007</code> 后续又增加了“<strong>是否需要响应帧</strong>”标志：该位为 0 时设备发完即止，App 还在等 ACK 就会一直等到超时。这是上报路径上最容易误判成“设备没响应”的一处。</p>
+          <p>广播里也能携带 DP（原文“重定义广播数据格式，可发送 dp 点数据”）。但这只适合面板显示一类的即时刷新，不能当成可靠上报通道：广播本身没有重传。</p>
+          <p class="note">协议只搬运 DP，不定义 DP。<code>id</code>、类型与取值由产品物模型决定，同一个功能码在不同产品里承载的是完全不同的点。</p>
+
+          <h3 id="domains">其余功能域一览</h3>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="其他功能域功能码表，可横向滚动">
+            <table class="cmd-table">
+              <caption>表 6 · 认证与 DP 之外的功能域</caption>
+              <thead><tr><th scope="col">功能域</th><th scope="col">功能码 / 指令</th><th scope="col">说明</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">配网</th><td>Wi-Fi：<code>0x001C</code> / <code>0x0021</code> / <code>0x0022</code> / <code>0x001E</code>；Combo：<code>0x001A</code>；ZigBee：<code>0x0040</code>；扩展模组：<code>0x0050</code> / <code>0x0051</code>；Plug&amp;play</td><td>四条独立路径，按能力位选择，见下节「配网」</td></tr>
+                <tr><th scope="row">时间</th><td>设备请求云端实时时间（第三版指令）</td><td>带时间戳的 DP 上报依赖它</td></tr>
+                <tr><th scope="row">天气</th><td>设备请求天气数据、指定位置请求、下发天气数据、指定位置下发、天气服务参数表</td><td>语音识别天气会额外返回 TTS 与天气描述字符串</td></tr>
+                <tr><th scope="row">语音</th><td><code>0x0031</code> 语音传输（含 audio format 参数与分包机制）、通用指令的设置通知状态子指令、授权 token 的读取（<code>0x0034</code>）、上报（<code>0x0035</code>）、下发（<code>0x0036</code>）、语音定时闹钟提醒、识别日历与 ToDoList、AVS start speech 状态码</td><td>语音通道对长度最敏感；分包机制正是在优化 <code>0x0031</code> 时与新增参数一起引入的</td></tr>
+                <tr><th scope="row">配件</th><td><code>0x8020</code> App 读取配件连接信息、<code>0x8021</code> 设备上报配件连接信息、<code>0x8022</code> App 下发配件激活信息、<code>0x0060</code> 查询 BT 设备信息</td><td>发起配件请求时带数据源字段；能力位 bit9 为真才有意义</td></tr>
+                <tr><th scope="row">透传</th><td><code>0x801B</code> / <code>0x801C</code>、<code>0x801E</code> / <code>0x801F</code> Combo Wireless Modules 通道、支持分包的上下行通道</td><td>透传载荷由上层协议自行定义，设备只负责原样搬运；Combo 通道以 <code>combosflag</code> 为准</td></tr>
+                <tr><th scope="row">OTA</th><td>OTA 升级链：<code>0x000C</code> 请求、<code>0x000D</code> 文件信息、<code>0x000E</code> 文件偏移请求、<code>0x000F</code> 数据、<code>0x0010</code> 结束、<code>0x0011</code> 准备通知、<code>0x0018</code> 文件签名数据、<code>0x0019</code> 签名密钥更新；配件 OTA：<code>0x0080</code>–<code>0x0084</code></td><td>升级过程中哪些 DP 仍可下发，由“OTA 时 dp 可控能力上报”决定</td></tr>
+                <tr><th scope="row">大数据</th><td><code>0x0007</code> 读取摘要、<code>0x0008</code> 读取、<code>0x0009</code> 上报、<code>0x000A</code> 擦除、<code>0x000B</code> 请求同步</td><td>摘要与内容分两步取</td></tr>
+                <tr><th scope="row">连接状态</th><td><code>0x801D</code> 主动上报连接状态</td><td>设备侧主动，不依赖 App 轮询</td></tr>
+                <tr><th scope="row">通道与能力</th><td>MTU 交换机制、Read Characteristic UUID、文件下发、场景请求下发、广播在线逻辑标志</td><td>MTU 交换决定长包上限；其余四项各自对应一条独立通路</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 id="provisioning">配网：四条路径，两套流程</h3>
+          <p>原文把配网放在「通信流程与描述」一章，并且<strong>按安全模式拆成两套</strong>：<code>Security_mode_0 配网流程</code> 与 <code>Security_mode_1/2 配网流程</code>。这个拆法本身说明一件事——<strong>配网发生在认证之后</strong>，不是连上 BLE 就能发 SSID；配网期间用哪把密钥，由第 04 节的模式矩阵决定。设备形态（单模 / 双模）是另一个维度：它决定配网要不要包含「把设备送上 Wi-Fi」这一段。</p>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="配网功能码表，可横向滚动">
+            <table class="cmd-table">
+              <caption>表 7 · 配网相关功能码（原文条目；方向按名称推定）</caption>
+              <thead><tr><th scope="col">路径</th><th scope="col">功能码</th><th scope="col">原文条目</th><th scope="col">方向</th></tr></thead>
+              <tbody>
+                <tr><th scope="row" rowspan="4">Wi-Fi</th><td><code>0x001C</code></td><td>发送 WIFI SSID 信息</td><td>App → 设备</td></tr>
+                <tr><td><code>0x0021</code></td><td>发送配网信息</td><td>App → 设备</td></tr>
+                <tr><td><code>0x0022</code></td><td>上报配网状态</td><td>设备 → App</td></tr>
+                <tr><td><code>0x001E</code></td><td>WIFI 设备上报联网状态</td><td>设备 → App</td></tr>
+                <tr><th scope="row">Combo Wi-Fi</th><td><code>0x001A</code></td><td>查询 Combo WIFI 设备信息</td><td>App → 设备</td></tr>
+                <tr><th scope="row">ZigBee</th><td><code>0x0040</code></td><td>发送 ZigBee 配网信息</td><td>App → 设备</td></tr>
+                <tr><th scope="row">扩展模组</th><td><code>0x0050</code><br><code>0x0051</code></td><td>查询扩展模组设备信息<br>发送扩展模组激活信息（分包）</td><td>App → 设备</td></tr>
+                <tr><th scope="row">多协议</th><td><code>0x0026</code></td><td>查询多协议设备配网状态</td><td>App → 设备</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>先把「配网」这个词拆开：单模的配网约等于绑定，双模的配网还要把 Wi-Fi 凭据送进设备。走哪条路先读能力位（表 4）——<code>sl</code> 判断是不是 Wi-Fi 设备，<code>combosflag</code> 判断 Combo 通道是否可用，<code>WIFI / BLE 配网优先级</code> 判断产品偏好；跳过这一读，命令就可能发给一条这台设备根本不支持的路径。</p>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="单模与双模配网对照表，可横向滚动">
+            <table class="cmd-table">
+              <caption>表 8 · 单模与双模的「配网」差在哪</caption>
+              <thead><tr><th scope="col">维度</th><th scope="col">BLE 单模</th><th scope="col">BLE + Wi-Fi 双模</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">设备无线</th><td>只有 BLE</td><td>BLE + Wi-Fi</td></tr>
+                <tr><th scope="row">BLE 的角色</th><td>唯一数据通道，一直用到底</td><td>配网 / 近场通道，用完退居二线</td></tr>
+                <tr><th scope="row">「配网」做什么</th><td>配对 + 认证 + 绑定，没有联网环节</td><td>绑定之外，还要把 SSID / 密码 / token 送进设备</td></tr>
+                <tr><th scope="row">数据去云端的路</th><td>经手机中转（App 即网关）或蓝牙网关</td><td>设备连上路由器后直连云端</td></tr>
+                <tr><th scope="row">App 离开后</th><td>设备失去云通道（除非有网关）</td><td>设备照常在线</td></tr>
+                <tr><th scope="row">失败要处理的事</th><td>BLE 连接断开</td><td>Wi-Fi 密码错、路由器不在、连上但激活失败</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>共用前置：帧外壳与密钥阶梯（v4.4，SDK 代码核验）</h4>
+          <p>下面两条流程到字节级的细节，出自本仓库 <code>modules/tuya-ble</code>（v4.4 系列）源码。每个命令都装在同一种外壳里：<strong>GATT 包</strong> = <code>[加密模式:1B][IV:16B][AES-128-CBC 密文]</code>（明文时为 <code>[0x00][帧]</code>）；<strong>帧</strong> = <code>[SN:4B][ack_sn:4B][cmd:2B][len:2B][载荷][CRC16:2B]</code>。CRC16-Modbus 覆盖头与载荷；SN 严格递增、必须大于上一条收到的（防重放），<code>ack_sn</code> 回填对方最近一帧的 SN（隐式确认）。</p>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="v4.4 密钥阶梯表，可横向滚动">
+            <table class="cmd-table">
+              <caption>表 9 · v4.4 密钥阶梯——「未绑定 → 已绑定」的转换就是配网在密钥层的效果</caption>
+              <thead><tr><th scope="col">设备状态</th><th scope="col">握手阶段</th><th scope="col">会话阶段（配对成功后）</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">未绑定</th><td><code>KEY_11</code>(0x0B) = MD5(auth_key ‖ ble_id ‖ IV)</td><td><code>KEY_12</code>(0x0C) = MD5(KEY_11 ‖ pair_rand)</td></tr>
+                <tr><th scope="row">已绑定</th><td><code>KEY_14</code>(0x0E) = MD5(local_key ‖ secret_key)</td><td><code>KEY_15</code>(0x0F) = MD5(local_key ‖ secret_key ‖ pair_rand)</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">两代钥匙不许混用（发送侧硬校验），且未绑定侧收不到 KEY_14/15 帧、已绑定侧收不到 KEY_11/12 帧。注意这是 v4.4 的外壳与密钥体系：V6 原文是 AES-CCM 加 16 字节 MIC、密钥为 key21–key25（第 04、05 节）。两代不同，不要混读。</p>
+
+          <h4>流程 A · BLE 单模：配对即配网，没有「联网」这一段</h4>
+            <figure>
+              <div class="diagram-scroll" tabindex="0" role="region" aria-label="BLE 单模配网时序图，可横向滚动；完整文字步骤在图后">
+                <svg class="sequence" viewBox="0 0 1000 860" role="img" aria-labelledby="provA-svg-title provA-svg-desc" xmlns="http://www.w3.org/2000/svg">
+                  <title id="provA-svg-title">BLE 单模配网：配对即配网，业务全走 BLE</title>
+                  <desc id="provA-svg-desc">设备、App、云端三条泳道。广播发现、GATT 连接、0x0000 查询设备信息、0x0001 配对、0x001E 联网状态上报，随后 App 与云端完成绑定注册，经 0x001B 或 IoT 激活取得凭据后，业务 DP 全部走 BLE（KEY_15）。图后列有完整文字步骤。</desc>
+                  <defs><marker id="provA-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#165ba9"/></marker></defs>
+                  <rect x="0" y="0" width="1000" height="72" fill="#f3f7fc"/>
+                  <text x="130" y="30" text-anchor="middle" class="lane-name">设备</text><text x="130" y="52" text-anchor="middle" class="lane-role">Peripheral · BLE 单模</text>
+                  <text x="500" y="30" text-anchor="middle" class="lane-name">App</text><text x="500" y="52" text-anchor="middle" class="lane-role">Central</text>
+                  <text x="870" y="30" text-anchor="middle" class="lane-name">云端</text><text x="870" y="52" text-anchor="middle" class="lane-role">绑定与激活</text>
+                  <path class="lane" d="M130 72V840 M500 72V840 M870 72V840"/>
+                  <path class="arrow" d="M130 112H498" marker-end="url(#provA-arrow)"/><text x="315" y="100" text-anchor="middle">广播 + 扫描响应（未绑定：id = product_key）</text>
+                  <path class="arrow" d="M500 158H132" marker-end="url(#provA-arrow)"/><text x="315" y="146" text-anchor="middle">GATT 连接 · 订阅 Notify</text>
+                  <rect class="step-band" x="24" y="178" width="582" height="148"/>
+                  <path class="arrow" d="M500 214H132" marker-end="url(#provA-arrow)"/><text x="315" y="202" text-anchor="middle">0x0000 查询设备信息（KEY_11）· [peer_pkt_len:2B]</text>
+                  <path class="arrow" d="M130 262H498" marker-end="url(#provA-arrow)"/><text x="315" y="250" text-anchor="middle">设备信息响应：版本 · 绑定标志 · pair_rand · register_key（表 10）</text>
+                  <text x="315" y="292" text-anchor="middle" class="key-text">请求 IV = server_rand，KEY_11 由此派生；响应发出即 handshake_ready</text>
+                  <path class="arrow" d="M500 352H132" marker-end="url(#provA-arrow)"/><text x="315" y="340" text-anchor="middle">0x0001 配对请求（KEY_12）· [ble_id:16B] 回显</text>
+                  <path class="arrow" d="M130 400H498" marker-end="url(#provA-arrow)"/><text x="315" y="388" text-anchor="middle">result：0 成功 / 1 失败 / 2 已绑定老主人重连</text>
+                  <rect x="27" y="420" width="249" height="60" rx="2" fill="#eaf2fc" stroke="#b7cde8"/>
+                  <text x="151" y="444" text-anchor="middle">paired = authenticated = true</text><text x="151" y="466" text-anchor="middle" class="key-text">KEY_12 会话建立（pair_rand 参与）</text>
+                  <path class="arrow" d="M130 505H498" marker-end="url(#provA-arrow)"/><text x="315" y="493" text-anchor="middle">0x001E 上报联网状态 [0x00]（单模恒为 0）</text>
+                  <path class="arrow cloud-arrow" d="M500 555H868" marker-end="url(#provA-arrow)"/><text x="685" y="543" text-anchor="middle">注册绑定：设备 ↔ 账号</text>
+                  <path class="arrow cloud-arrow" d="M870 603H502" marker-end="url(#provA-arrow)"/><text x="685" y="591" text-anchor="middle">绑定 / 激活凭据（数据经 App 中转）</text>
+                  <path class="arrow" d="M500 651H132" marker-end="url(#provA-arrow)"/><text x="315" y="639" text-anchor="middle">0x001B 发送设备激活信息（分包）→ 设备保存凭据</text>
+                  <text x="315" y="673" text-anchor="middle" class="small-text">V6 索引有名；本仓库做法：凭据已由 IoT 激活获得，此段跳过（ADR 0001）</text>
+                  <text x="315" y="701" text-anchor="middle" class="key-text">设备转「已绑定」：此后握手 / 会话换 KEY_14 / KEY_15（表 9）</text>
+                  <path class="arrow transition" d="M132 760H498" marker-start="url(#provA-arrow)" marker-end="url(#provA-arrow)"/><text x="315" y="747" text-anchor="middle">业务全走 BLE：0x0027 下发 ⇄ 0x8006 / 0x8007 上报（KEY_15，表 11）</text>
+                  <text x="315" y="790" text-anchor="middle" class="small-text">App 离开 BLE 范围即失去云通道（除非有蓝牙网关）</text>
+                </svg>
+              </div>
+              <figcaption>图 3 · BLE 单模：配对即配网。0x0000 / 0x0001 / 0x001E 与 DP 字节布局出自 SDK v4.4 源码核验；0x001B 出自 V6 命令索引（字段未取得）。</figcaption>
+            </figure>
+          <ol class="steps">
+            <li><strong>广播与发现。</strong><p>广播与扫描响应的 V6 视角见第 02 节。v4.4 侧的差别在身份字段：未绑定时广播携带 <code>product_key</code>（产品标识，16 字节）；已绑定为 <code>AES-ECB(MD5(secret_key), ble_id 前八字节的 hex 文本)</code>——只有持有 secret_key 的那个 App 能认出这台设备。扫描响应另有 <code>comm_ability</code> 与 flag 字节（bit7 已绑定 / bit5 支持 Wi-Fi 列表扫描）。</p></li>
+            <li><strong>GATT 连接。</strong><p>App 连接、订阅 Notify；包长先按默认 20 字节，真正的协商在第 3 步的请求里完成。</p></li>
+            <li><strong><code>0x0000</code> 查询设备信息（App → 设备，KEY_11）。</strong><p>请求载荷只有 <code>[peer_pkt_len:2B]</code>——App 能收的最大包长；这一帧的 IV 被设备留作 <code>server_rand</code>，KEY_11 就是从它派生的。设备一收到就重置会话状态、换新 <code>pair_rand</code>——所以每次连接都要重走第 3、4 步。响应布局见表 10；发出成功即 <code>handshake_ready</code>。（V6 对应 <code>0x1000</code> + <code>0x1001</code>，见第 03 节。）</p></li>
+            <li><strong><code>0x0001</code> 配对请求（App → 设备，KEY_12）。</strong><p>载荷 <code>[ble_id:16B]</code>——App 回显设备 UUID，证明读过它的设备信息；门槛是握手已完成、尚未认证。设备比对一致即 <code>paired = authenticated = true</code>。响应 <code>[result:1B]</code>：0 成功、1 失败、<strong>2 成功且设备已绑定</strong>（老主人重连）。（V6 对应 <code>0x1002</code>。）</p></li>
+            <li><strong><code>0x001E</code> 上报联网状态（设备 → App，紧随配对成功）。</strong><p>载荷 <code>[0x00]</code>。单模设备的联网状态恒为 0——它没有 Wi-Fi 可连。</p></li>
+            <li><strong>云端绑定与激活（BLE 之外）。</strong><p>App 走自己的移动网络向云端注册「设备 ↔ 账号」；单模设备自身没有云连接，云端数据经 App 中转。V6 索引里为把激活结果交回设备准备了 <code>0x001B</code> 发送设备激活信息（分包），字段布局未取得。本仓库 SDK 提供两条路（ADR 0001）：一，设备已由 IoT 客户端激活，<code>local_key</code> / <code>secret_key</code>（各 16 字节）已在设备上，BLE 控制直接借它们派生 KEY_14 / KEY_15；二，会话内激活信息回传——SDK 已实现 <code>0x001B</code> 的受理、校验、ACK 与绑定切换（载荷布局应用自定义，经 <code>activation_info</code> 回调解析），以及 <code>0x0005</code> / <code>0x0006</code> 解绑与复位。</p></li>
+            <li><strong>业务全走 BLE（KEY_15；门槛：已绑定 + 握手完成 + 已配对 + 已认证）。</strong><p>四条 DP 命令的载荷与应答见表 11。DP 单元为 <code>[id:1B][类型:1B][长度:2B 大端][值]</code>，类型 raw / bool / value（有符号 32 位）/ string（UTF-8、无 NUL）/ enum / bitmap（1、2 或 4 字节）。上报 SN 每次成功后递增持久化；TLV 预算受「密文按 16 字节对齐后仍装进单包」约束（帧 14 字节开销 + 前缀，见「分包预算」）。</p></li>
+          </ol>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="0x0000 设备信息响应布局表，可横向滚动">
+            <table class="cmd-table">
+              <caption>表 10 · <code>0x0000</code> 设备信息响应布局（v4.4，SDK 代码核验；响应用与请求相同的模式加密——未绑定 KEY_11 / 已绑定 KEY_14，IV 取请求的 server_rand）</caption>
+              <thead><tr><th scope="col">偏移</th><th scope="col">内容</th><th scope="col">说明</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">[0..1]</th><td><code>0x00 0x00</code></td><td>固定</td></tr>
+                <tr><th scope="row">[2..3]</th><td><code>0x04 0x04</code></td><td>协议版本</td></tr>
+                <tr><th scope="row">[4]</th><td><code>0x05</code></td><td>固定</td></tr>
+                <tr><th scope="row">[5]</th><td>绑定标志</td><td>1 已绑定 / 0 未绑定</td></tr>
+                <tr><th scope="row">[6..11]</th><td>pair_rand（6 字节）</td><td>本连接一次性随机数，配对后参与 KEY_12 / KEY_15 派生</td></tr>
+                <tr><th scope="row">[12..13]</th><td>补零</td><td>固定</td></tr>
+                <tr><th scope="row">[14..29]</th><td>register_key = AES-ECB(auth_key, server_rand)</td><td>App 借此验证设备持有产品级 auth_key</td></tr>
+                <tr><th scope="row">[52..53]</th><td>comm_ability</td><td>通信能力</td></tr>
+                <tr><th scope="row">[54] / [83] / [86]</th><td><code>0x06</code> / <code>0x01</code> / <code>0x01</code></td><td>固定值</td></tr>
+                <tr><th scope="row">[95] + [96..111]</th><td>ID 长度 + ble_id</td><td>设备标识（16 字节）</td></tr>
+                <tr><th scope="row">尾部 TLV</th><td><code>[0x08][8B]</code>×2；包长协商 <code>[1][pkt_len:1B]</code> 或 <code>[2][pkt_len:2B]</code></td><td>未绑定且注册了扫描回调时，再追加 <code>[0][1][0x03]</code>（combosflag：Wi-Fi 列表 + 配网状态）</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="DP 命令载荷与应答表，可横向滚动">
+            <table class="cmd-table">
+              <caption>表 11 · DP 命令的载荷与应答（v4.4，SDK 代码核验；全部 KEY_15）</caption>
+              <thead><tr><th scope="col">功能码</th><th scope="col">方向</th><th scope="col">载荷</th><th scope="col">应答</th></tr></thead>
+              <tbody>
+                <tr><th scope="row"><code>0x0027</code> DP 下发</th><td>App → 设备</td><td><code>[版本:1B=0][下发 SN:4B][DP TLV…]</code></td><td>同码回 6 字节：5 字节头回显 + <code>[结果:1B]</code>（0 成功 / 1 失败）</td></tr>
+                <tr><th scope="row"><code>0x0003</code> DP 查询</th><td>App → 设备</td><td><code>[DP id 列表，每项 1B]</code>；空 = 查全部，id 唯一非零</td><td>1 字节结果；数值随后由 <code>0x8006</code> 补报</td></tr>
+                <tr><th scope="row"><code>0x8006</code> DP 上报</th><td>设备 → App</td><td><code>[版本:1B=0][上报 SN:4B][查询应答标志:1B][分片:1B=0][DP TLV…]</code></td><td>无独立应答帧，靠 ack_sn 确认</td></tr>
+                <tr><th scope="row"><code>0x8007</code> 带时间戳上报</th><td>设备 → App</td><td>同上，另加 <code>[时间类型:1B=1][UTC 秒:4B]</code> 后接 TLV</td><td>同上</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>流程 B · BLE + Wi-Fi 双模：BLE 只负责把设备送上网</h4>
+            <figure>
+              <div class="diagram-scroll" tabindex="0" role="region" aria-label="BLE 加 Wi-Fi 双模配网时序图，可横向滚动；完整文字步骤在图后">
+                <svg class="sequence" viewBox="0 0 1000 1090" role="img" aria-labelledby="provB-svg-title provB-svg-desc" xmlns="http://www.w3.org/2000/svg">
+                  <title id="provB-svg-title">BLE+Wi-Fi 双模配网：BLE 送设备上网，业务迁 Wi-Fi</title>
+                  <desc id="provB-svg-desc">设备、App、云端三条泳道。前半与单模相同（广播、连接、0x0000、0x0001、0x001E），可选 Wi-Fi 列表扫描后，经 0x801B 下发凭据、0x801C 确认，设备连 AP 并两级上报状态，随后走 Wi-Fi 激活取得 local_key 与 secret_key，业务迁移到 Wi-Fi，BLE 退居近场直控。图后列有完整文字步骤。</desc>
+                  <defs><marker id="provB-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#165ba9"/></marker></defs>
+                  <rect x="0" y="0" width="1000" height="72" fill="#f3f7fc"/>
+                  <text x="130" y="30" text-anchor="middle" class="lane-name">设备</text><text x="130" y="52" text-anchor="middle" class="lane-role">Combo · BLE + Wi-Fi</text>
+                  <text x="500" y="30" text-anchor="middle" class="lane-name">App</text><text x="500" y="52" text-anchor="middle" class="lane-role">Central</text>
+                  <text x="870" y="30" text-anchor="middle" class="lane-name">云端</text><text x="870" y="52" text-anchor="middle" class="lane-role">Wi-Fi 激活 / 业务</text>
+                  <path class="lane" d="M130 72V1070 M500 72V1070 M870 72V1070"/>
+                  <path class="arrow" d="M130 112H498" marker-end="url(#provB-arrow)"/><text x="315" y="100" text-anchor="middle">广播 / 扫描响应：comm_ability · flag bit5 · combosflag</text>
+                  <path class="arrow" d="M500 158H132" marker-end="url(#provB-arrow)"/><text x="315" y="146" text-anchor="middle">GATT 连接 · 订阅 Notify</text>
+                  <rect class="step-band" x="24" y="178" width="582" height="148"/>
+                  <path class="arrow" d="M500 214H132" marker-end="url(#provB-arrow)"/><text x="315" y="202" text-anchor="middle">0x0000 查询设备信息（KEY_11）· [peer_pkt_len:2B]</text>
+                  <path class="arrow" d="M130 262H498" marker-end="url(#provB-arrow)"/><text x="315" y="250" text-anchor="middle">设备信息响应：pair_rand · register_key · combosflag（表 10）</text>
+                  <text x="315" y="292" text-anchor="middle" class="key-text">handshake_ready；App 确认：双模设备 · 支持设备侧扫描</text>
+                  <path class="arrow" d="M500 352H132" marker-end="url(#provB-arrow)"/><text x="315" y="340" text-anchor="middle">0x0001 配对请求（KEY_12）· [ble_id:16B] 回显</text>
+                  <path class="arrow" d="M130 400H498" marker-end="url(#provB-arrow)"/><text x="315" y="388" text-anchor="middle">result = 0：paired = authenticated = true</text>
+                  <path class="arrow" d="M130 448H498" marker-end="url(#provB-arrow)"/><text x="315" y="436" text-anchor="middle">0x001E 上报联网状态 [0x00]</text>
+                  <path class="arrow" d="M500 496H132" marker-end="url(#provB-arrow)"/><text x="315" y="484" text-anchor="middle">（可选）0x801E · sub 0x0003：请求扫描 Wi-Fi 列表</text>
+                  <path class="arrow" d="M130 544H498" marker-end="url(#provB-arrow)"/><text x="315" y="532" text-anchor="middle">0x801F：AP 列表 JSON · 最多 20 个 · 超包自动分包</text>
+                  <path class="arrow" d="M500 592H132" marker-end="url(#provB-arrow)"/><text x="315" y="580" text-anchor="middle">0x801B 凭据下发（KEY_12）：{ssid, pwd, token}</text>
+                  <text x="315" y="614" text-anchor="middle" class="small-text">[flag=0x0000] [subcmd=0x0001] · JSON 无 NUL · 小于 512 字节</text>
+                  <path class="arrow" d="M130 648H498" marker-end="url(#provB-arrow)"/><text x="315" y="636" text-anchor="middle">0x801C：5 字节 ack（flag / subcmd 回显 + 状态 0）</text>
+                  <text x="315" y="670" text-anchor="middle" class="small-text">ack 后凭据经回调交给应用层；未确认前新的 0x801B 丢弃</text>
+                  <rect x="27" y="690" width="249" height="60" rx="2" fill="#eaf2fc" stroke="#b7cde8"/>
+                  <text x="151" y="714" text-anchor="middle">连 AP → DHCP</text><text x="151" y="736" text-anchor="middle" class="key-text">凭据生效，设备开始联网</text>
+                  <path class="arrow" d="M130 782H498" marker-end="url(#provB-arrow)"/><text x="315" y="770" text-anchor="middle">0x0022 配网状态（流程级）→ 0x001E 联网状态（网络级）</text>
+                  <path class="arrow cloud-arrow transition" d="M132 832H868" marker-start="url(#provB-arrow)" marker-end="url(#provB-arrow)"/><text x="500" y="820" text-anchor="middle">Wi-Fi 连云 · token 激活</text>
+                  <rect x="745" y="852" width="250" height="60" rx="2" fill="#eaf2fc" stroke="#b7cde8"/>
+                  <text x="870" y="876" text-anchor="middle">签发 local_key / secret_key</text><text x="870" y="898" text-anchor="middle" class="key-text">设备持久化 → 已绑定</text>
+                  <path class="arrow cloud-arrow" d="M132 952H868" marker-end="url(#provB-arrow)"/><text x="500" y="940" text-anchor="middle">业务迁 Wi-Fi / MQTT：设备直连云端</text>
+                  <path class="arrow transition" d="M132 1010H498" marker-start="url(#provB-arrow)" marker-end="url(#provB-arrow)"/><text x="315" y="997" text-anchor="middle">BLE 近场直控：KEY_14 / 15 会话 · 0x0027 ⇄ 0x8006</text>
+                  <text x="315" y="1042" text-anchor="middle" class="key-text">配对响应 result = 2 · 与流程 A 第 7 步同一套字节格式</text>
+                </svg>
+              </div>
+              <figcaption>图 4 · BLE+Wi-Fi 双模：BLE 只负责把设备送上网，业务迁 Wi-Fi 后 BLE 退居近场。除 0x0022（V6 索引）外，命令字节布局出自 SDK v4.4 核验；V6 专用路径 0x001A / 0x001C / 0x0021 未画，见路径二说明。</figcaption>
+            </figure>
+          <ol class="steps">
+            <li><strong>第 1–5 步与流程 A 完全相同。</strong><p>广播、连接、<code>0x0000</code>、<code>0x0001</code>、配对后的 <code>0x001E</code> 全部原样再走一遍；配对用的也是同一套 KEY_12 会话。差异只在能力位：<code>comm_ability</code>、广播 flag 的 bit5、设备信息尾部的 <code>combosflag</code> 告诉 App——这是双模，且支持设备侧扫描。</p></li>
+            <li><strong>（可选）Wi-Fi 列表扫描：<code>0x801E</code> / <code>0x801F</code>（KEY_12）。</strong><p>App → 设备 <code>0x801E</code> 子命令 <code>0x0003</code> 请求扫描；设备侧扫描后经 <code>0x801F</code> 回 JSON：最多 20 个 AP、约 974 字节上限，超单包自动分包。App 按信号强度排序供用户挑 SSID。门槛与凭据下发相同：未绑定 + KEY_12 + 已配对。</p></li>
+            <li><strong>凭据下发——两条实现路径。</strong><p><strong>路径一（本仓库 SDK 实现，透传通道）</strong>：App → 设备 <code>0x801B</code>，载荷 <code>[flag:2B=0x0000][subcmd:2B=0x0001][JSON {"ssid","pwd","token"}]</code>——JSON 不得含 NUL、小于 512 字节，ssid 与 token 非空。设备校验后经 <code>0x801C</code> 回 5 字节 ack：<code>[flag 回显:2B][subcmd 回显:2B][状态:1B=0]</code>。ack 发出且发送队列排空后，凭据经回调交给应用层联网；凭据未确认前，新的 <code>0x801B</code> 一律丢弃不覆盖。<strong>路径二（V6 专用命令，本仓库未实现）</strong>：<code>0x001A</code> 查询 Combo WIFI 设备信息 → <code>0x001C</code> 发送 SSID → <code>0x0021</code> 发送配网信息；三条只有索引名，字段布局未取得。</p></li>
+            <li><strong>设备联网并逐级报状态。</strong><p>设备连 AP、拿 DHCP。过程用 <code>0x0022</code> 上报配网状态（流程级：配网这一步做完没有），<code>0x001E</code> 再报联网状态（网络级：到底连上没有）——区别于配对后那次全 0 上报（流程 A 第 5 步）。</p></li>
+            <li><strong>激活走 Wi-Fi（BLE 之外）。</strong><p>设备起 IoT 客户端：连云、用第 3 步的 token 激活，拿到 <code>local_key</code> / <code>secret_key</code> 并持久化——设备从此「已绑定」。App 侧同样可用 <code>0x001B</code> 把激活信息经 BLE 补交设备（索引有名）；多协议设备另有 <code>0x0026</code> 查询配网状态。</p></li>
+            <li><strong>业务迁 Wi-Fi，BLE 退居近场。</strong><p>日常 DP 走 Wi-Fi / MQTT；手机在旁边时可近场直控——此时是「已绑定」会话：握手与会话密钥换用 KEY_14 / KEY_15（从 <code>local_key</code> / <code>secret_key</code> 派生），配对响应回 <code>result=2</code>，之后的 <code>0x0027</code> / <code>0x8006</code> 与流程 A 第 7 步是同一套字节格式。本仓库 <code>tuya-ble</code> 模块的「已激活设备本地控制」走的正是这条路。</p></li>
+          </ol>
+          <div class="callout"><p><strong>分岔与汇合。</strong>配对成功处（<code>0x0001</code> / <code>0x1002</code> 的 result=0）分岔：单模直接进业务；双模多出「送凭据 → 联网 → 报状态 → Wi-Fi 激活」四步。之后两条路在「已绑定的 BLE 会话」上又汇合——同一套 DP 命令、同一把 KEY_15。</p></div>
+          <p class="note">职责切分：<code>0x1002</code> 写的是<strong>云端签发的绑定凭据</strong>，解决「这台设备归谁」；<code>0x0021</code> 送的是<strong>设备上网需要的信息</strong>，解决「设备怎么连上网络」。两者都在 BLE 上发生，但一个属于认证层、一个属于配网层，不能互相替代。</p>
+          <p class="note">来源分级：表 7 与 <code>0x001A</code> / <code>0x001C</code> / <code>0x0021</code> / <code>0x0022</code> / <code>0x001B</code> / <code>0x0026</code> / <code>0x1000</code>–<code>0x1002</code> 出自原文命令索引（字段布局未取得）；两条流程的字节级布局、门槛与应答出自本仓库 SDK（v4.4 系列）源码核验；路径二的先后顺序按命名与响应关系推得。</p>
+
+          <h3 id="chunking">分包预算：三个长度不是一回事</h3>
+          <p>长包发送失败，通常是三个长度被当成了一个：</p>
+          <ol class="steps">
+            <li><strong>ATT MTU。</strong><p>默认 23 字节，扣除 3 字节 ATT 头后单次最多 20 字节。这是链路层的事实，协议改不了。</p></li>
+            <li><strong><code>packetMaxSize</code>。</strong><p><code>0x0000</code> 响应里的应用层分包上限，随 MTU 交换与设备能力变化。它描述的是“一个协议包能有多大”，不是“一次 GATT 写入能有多长”。</p></li>
+            <li><strong>MTU 交换机制。</strong><p>连接后向设备发起的显式协商。不做这一步，就只能按默认 23 字节走。</p></li>
+          </ol>
+          <p>可用的顺序是：连接 → MTU 交换 → 读 <code>0x0000</code> 拿能力位与 <code>packetMaxSize</code> → 按协议包切分，每个协议包再拆成不超过单次写入长度的片段。<strong>两个上限取小</strong>，任何一个被忽略，长包都会在某一层被截断（这一条是据字段定义推导的操作顺序，原文未给出唯一实现）。</p>
+
+          <h3 id="legacy-seam">认证层与业务层之间的三条边界</h3>
+          <ul class="check-list">
+            <li><strong>不要混用旧版流程。</strong>≤V5 的 <code>0x0000</code> 获取信息与 <code>0x0001</code> 配对属于另一套安全流程；V6 的握手、查询、配对分别为 <code>0x1000</code>、<code>0x1001</code>、<code>0x1002</code>。功能码还在用，流程已经不是原来那条。</li>
+            <li><strong><code>0x1002</code> 只写凭据。</strong>它用于写入云端签发的绑定凭据，不能理解成一个独立的“SSID / 密码下发”命令；本页也不扩展推断 Wi-Fi 配网的载荷字段。</li>
+            <li><strong>强制 LINK 层加密为真时，明文阶段没有业务。</strong>能力位说“设备要求加密”，<code>Flag2.bit0</code> 说“当前是否已加密”，两者都为真之后，业务帧才被接受。</li>
+          </ul>
+
+          <h3 id="gaps">联调时最容易卡住的七处</h3>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="常见联调问题表，可横向滚动">
+            <table class="cmd-table">
+              <caption>表 12 · 功能层的高频误判</caption>
+              <thead><tr><th scope="col">现象</th><th scope="col">多半是</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">透传发出去对端没反应</th><td><code>0x80xx</code> 被当成“设备上行”，上下行用反（<code>0x801B</code> / <code>0x801C</code>）</td></tr>
+                <tr><th scope="row">Combo 通道开了不走数据</th><td>没读 <code>combosflag</code>，设备不支持这条通道</td></tr>
+                <tr><th scope="row">多条 DP 只有第一条正确</th><td>单 DP 长度字段按 1 字节解析，实际是 2 字节，后面全部错位</td></tr>
+                <tr><th scope="row">设备上报了，App 一直等 ACK 超时</th><td>上报帧的“是否需要响应帧”为 0</td></tr>
+                <tr><th scope="row">长包被截断</th><td><code>packetMaxSize</code> 与 ATT MTU 混用，或没做 MTU 交换</td></tr>
+                <tr><th scope="row">配网命令发出去设备不应答</th><td>认证还没成立就发：<code>0x001C</code> / <code>0x0021</code> 属于加密后的流程，且 Mode 0 与 Mode 1/2 的走法不同</td></tr>
+                <tr><th scope="row">设备说配网完成，云端仍看不到上线</th><td>只等到 <code>0x0022</code>（流程级）就发业务，没等 <code>0x001E</code>（联网级）</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">本节功能码清单取自原文“修改记录”与命令索引（本页读到 V4.0 至 V4.6-beta1 一段的登记条目）；字段级报文格式在正文各章，本页只展开与交互顺序相关的部分；标注为推导的结论请以原文与设备实测为准。</p>
+          <p class="flow-source"><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e">原文：修改记录与功能码章节</a></p>
+        </section>
+
+        <section id="sources" aria-labelledby="sources-title">
+          <h2 id="sources-title"><span class="section-number">07</span>原文来源</h2>
+          <p>来源为 <a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e">Tuya_BLE_Communication_Protocol（V6.0）</a>。以下链接定位本文涉及的协议段落，访问权限以源文档为准。</p>
+          <ol class="source-list">
+            <li><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#XEtvdogoHo2R9xxm7GicrZUzn1b">Service Data 与 Frame Control</a><span>服务 UUID、版本、绑定状态与 ID Include 位。</span></li>
+            <li><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#VG4wdlF1eoplt4xq3qgc8bPonic">广播 ID</a><span>未绑定产品标识与已绑定 HMAC ID。</span></li>
+            <li><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#PnW0ddbxjotrdnx9Qs8cdfRqnrh">扫描响应</a><span>厂商数据、通信能力、安全模式与 UUID / MAC 标识。</span></li>
+            <li><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#doxcnBIw9jBHqjt2fkUMvnimC7g">GATT 通道</a><span>服务与特征 UUID、写入与通知方向。</span></li>
+            <li><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#Rlx7d7Blio5AJ7xRwKEcF9Y2nUe">6.4 交互流程</a><span>三方交互、首次绑定与会话建立。</span></li>
+            <li><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#BYYRd5ticoZU4lxC28scK0iwnEe">安全模式</a><span>Mode 0 / 1 / 2 的 ECDH 使用时机与密钥路径。</span></li>
+            <li><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#GGwTduqtZoOdRHxYxAYcTEuNnvb">V6 配对指令</a><span>绑定凭据、verify_key、配对状态与成功响应的密钥切换。</span></li>
+            <li><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#X8vzdfjwno3DkRxsJC4cfLDWnfe">已绑定重连</a><span>已有凭据下的会话派生与双向认证。</span></li>
+            <li><a href="https://icn602w9tnqf.feishu.cn/wiki/VHHzwC22IiOotak7IFZcDFX0n3e#DCygdosSqodXE9xZCs5c7FvTnXb">6.5 接收校验与异常处理</a><span>长度、密钥类型、状态、模式、MIC、序号与失败处理。</span></li>
+          </ol>
+        </section>
+      </main>
+    </div>
+    <footer>Tuya BLE V6.0 · 独立阅读文档 · 所有交互选择均在本地运行；正文、时序图与来源链接无需 JavaScript 即可阅读。</footer>
+  </div>
+  <script>
+    (() => {
+      'use strict';
+      const controls = document.getElementById('flow-controls');
+      const status = document.getElementById('reading-key');
+      const flowButtons = Array.from(document.querySelectorAll('[data-flow]'));
+      const modeButtons = Array.from(document.querySelectorAll('[data-mode]'));
+      const panels = {
+        binding: document.getElementById('binding-flow'),
+        reconnect: document.getElementById('reconnect-flow')
+      };
+      let flow = 'binding';
+      let mode = 2;
+      const render = () => {
+        flowButtons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.flow === flow)));
+        modeButtons.forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.mode) === mode)));
+        Object.entries(panels).forEach(([name, panel]) => { panel.hidden = name !== flow; });
+        const prefix = (flow === 'binding' ? '首次绑定' : '已绑定重连') + ' · Mode ' + mode + '：';
+        if (flow === 'binding') {
+          const temporaryKey = mode === 0 ? 'key21' : 'key22';
+          const sessionKey = mode === 0 ? 'key24' : 'key25';
+          status.textContent = prefix + (mode === 0 ? '无 ECDH；' : '执行 P-256 ECDH；') + '临时密钥 ' + temporaryKey + ' → 0x1002 成功响应及业务使用 ' + sessionKey + '。';
+        } else {
+          status.textContent = prefix + (mode === 2 ? '执行新的 P-256 ECDH；' : '无 ECDH；') + '0x1001 与业务使用本次会话密钥 ' + (mode === 2 ? 'key25' : 'key24') + '。';
+        }
+      };
+      flowButtons.forEach(button => button.addEventListener('click', () => { flow = button.dataset.flow; render(); }));
+      modeButtons.forEach(button => button.addEventListener('click', () => { mode = Number(button.dataset.mode); render(); }));
+      render();
+      controls.hidden = false;
+    })();
+  </script>
+</body>
+</html>

@@ -211,6 +211,7 @@ static int test_on_data_rejects_invalid_args(void)
 }
 
 int test_wire(void);
+int test_control(void);
 
 int main(void)
 {
@@ -228,6 +229,7 @@ int main(void)
     EXPECT_TRUE(test_on_data_rejects_invalid_args() == 0);
 
     EXPECT_TRUE(test_wire() == 0);
+    EXPECT_TRUE(test_control() == 0);
 
     printf("PASS test_prov\n");
     return 0;

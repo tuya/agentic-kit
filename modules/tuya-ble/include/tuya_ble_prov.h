@@ -43,6 +43,8 @@ extern "C" {
 #define TUYA_BLE_ENCRYPTION_MODE_NONE   0x00
 #define TUYA_BLE_ENCRYPTION_MODE_KEY_11 0x0B
 #define TUYA_BLE_ENCRYPTION_MODE_KEY_12 0x0C
+#define TUYA_BLE_ENCRYPTION_MODE_KEY_14 0x0E
+#define TUYA_BLE_ENCRYPTION_MODE_KEY_15 0x0F
 
 /* Radio capability advertised in the scan response and device-info response.
  * Advertise only bands the port can actually scan and join: claiming 5 GHz on
@@ -118,11 +120,55 @@ typedef struct {
      * CombosFlag bit 0), which makes the App issue 0x801E/subcommand 0x0003. */
     tuya_ble_wifi_scan_request_fn wifi_scan_request;
     void *wifi_scan_ctx;
+    /* Optional activated-device control. Supply BOTH borrowed, NUL-terminated
+     * 16-byte credentials to advertise a bound device and use KEY_14/KEY_15.
+     * NULL for both preserves provisioning. Stop the port before reinitializing
+     * with changed Activation credentials; do not mutate borrowed strings live. */
+    const char *local_key;
+    const char *secret_key;
+    /* Called on the BLE owner context with a validated, borrowed TLV batch
+     * (tuya_ble_dp.h) or queried DPID list (empty means all). Return 0 after
+     * copying/accepting work, otherwise the phone receives a failure ACK.
+     * Callbacks must not reenter this state or call MQTT. Queue work to the IoT
+     * owner and explicitly queue any reports back to the BLE owner. */
+    int (*dp_write)(const uint8_t *tlv, size_t len, void *ctx);
+    int (*dp_query)(const uint8_t *ids, size_t count, void *ctx);
+    void *dp_ctx;
+    /* Optional single-mode (BLE-only) activation delivery, wire command 0x001B
+     * (the V6 doc names it 发送设备激活信息). Called on the BLE owner context
+     * in the unbound KEY_12 session after Pairing, with the borrowed,
+     * reassembled payload (a slice into the receive buffer: not
+     * NUL-terminated, invalid after the call). No open Tuya source defines
+     * the payload layout. Parse it, persist what must survive a reboot, and
+     * on acceptance copy the 16-byte NUL-terminated Activation credentials
+     * into local_key_out/secret_key_out: the SDK validates them, ACKs
+     * success and installs them itself (the bound form flips only after the
+     * ACK is queued). Return 0 to accept; any other value, or malformed out
+     * buffers, is logged and ACKed as failure. */
+    int (*activation_info)(const uint8_t *data, size_t len,
+                           char local_key_out[17], char secret_key_out[17], void *ctx);
+    void *activation_ctx;
+    /* Called on the BLE owner context after an Unbind (0x0005) or Device
+     * reset (0x0006) request dropped the bound form and restored the
+     * unbound advertisement. Wipe persisted Activation credentials here and
+     * also clear them from this config before the next init, or a reopen
+     * re-enters the bound form. The request ACK is already queued; keep the
+     * link up until tuya_ble_prov_tx_ready() drains it before
+     * disconnecting. */
+    void (*unbound)(void *ctx);
+    void *unbound_ctx;
 } tuya_ble_prov_cfg_ext_t;
 
 typedef struct {
     tuya_ble_prov_cfg_ext_t cfg;
     tuya_ble_wifi_creds_t creds;
+
+    /* Activation credentials installed in-session (activation delivery,
+     * cmd 0x001B): the module copies them here and points
+     * cfg.local_key/secret_key at them, so they survive close()'s re-init.
+     * Config-injected credentials never use them. */
+    char bound_local_key[17];
+    char bound_secret_key[17];
 
     uint8_t ble_id[TUYA_BLE_ID_LEN + 1];
     bool is_id_comp;
@@ -138,6 +184,10 @@ typedef struct {
     uint8_t key_11[16];
     bool paired;
     bool handshake_ready;
+    /* The device-info handshake completed in the BOUND form: only then may
+     * KEY_15 Frames flow and DP callbacks fire. An in-session
+     * tuya_ble_prov_bind() clears it until the app re-handshakes. */
+    bool handshake_bound;
     bool authenticated;
     bool credentials_pending;
     uint32_t connection_generation;
@@ -165,6 +215,7 @@ typedef struct {
     uint32_t wifi_scan_token;
     uint16_t wifi_scan_count;
     bool wifi_scan_pending;
+    uint32_t dp_report_sn;
 } tuya_ble_prov_state_t;
 
 /* Config strings are borrowed and must outlive state: NUL-terminated product_key
@@ -189,6 +240,26 @@ void tuya_ble_prov_get_read_payload(const tuya_ble_prov_state_t *state,
                                      const uint8_t **rsp_data, uint8_t *rsp_len);
 /* Compatibility status setter; true never grants cryptographic authorization. */
 void tuya_ble_prov_set_paired(tuya_ble_prov_state_t *state, bool paired);
+
+/* Single-mode binding: copy the NUL-terminated 16-byte Activation
+ * credentials into the state and switch it to the bound form in-session --
+ * the advertisement becomes the bound form and only KEY_14/KEY_15 Frames
+ * are admitted from now on. The copy is internal, so the arguments may be
+ * transient slices; persisting them is the app's job, because a fresh
+ * tuya_ble_prov_init() from your config knows nothing of them. The unbound
+ * session's key material stays valid for its own ACK, but nothing
+ * bound-form may flow until the app reconnects and re-handshakes (bound
+ * device-info plus pair). Returns 0 after the switch, -1 for invalid
+ * credentials or an already-bound state. */
+int tuya_ble_prov_bind(tuya_ble_prov_state_t *state,
+                       const char *local_key, const char *secret_key);
+
+/* Drop the in-session Activation credentials and return to the unbound form
+ * (unbound advertisement, KEY_11/KEY_12). Fires the unbound callback after
+ * the advertisement is rebuilt. Send any protocol ACK before calling this:
+ * the session mode changes underneath. Returns 0 after the switch, -1 for a
+ * NULL state. */
+int tuya_ble_prov_unbind(tuya_ble_prov_state_t *state);
 
 /* Shared encrypted Frame sender for sibling BLE protocol modules. */
 int tuya_ble_prov_send_frame(tuya_ble_prov_state_t *state, uint16_t cmd,

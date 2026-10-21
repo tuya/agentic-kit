@@ -15,6 +15,9 @@ New entries use explicit platform-qualified PR/MR links; see [CONTRIBUTING.md](C
 - docs — manual contribution workflow for GitLab 17.8.7: contribution guidelines, PR/MR templates and a GitLab-to-GitHub sync runbook ([GitLab MR !5](https://registry.code.tuya-inc.top/TuyaAI/agentic-kit/-/merge_requests/5)).
 - ci — GitLab pipeline mirrors the GitHub checks (sanitizers, POSIX examples) and adds the valgrind leak, CodeScan and gitleaks secret-detection gates ([GitLab MR !5](https://registry.code.tuya-inc.top/TuyaAI/agentic-kit/-/merge_requests/5)).
   - External contributions must pass the CodeScan gate; `BLOCK_ON_VULN=false` switches it to report-only.
+- tuya-ble — BLE single-mode provisioning: activation delivery (cmd `0x001B`) in the unbound session, in-session bind via `tuya_ble_prov_bind()`, and Unbind/Device reset (`0x0005`/`0x0006`) with an `unbound` callback (PR pending).
+  - The `activation_info` callback parses the application-defined payload and returns the credential pair; the ACK rides the unbound session and the bound form flips only after the ACK is queued.
+- tuya-ble — activated-device local DP control over bound KEY_14/KEY_15 sessions: DP write/query callbacks, explicit TLV reports with optional UTC timestamps, and bound advertising (PR pending).
 - Examples — `workflow_variables_demo` sends sequential `chat`, `generate-img`, and `decide` Events with plain-text, saved-image, and boolean-result JSON responses (PR pending).
 - biz-client — typed AI role management, language/timbre queries, POSIX and ESP-IDF examples, and bilingual API documentation (#47).
 - iot-client — `iot_get_binding_status()` queries `tuya.device.info.sync` with saved credentials, without an IoT client (#44).
