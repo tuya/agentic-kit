@@ -1,6 +1,10 @@
 set(AK_DIR ${CMAKE_CURRENT_LIST_DIR}/../../../..)
 
 set(AK_SRCS
+    # biz-client: typed cloud business services, platform-independent
+    ${AK_DIR}/modules/biz-client/src/biz_client.c
+    ${AK_DIR}/modules/biz-client/src/ai_role.c
+
     # rtc-tcp-client (TAI 2.1)
     ${AK_DIR}/modules/rtc-tcp-client/src/tai_attrs.c
     ${AK_DIR}/modules/rtc-tcp-client/src/tai_client.c
@@ -52,6 +56,7 @@ set(AK_SRCS
 idf_component_register(
     SRCS ${AK_SRCS}
     INCLUDE_DIRS
+        ${AK_DIR}/modules/biz-client/include
         ${AK_DIR}/modules/rtc-tcp-client/include
         ${AK_DIR}/modules/iot-client/include
         ${AK_DIR}/modules/tuya-ble/include

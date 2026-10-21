@@ -20,6 +20,7 @@ Multimodal device-side SDK for connecting smart hardware to the Tuya AI platform
 | RTC Client | `stm_open.h` | tRTC (Tuya RTC protocol), UDP implementation, pre-compiled static library |
 | IoT Client | `iot_client.h`, `iot_dp.h`, `iot_ota.h` | Device activation, MQTT, session token; Data Point (DP) management (schema validation / cache / up- & downlink / persistence); OTA firmware upgrade (cloud protocol) |
 | Tuya BLE | `tuya_ble_prov.h` | BLE provisioning (ESP-IDF) |
+| Business Client | `tuya_biz_client.h`, `tuya_ai_role.h` | Typed cloud business APIs: AI role queries, selection, editing and deletion, plus language/timbre queries; uses public IoT ATOP and PAL |
 
 ## Prerequisites
 

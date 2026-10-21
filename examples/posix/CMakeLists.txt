@@ -51,6 +51,9 @@ add_library(quirc STATIC
 )
 target_include_directories(quirc PUBLIC "${quirc_SOURCE_DIR}/lib")
 
+# -- ai / role-management --------------------------------------------------
+add_subdirectory(ai/role-management)
+
 # -- pair / api-activate -----------------------------------------------------
 add_executable(activate_demo
     "${CMAKE_CURRENT_SOURCE_DIR}/pair/api-activate/activate_demo.c"
