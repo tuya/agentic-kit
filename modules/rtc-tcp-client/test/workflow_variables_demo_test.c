@@ -49,11 +49,13 @@ static int test_workflow_output(void)
     const pal_t pal = {
         .mutex_lock = test_lock, .mutex_unlock = test_lock, .time_ms = test_time
     };
-    demo_ctx_t dc = {.pal = &pal, .active = 1, .deadline = 100};
+    demo_ctx_t dc = {
+        .pal = &pal, .action = "decide", .active = 1, .deadline = 100
+    };
     const char *chunks[] = {
-        "{\"bizType\":\"NLG\",\"data\":{\"content\":\"{\\n  \\\"type\\\": \\\"card\\\",\\n\"}}",
-        "{\"bizType\":\"NLG\",\"data\":{\"content\":\"  \\\"action\\\": \\\"sing\\\",\\n\"}}",
-        "{\"bizType\":\"NLG\",\"data\":{\"content\":\"  \\\"count\\\": \\\"2\\\"\\n}\\n\"}}",
+        "{\"bizType\":\"NLG\",\"data\":{\"content\":\"{\\n\"}}",
+        "{\"bizType\":\"NLG\",\"data\":{\"content\":\"  \\\"result\\\": true\\n\"}}",
+        "{\"bizType\":\"NLG\",\"data\":{\"content\":\"}\\n\"}}",
         "{\"bizType\":\"NLG\",\"eof\":1,\"data\":{\"content\":\"\",\"finish\":true}}"
     };
     for (size_t i = 0; i < sizeof(chunks) / sizeof(chunks[0]); i++) {
@@ -72,12 +74,22 @@ static int test_workflow_output(void)
     tai_event_msg_t end = {.event_type = TAI_EVT_END};
     on_event(NULL, &end, &dc);
     CHECK(dc.done && !dc.failed && !dc.active);
-    CHECK(strcmp(dc.output.buf,
-                 "{\n  \"type\": \"card\",\n  \"action\": \"sing\",\n  \"count\": \"2\"\n}\n") == 0);
+    CHECK(strcmp(dc.output.buf, "{\n  \"result\": true\n}\n") == 0);
 
-    const char *outputs[] = {
-        "{\"type\":\"card\",\"action\":\"move\",\"count\":3}",
-        "{\"type\":\"card\"", "{\"count\":2}\ndumb output", "[]", "   "
+    const struct {
+        const char *json;
+        int valid;
+    } outputs[] = {
+        {"{\"result\":false}", 1},
+        {"{\"result\":true,\"note\":\"accepted\"}", 1},
+        {"{\"type\":\"card\",\"action\":\"move\",\"count\":3}", 0},
+        {"{\"result\":\"true\"}", 0},
+        {"{\"result\":1}", 0},
+        {"{\"result\":null}", 0},
+        {"{\"result\":true", 0},
+        {"{\"result\":true}\ntrailing output", 0},
+        {"[]", 0},
+        {"   ", 0}
     };
     for (size_t i = 0; i < sizeof(outputs) / sizeof(outputs[0]); i++) {
         dc.active = 1;
@@ -85,12 +97,12 @@ static int test_workflow_output(void)
         demo_textbuf_reset(&dc.text);
         demo_textbuf_reset(&dc.output);
         tai_text_msg_t msg = {
-            .text = outputs[i], .len = strlen(outputs[i]),
+            .text = outputs[i].json, .len = strlen(outputs[i].json),
             .stream_flag = TAI_STREAM_ONE_SHOT, .seq = 1
         };
         on_text(NULL, &msg, &dc);
         on_event(NULL, &end, &dc);
-        CHECK(dc.done && dc.failed == (i != 0));
+        CHECK(dc.done && !dc.active && dc.failed == !outputs[i].valid);
     }
     demo_textbuf_free(&dc.text);
     demo_textbuf_free(&dc.output);
@@ -102,11 +114,69 @@ static int test_workflow_output(void)
     size_t n = fread(printed, 1, sizeof(printed) - 1, capture);
     printed[n] = '\0';
     CHECK(strstr(printed, "[Workflow JSON parsed]\n") != NULL);
-    CHECK(strstr(printed, "  type (string): \"card\"\n") != NULL);
-    CHECK(strstr(printed, "  action (string): \"sing\"\n") != NULL);
-    CHECK(strstr(printed, "  count (string): \"2\"\n") != NULL);
-    CHECK(strstr(printed, "  count (number): 3\n") != NULL);
+    CHECK(strstr(printed, "  result (boolean): true\n") != NULL);
+    CHECK(strstr(printed, "  result (boolean): false\n") != NULL);
+    CHECK(strstr(printed, "  note (string): \"accepted\"\n") != NULL);
     fclose(capture);
+    return failures;
+}
+
+static int test_response_types(void)
+{
+    int failures = 0;
+    const pal_t pal = {
+        .mutex_lock = test_lock, .mutex_unlock = test_lock, .time_ms = test_time
+    };
+    demo_ctx_t dc = {
+        .pal = &pal, .action = "chat", .active = 1, .deadline = 100
+    };
+    /* Plain chat is complete text; it must not need a decide JSON result. */
+    const char text[] = {'h', 'e', 'l', 'l', 'o'};
+    tai_text_msg_t msg = {
+        .text = text, .len = sizeof(text),
+        .stream_flag = TAI_STREAM_ONE_SHOT, .seq = 1
+    };
+    tai_event_msg_t end = {.event_type = TAI_EVT_END};
+    on_text(NULL, &msg, &dc);
+    on_event(NULL, &end, &dc);
+    CHECK(dc.done && !dc.failed && !dc.active);
+    CHECK(dc.output.len == sizeof(text) &&
+          memcmp(dc.output.buf, text, sizeof(text)) == 0);
+    demo_textbuf_free(&dc.text);
+    demo_textbuf_free(&dc.output);
+
+    dc = (demo_ctx_t){
+        .pal = &pal, .action = "generate-img", .active = 1, .deadline = 100
+    };
+    /* These callbacks only buffer the borrowed image bytes; no files are saved. */
+    const uint8_t image[] = {0x89, 'P', 'N', 'G'};
+    tai_image_msg_t image_msg = {
+        .data = image, .len = sizeof(image), .format = TAI_IMG_PNG,
+        .stream_flag = TAI_STREAM_ONE_SHOT
+    };
+    on_image(NULL, &image_msg, &dc);
+    CHECK(dc.image_done && !dc.image_started && !dc.done && !dc.failed);
+    on_event(NULL, &end, &dc);
+    CHECK(dc.done && !dc.failed && !dc.active);
+    CHECK(dc.image_len == sizeof(image) && dc.image_format == TAI_IMG_PNG &&
+          memcmp(dc.image, image, sizeof(image)) == 0);
+    free(dc.image);
+
+    dc = (demo_ctx_t){
+        .pal = &pal, .action = "generate-img", .active = 1, .deadline = 100
+    };
+    on_event(NULL, &end, &dc);
+    CHECK(dc.done && dc.failed && !dc.active);
+
+    dc = (demo_ctx_t){
+        .pal = &pal, .action = "generate-img", .active = 1, .deadline = 100
+    };
+    image_msg.stream_flag = TAI_STREAM_START;
+    on_image(NULL, &image_msg, &dc);
+    CHECK(dc.image_started && !dc.image_done && !dc.failed);
+    on_event(NULL, &end, &dc);
+    CHECK(dc.done && dc.failed && !dc.active);
+    free(dc.image);
     return failures;
 }
 
@@ -140,6 +210,7 @@ int main(void)
     CHECK(!params_match("{\"action\":{\"value\":\"sing\"},\"count\":{\"value\":\"2\"}}",
                         "sing", 2));
     failures += test_workflow_output();
+    failures += test_response_types();
     printf("workflow_variables_demo_test: %d failures\n", failures);
     return failures ? 1 : 0;
 }

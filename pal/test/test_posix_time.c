@@ -49,6 +49,11 @@ static int test_table(void)
 {
     const pal_t *pal = tai_pal_posix();
     CHECK(pal_is_valid(pal));
+    /* This target compiles the real port with optional LAN code disabled. */
+    CHECK(!pal_has_server_network(pal));
+    CHECK(!pal->tcp_listen && !pal->tcp_accept && !pal->udp_bind &&
+          !pal->udp_sendto && !pal->udp_recvfrom && !pal->socket_local_port &&
+          !pal->udp_close);
     pal_t incomplete = *pal;
     incomplete.wal_clock_time = NULL;
     CHECK(!pal_is_valid(&incomplete));

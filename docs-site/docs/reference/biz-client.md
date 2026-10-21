@@ -17,6 +17,10 @@ void tuya_biz_client_destroy(tuya_biz_client_t *client);
 
 借用 IoT Client 及其 PAL。`request_lang=NULL` 默认 `zh`，非空值最多 31 字节。创建失败时 `*out=NULL`。先 `iot_init`，再创建；所有结果必须在销毁客户端前释放，所有调用必须在销毁 IoT Client 前完成。多实例可独立持有客户端和展示语言；调用方负责串行调度。
 
+## 日志 {#logging}
+
+`AGENTIC_KIT_BIZ_LOG_LEVEL` 默认等于 SDK 全局 `AGENTIC_KIT_LOG_LEVEL`，只能进一步降低 biz-client 的编译期日志上限。设为 `0` 可关闭本模块日志；设得高于全局上限会被钳回全局值。覆盖方式见[编译期配置](../guides/compile-time-knobs.md)。
+
 ## 角色 API {#role-api}
 
 下表省略共同首参 `tuya_biz_client_t *` 和末尾可选参数 `iot_atop_rejection_t *`，完整声明以公开头文件为准。

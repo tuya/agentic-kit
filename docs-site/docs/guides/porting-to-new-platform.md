@@ -28,7 +28,7 @@ RTC TCP Client 通过 PAL（Platform Abstraction Layer）实现跨平台移植�
 
 ### 1. 实现 PAL 接口 {#1-实现-pal-接口}
 
-创建一个 `pal_xxx.c` 文件，实现所有 PAL 函数并填充 `pal_t` 结构体：
+创建一个 `pal_xxx.c` 文件，实现基础 PAL 函数并填充 `pal_t` 结构体：
 
 ```c
 #include "pal.h"
@@ -111,6 +111,20 @@ tai_config_t cfg = {
 > **注意：** `pal.h` 的 `mutex_create` 契约（见头文件注释）要求返回**递归锁**，因此必须使用 `xSemaphoreCreateRecursiveMutex`（配合 `xSemaphoreTakeRecursive` / `xSemaphoreGiveRecursive`），不能用非递归的 `xSemaphoreCreateMutex`，否则会在重入加锁路径上死锁。
 
 TCP 部分取决于具体的网络协议栈（lwIP、AT 指令等）。
+
+### LAN 可选网络能力 {#lan-network}
+
+所有平台能力统一由 `pal_t` 提供。LAN 另需实现 `tcp_listen`、`tcp_accept`、
+`udp_bind`、`udp_sendto`、`udp_recvfrom`、`socket_local_port` 和 `udp_close`。
+监听和 UDP 操作必须非阻塞；接受的 TCP 句柄必须兼容已有的
+`tcp_send/recv/poll/close`，并保留零超时立即返回、正超时有界等待的语义。
+LAN 使用零超时驱动 TCP 收发。监听、接受及 UDP 句柄使用传入 PAL 的分配器，
+关闭时必须使用对应分配器释放。
+
+`pal_is_valid()` 只检查基础回调，LAN 用 `pal_has_server_network()` 检查完整的
+可选能力组。内置 POSIX/FreeRTOS 移植在 `AGENTIC_KIT_ENABLE_LAN=1` 时提供它们，
+关闭时这些回调为 NULL。字段布局不受编译开关影响；扩展 `pal_t` 后必须重新编译
+SDK 与调用方。自定义移植在不使用 LAN 时可以省略这些可选回调。
 
 ### FreeRTOS 单调计时 {#freertos-tick-clock}
 

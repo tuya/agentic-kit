@@ -16,6 +16,7 @@
 #include <time.h>
 #include <pthread.h>
 #include <errno.h>
+#include <limits.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -23,10 +24,15 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
 
 #include "pal.h"
 #include "log.h"
+
+#ifndef AGENTIC_KIT_ENABLE_LAN
+#define AGENTIC_KIT_ENABLE_LAN 0
+#endif
 
 /* Suppress SIGPIPE on send() when peer has closed the connection.
  * Linux uses MSG_NOSIGNAL per-call; macOS/BSD uses SO_NOSIGPIPE socket option. */
@@ -35,13 +41,14 @@
 #endif
 
 /* -------------------------------------------------------------------------
- * TCP socket handle
+ * Shared handle for TCP connections, listeners and UDP sockets
  * ------------------------------------------------------------------------- */
 typedef struct {
     int fd;
     uint32_t last_rcvtimeo_ms;
     uint32_t last_sndtimeo_ms;
-} posix_tcp_t;
+    const pal_t *pal; /* NULL for legacy tcp_connect handles. */
+} posix_socket_t;
 
 static void *pal_tcp_connect(const char *host, uint16_t port, uint32_t timeout_ms)
 {
@@ -126,7 +133,7 @@ static void *pal_tcp_connect(const char *host, uint16_t port, uint32_t timeout_m
     setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &flag, sizeof(flag));
 #endif
 
-    posix_tcp_t *h = (posix_tcp_t *)malloc(sizeof(posix_tcp_t));
+    posix_socket_t *h = (posix_socket_t *)malloc(sizeof(posix_socket_t));
     if (!h) {
         log_tag_error("pal", "tcp handle alloc failed");
         close(fd);
@@ -135,13 +142,15 @@ static void *pal_tcp_connect(const char *host, uint16_t port, uint32_t timeout_m
     h->fd = fd;
     h->last_rcvtimeo_ms = UINT32_MAX;
     h->last_sndtimeo_ms = UINT32_MAX;
+    h->pal = NULL;
     return h;
 }
 
 static int pal_tcp_send(void *handle, const uint8_t *buf, size_t len,
                          uint32_t timeout_ms)
 {
-    posix_tcp_t *h = (posix_tcp_t *)handle;
+    posix_socket_t *h = (posix_socket_t *)handle;
+    if (!h || !buf || !len || len > INT_MAX) return PAL_ERR_INVALID;
     int flags = MSG_NOSIGNAL;
 
     if (timeout_ms == 0) {
@@ -158,11 +167,12 @@ static int pal_tcp_send(void *handle, const uint8_t *buf, size_t len,
     ssize_t n;
     do {
         n = send(h->fd, buf, len, flags);
-    } while (n < 0 && errno == EINTR);
+    } while (n < 0 && errno == EINTR && timeout_ms != 0);
 
     if (n > 0) return (int)n;
     if (n == 0) return 0;
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
+    if (errno == EAGAIN || errno == EWOULDBLOCK ||
+        (errno == EINTR && timeout_ms == 0))
         return PAL_ERR_AGAIN;
     log_tag_error("pal", "tcp_send failed: %s (errno=%d)", strerror(errno), errno);
     return PAL_ERR_NET;
@@ -171,7 +181,8 @@ static int pal_tcp_send(void *handle, const uint8_t *buf, size_t len,
 static int pal_tcp_recv(void *handle, uint8_t *buf, size_t buf_len,
                          uint32_t timeout_ms)
 {
-    posix_tcp_t *h = (posix_tcp_t *)handle;
+    posix_socket_t *h = (posix_socket_t *)handle;
+    if (!h || !buf || !buf_len || buf_len > INT_MAX) return PAL_ERR_INVALID;
     int flags = 0;
 
     if (timeout_ms == 0) {
@@ -188,11 +199,12 @@ static int pal_tcp_recv(void *handle, uint8_t *buf, size_t buf_len,
     ssize_t n;
     do {
         n = recv(h->fd, buf, buf_len, flags);
-    } while (n < 0 && errno == EINTR);
+    } while (n < 0 && errno == EINTR && timeout_ms != 0);
 
     if (n > 0) return (int)n;
     if (n == 0) return 0; /* EOF */
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
+    if (errno == EAGAIN || errno == EWOULDBLOCK ||
+        (errno == EINTR && timeout_ms == 0))
         return PAL_ERR_AGAIN;
     log_tag_error("pal", "tcp_recv failed: %s (errno=%d)", strerror(errno), errno);
     return PAL_ERR_NET;
@@ -200,7 +212,8 @@ static int pal_tcp_recv(void *handle, uint8_t *buf, size_t buf_len,
 
 static int pal_tcp_poll(void *handle, int events, uint32_t timeout_ms)
 {
-    posix_tcp_t *h = (posix_tcp_t *)handle;
+    posix_socket_t *h = (posix_socket_t *)handle;
+    if (!h || !(events & 3) || (events & ~3)) return PAL_ERR_INVALID;
     fd_set rfds, wfds;
     FD_ZERO(&rfds);
     FD_ZERO(&wfds);
@@ -215,7 +228,8 @@ static int pal_tcp_poll(void *handle, int events, uint32_t timeout_ms)
                      (events & 1) ? &rfds : NULL,
                      (events & 2) ? &wfds : NULL,
                      NULL, &tv);
-    if (sel < 0) return -3;
+    if (sel < 0) return errno == EINTR && timeout_ms == 0
+                         ? PAL_ERR_AGAIN : PAL_ERR_NET;
     if (sel == 0) return 0;
 
     int result = 0;
@@ -227,10 +241,188 @@ static int pal_tcp_poll(void *handle, int events, uint32_t timeout_ms)
 static void pal_tcp_close(void *handle)
 {
     if (!handle) return;
-    posix_tcp_t *h = (posix_tcp_t *)handle;
+    posix_socket_t *h = (posix_socket_t *)handle;
     close(h->fd);
-    free(h);
+    if (h->pal) h->pal->free(h);
+    else free(h);
 }
+
+#if AGENTIC_KIT_ENABLE_LAN
+/* -------------------------------------------------------------------------
+ * Optional TCP server and UDP operations, sharing the TCP handle and I/O.
+ * ------------------------------------------------------------------------- */
+static int pal_socket_error(void)
+{
+    return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR
+           ? PAL_ERR_AGAIN : PAL_ERR_NET;
+}
+
+static int pal_socket_address(const char *ip, uint16_t port,
+                              struct sockaddr_in *address)
+{
+    memset(address, 0, sizeof(*address));
+    address->sin_family = AF_INET;
+    address->sin_port = htons(port);
+    if (!ip || !*ip) address->sin_addr.s_addr = htonl(INADDR_ANY);
+    else if (inet_pton(AF_INET, ip, &address->sin_addr) != 1)
+        return PAL_ERR_INVALID;
+    return 0;
+}
+
+static int pal_socket_prepare(int fd, bool nonblocking)
+{
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0 || fcntl(fd, F_SETFL, nonblocking ? flags | O_NONBLOCK
+                                                 : flags & ~O_NONBLOCK) < 0)
+        return PAL_ERR_NET;
+#ifdef SO_NOSIGPIPE
+    int one = 1;
+    if (setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one)) < 0)
+        return PAL_ERR_NET;
+#endif
+    return 0;
+}
+
+static int pal_socket_handle(const pal_t *pal, int fd, void **out)
+{
+    posix_socket_t *h = pal->malloc(sizeof(*h));
+    if (!h) {
+        log_tag_error("pal", "socket handle alloc failed");
+        close(fd);
+        return PAL_ERR_NET;
+    }
+    h->fd = fd;
+    h->last_rcvtimeo_ms = UINT32_MAX;
+    h->last_sndtimeo_ms = UINT32_MAX;
+    h->pal = pal;
+    *out = h;
+    return 0;
+}
+
+static int pal_socket_bind(const pal_t *pal, const char *ip, uint16_t port,
+                           int type, bool broadcast, void **out)
+{
+    struct sockaddr_in address;
+    if (!out) return PAL_ERR_INVALID;
+    *out = NULL;
+    if (!pal || !pal->malloc || !pal->free ||
+        pal_socket_address(ip, port, &address)) return PAL_ERR_INVALID;
+    int fd = socket(AF_INET, type, 0);
+    if (fd < 0) return PAL_ERR_NET;
+    int one = 1;
+    if (pal_socket_prepare(fd, true) ||
+        (type == SOCK_STREAM && setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+                                          &one, sizeof(one)) < 0) ||
+        (broadcast && setsockopt(fd, SOL_SOCKET, SO_BROADCAST,
+                                &one, sizeof(one)) < 0) ||
+        bind(fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        close(fd);
+        return PAL_ERR_NET;
+    }
+    return pal_socket_handle(pal, fd, out);
+}
+
+static int pal_tcp_listen(const pal_t *pal, const char *ip, uint16_t port,
+                          unsigned backlog, void **out)
+{
+    if (!out) return PAL_ERR_INVALID;
+    *out = NULL;
+    if (!backlog || backlog > INT_MAX) return PAL_ERR_INVALID;
+    int rc = pal_socket_bind(pal, ip, port, SOCK_STREAM, false, out);
+    if (rc) return rc;
+    posix_socket_t *h = *out;
+    if (listen(h->fd, (int)backlog) < 0) {
+        pal_tcp_close(h);
+        *out = NULL;
+        return PAL_ERR_NET;
+    }
+    return 0;
+}
+
+static int pal_tcp_accept(void *handle, void **out, pal_addr_t *peer)
+{
+    posix_socket_t *h = handle;
+    struct sockaddr_in address;
+    socklen_t len = sizeof(address);
+    if (!out) return PAL_ERR_INVALID;
+    *out = NULL;
+    if (!h || !h->pal) return PAL_ERR_INVALID;
+    int fd = accept(h->fd, (struct sockaddr *)&address, &len);
+    if (fd < 0) return pal_socket_error();
+    /* Accepted sockets retain bounded blocking I/O for timeout_ms > 0;
+     * tcp_send/recv use MSG_DONTWAIT for the LAN loop's timeout_ms == 0. */
+    if (pal_socket_prepare(fd, false)) { close(fd); return PAL_ERR_NET; }
+    int one = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) < 0) {
+        close(fd);
+        return PAL_ERR_NET;
+    }
+    if (peer) {
+        memset(peer, 0, sizeof(*peer));
+        if (!inet_ntop(AF_INET, &address.sin_addr, peer->ip, sizeof(peer->ip))) {
+            close(fd);
+            return PAL_ERR_NET;
+        }
+        peer->port = ntohs(address.sin_port);
+    }
+    return pal_socket_handle(h->pal, fd, out);
+}
+
+static int pal_udp_bind(const pal_t *pal, const char *ip, uint16_t port,
+                        bool broadcast, void **out)
+{
+    return pal_socket_bind(pal, ip, port, SOCK_DGRAM, broadcast, out);
+}
+
+static int pal_udp_sendto(void *handle, const pal_addr_t *peer,
+                          const uint8_t *data, size_t len)
+{
+    posix_socket_t *h = handle;
+    struct sockaddr_in address;
+    if (!h || !peer || !data || len > INT_MAX ||
+        pal_socket_address(peer->ip, peer->port, &address)) return PAL_ERR_INVALID;
+    int n = (int)sendto(h->fd, data, len, MSG_NOSIGNAL,
+                        (struct sockaddr *)&address, sizeof(address));
+    return n >= 0 ? n : pal_socket_error();
+}
+
+static int pal_udp_recvfrom(void *handle, pal_addr_t *peer,
+                            uint8_t *data, size_t capacity)
+{
+    posix_socket_t *h = handle;
+    if (!h || !peer || !data || !capacity || capacity >= INT_MAX)
+        return PAL_ERR_INVALID;
+    struct sockaddr_in address;
+    /* recvmsg consumes an oversized datagram while reporting truncation. */
+    struct iovec iov = { data, capacity };
+    struct msghdr msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_name = &address;
+    msg.msg_namelen = sizeof(address);
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    int n = (int)recvmsg(h->fd, &msg, 0);
+    if (n < 0) return pal_socket_error();
+    if ((msg.msg_flags & MSG_TRUNC) || (size_t)n > capacity) return PAL_ERR_NET;
+    memset(peer, 0, sizeof(*peer));
+    if (!inet_ntop(AF_INET, &address.sin_addr, peer->ip, sizeof(peer->ip)))
+        return PAL_ERR_NET;
+    peer->port = ntohs(address.sin_port);
+    return n;
+}
+
+static int pal_socket_local_port(void *handle, uint16_t *port)
+{
+    posix_socket_t *h = handle;
+    struct sockaddr_in address;
+    socklen_t len = sizeof(address);
+    if (!h || !port) return PAL_ERR_INVALID;
+    if (getsockname(h->fd, (struct sockaddr *)&address, &len) < 0)
+        return PAL_ERR_NET;
+    *port = ntohs(address.sin_port);
+    return 0;
+}
+#endif /* AGENTIC_KIT_ENABLE_LAN */
 
 /* -------------------------------------------------------------------------
  * Time
@@ -324,6 +516,15 @@ static const pal_t g_posix_pal = {
     .thread_create    = pal_thread_create,
     .thread_join      = pal_thread_join,
     .sleep_ms         = pal_sleep_ms,
+#if AGENTIC_KIT_ENABLE_LAN
+    .tcp_listen       = pal_tcp_listen,
+    .tcp_accept       = pal_tcp_accept,
+    .udp_bind         = pal_udp_bind,
+    .udp_sendto       = pal_udp_sendto,
+    .udp_recvfrom     = pal_udp_recvfrom,
+    .socket_local_port = pal_socket_local_port,
+    .udp_close        = pal_tcp_close,
+#endif
 };
 
 const pal_t *tai_pal_posix(void)

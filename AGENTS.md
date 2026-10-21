@@ -1,10 +1,11 @@
 # AGENTS.md
 
 Instructions for AI coding agents working in this repository: a device-side C SDK for Tuya
-hardware, spanning three bounded contexts — an IoT client (device ↔ cloud over MQTT/ATOP), an
-RTC/TAI client (device ↔ AI Foundation, real-time audio over a custom binary framing), and BLE
-provisioning — over a Platform Abstraction Layer, with mbedTLS / cJSON / coreMQTT / coreHTTP
-vendored under `third_party/`. Sections follow the team outline.
+hardware, spanning five bounded contexts — an IoT client (device ↔ cloud over MQTT/ATOP), an
+RTC/TAI client (device ↔ AI Foundation, real-time audio over a custom binary framing), BLE
+provisioning, Tuya LAN local control, and cloud business services — over a Platform Abstraction
+Layer, with mbedTLS / cJSON / coreMQTT / coreHTTP vendored under `third_party/`. Contexts and
+relationships are registered in `CONTEXT-MAP.md`. Sections follow the team outline.
 
 ## Commands
 
@@ -46,7 +47,8 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
   reset callback fires on that thread. rtc-tcp-client: `tai_connect()` spawns a worker via
   `pal->thread_create`, and every receive callback fires there, concurrently with the app.
   tuya-ble: no thread — it runs on whatever context the port's BLE stack calls `tuya_ble_recv()`
-  from. Never move work between these worlds.
+  from. tuya-lan: single-threaded and app-driven by `tuya_lan_process()`; all LAN calls and
+  callbacks stay on that owner thread. Never move work between these worlds.
 - **The SDK does no background work.** It never auto-reconnects MQTT, and the DP layer never
   publishes on its own — no report-on-connect, no cloud-query-triggered report
   (`modules/iot-client/docs/adr/0001-dp-layer-never-initiates-uplink.md`). The app owns the
@@ -96,7 +98,7 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
    `pal_freertos.c` IDF-only — so never blind-sync them.
 5. **Module code goes through the PAL**: `pal->malloc`/`pal->free` for memory, the `log_tag_*`
    macros in `common/log.h` for output (via each module's own family: `IOT_LOG*`,
-   `TAI_LOG*`, `TUYA_BLE_HAL_LOG*`). A direct `malloc` or
+   `TAI_LOG*`, `TUYA_BLE_HAL_LOG*`, `LAN_LOG*`, `BIZ_LOG*`). A direct `malloc` or
    `printf` is a porting bug even where it links on the host -- and the `test` CI job greps for
    raw `log_emit(`/`printf(` call sites outside `common/log.{h,c}` and the test trees, so one
    fails the pipeline. `pal_t.time_ms` supplies monotonic elapsed time;
@@ -307,9 +309,9 @@ ordinary changes.
   `main`, which does not exist here (only its `workflow_dispatch` fires it). GitLab's `pages` job
   is the only thing that actually catches it, so build the site locally after touching it.
 - **`AGENTIC_KIT_LOG_LEVEL` is the SDK-wide log gate, compile-time only.** Every SDK log
-  macro (log_tag_* in `common/log.h`; iot-client's IOT_LOG*, TAI_LOG*, TUYA_BLE_HAL_LOG*
+  macro (log_tag_* in `common/log.h`; iot-client's IOT_LOG*, TAI_LOG*, TUYA_BLE_HAL_LOG*, LAN_LOG*, BIZ_LOG*
   re-tagged on top) expands to nothing above it. Optional per-module ceilings
-  (`AGENTIC_KIT_{IOT,TAI,TUYA_BLE}_LOG_LEVEL`, defaults = the global one, in each module's
+  (`AGENTIC_KIT_{IOT,TAI,TUYA_BLE,LAN,BIZ}_LOG_LEVEL`, defaults = the global one, in each module's
   config file) lower a single module further -- lower-only: the facade gate still applies, so
   they can never resurrect what the global ceiling compiled out, and a value above it is a no-op
   (clamped once in each module's config file, so block-level gates see the effective ceiling too).

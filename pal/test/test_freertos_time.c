@@ -93,6 +93,12 @@ static uint64_t wrap_boundary(void)
 static int test_units_and_resolution(void)
 {
     CHECK(pal_is_valid(tai_pal_freertos()));
+    /* Clock targets compile the real port with optional LAN code disabled. */
+    const pal_t *pal = tai_pal_freertos();
+    CHECK(!pal_has_server_network(pal));
+    CHECK(!pal->tcp_listen && !pal->tcp_accept && !pal->udp_bind &&
+          !pal->udp_sendto && !pal->udp_recvfrom && !pal->socket_local_port &&
+          !pal->udp_close);
     set_ticks(1);
     CHECK(tai_pal_freertos()->time_ms() == expected_time(1));
     set_ticks(TEST_TICK_HZ);
