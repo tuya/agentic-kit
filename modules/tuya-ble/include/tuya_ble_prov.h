@@ -43,6 +43,8 @@ extern "C" {
 #define TUYA_BLE_ENCRYPTION_MODE_NONE   0x00
 #define TUYA_BLE_ENCRYPTION_MODE_KEY_11 0x0B
 #define TUYA_BLE_ENCRYPTION_MODE_KEY_12 0x0C
+#define TUYA_BLE_ENCRYPTION_MODE_KEY_14 0x0E
+#define TUYA_BLE_ENCRYPTION_MODE_KEY_15 0x0F
 
 /* Radio capability advertised in the scan response and device-info response.
  * Advertise only bands the port can actually scan and join: claiming 5 GHz on
@@ -118,6 +120,20 @@ typedef struct {
      * CombosFlag bit 0), which makes the App issue 0x801E/subcommand 0x0003. */
     tuya_ble_wifi_scan_request_fn wifi_scan_request;
     void *wifi_scan_ctx;
+    /* Optional activated-device control. Supply BOTH borrowed, NUL-terminated
+     * 16-byte credentials to advertise a bound device and use KEY_14/KEY_15.
+     * NULL for both preserves provisioning. Stop the port before reinitializing
+     * with changed Activation credentials; do not mutate borrowed strings live. */
+    const char *local_key;
+    const char *secret_key;
+    /* Called on the BLE owner context with a validated, borrowed TLV batch
+     * (tuya_ble_dp.h) or queried DPID list (empty means all). Return 0 after
+     * copying/accepting work, otherwise the phone receives a failure ACK.
+     * Callbacks must not reenter this state or call MQTT. Queue work to the IoT
+     * owner and explicitly queue any reports back to the BLE owner. */
+    int (*dp_write)(const uint8_t *tlv, size_t len, void *ctx);
+    int (*dp_query)(const uint8_t *ids, size_t count, void *ctx);
+    void *dp_ctx;
 } tuya_ble_prov_cfg_ext_t;
 
 typedef struct {
@@ -165,6 +181,7 @@ typedef struct {
     uint32_t wifi_scan_token;
     uint16_t wifi_scan_count;
     bool wifi_scan_pending;
+    uint32_t dp_report_sn;
 } tuya_ble_prov_state_t;
 
 /* Config strings are borrowed and must outlive state: NUL-terminated product_key

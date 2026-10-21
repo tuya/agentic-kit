@@ -276,6 +276,7 @@ set(TUYA_BLE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/modules/tuya-ble")
 
 add_library(tuya_ble STATIC
     "${TUYA_BLE_DIR}/src/tuya_ble_bigdata.c"
+    "${TUYA_BLE_DIR}/src/tuya_ble_dp.c"
     "${TUYA_BLE_DIR}/src/tuya_ble_prov.c"
     "${TUYA_BLE_DIR}/src/tuya_ble_trsmitr.c"
 )
@@ -606,9 +607,11 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     # test_wire assert on "[ble] [TRSMITR]" warns.
     add_executable(tuya_ble_test
         "${TUYA_BLE_DIR}/src/tuya_ble_bigdata.c"
+        "${TUYA_BLE_DIR}/src/tuya_ble_dp.c"
         "${TUYA_BLE_DIR}/src/tuya_ble_prov.c"
         "${TUYA_BLE_DIR}/src/tuya_ble_trsmitr.c"
         "${TUYA_BLE_TESTS_DIR}/test_wire.c"
+        "${TUYA_BLE_TESTS_DIR}/test_control.c"
         "${TUYA_BLE_TESTS_DIR}/test_prov.c"
         "${TUYA_BLE_TESTS_DIR}/tuya_ble_hal_host.c"
     )

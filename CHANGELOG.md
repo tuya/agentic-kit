@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Examples — `workflow_variables_demo` sends sequential `chat`, `generate-img`, and `decide` Events with plain-text, saved-image, and boolean-result JSON responses (PR pending).
+- tuya-ble — activated-device Pairing, validated local DP callbacks and explicit state reports (#TBD).
+  - Supply both `local_key` and `secret_key` to enable Bound control; leave both NULL for Provisioning.
+  - `tuya_ble_dp.h` adds TLV validation, JSON conversion and report APIs; queue DP work between BLE and IoT owners.
 - biz-client — `AGENTIC_KIT_BIZ_LOG_LEVEL` lowers business-service logs below the SDK-wide ceiling (#48).
 - biz-client — typed AI role management, language/timbre queries, POSIX and ESP-IDF examples, and bilingual API documentation (#47).
 - tuya-lan — application-driven LAN 3.5 discovery, authenticated Sessions and local DP control (#48).

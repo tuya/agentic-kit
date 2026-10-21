@@ -76,6 +76,7 @@ const sidebars: SidebarsConfig = {
         'reference/iot-client',
         'reference/biz-client',
         'reference/tuya-lan',
+        'reference/tuya-ble',
       ],
     },
     'get-authkey',

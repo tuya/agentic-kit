@@ -1,4 +1,4 @@
-# Tuya BLE (Device ↔ App, WiFi Provisioning)
+# Tuya BLE (Device ↔ App, Provisioning and Bound Control)
 
 The device-side context that hands a device its WiFi credentials over Bluetooth Low Energy:
 the device advertises, the phone app connects, the two run an encrypted pairing handshake,
@@ -6,10 +6,17 @@ and the app delivers SSID / password / token. This is the on-boarding transport 
 *before* the device can reach the cloud — once it has credentials and joins WiFi, the
 [IoT Client](../iot-client/CONTEXT.md) takes over for activation.
 
+After Activation, the application may initialize this same context with saved
+`local_key` and `secret_key` to enable **Bound control**. That mode advertises an
+already activated device, authenticates the phone with different derived keys,
+and delivers DP write/query requests to application callbacks. It does not run
+the IoT Client or own the DP registry. The application composes BLE, LAN and
+MQTT around its existing product state.
+
 ## Language
 
 **Provisioning**:
-The whole job of this context: delivering WiFi credentials to the device over BLE so it can
+Delivering WiFi credentials to the device over BLE so it can
 get onto the network. Succeeds when the provisioning callback fires with valid creds.
 _Avoid_: pairing (that is one step inside it), binding, registration (those are cloud-side).
 
@@ -31,7 +38,8 @@ _Avoid_: key, secret, auth_key (a different credential — see ambiguities).
 
 **Advertising data** (adv_data):
 The ≤31-byte BLE advertisement the device broadcasts unsolicited: flags, the Tuya service
-UUID (`0xFD50`), and the `product_key`.
+UUID (`0xFD50`), and the `product_key` during Provisioning. Bound control replaces
+the product field with a credential-derived encrypted identifier and sets bound flags.
 _Avoid_: scan response (the on-demand reply), beacon, broadcast payload.
 
 **Scan response data** (rsp_data):
@@ -45,8 +53,9 @@ when long) that the app must match during Pairing.
 _Avoid_: uuid (the input string), device id, MAC address.
 
 **product_key**:
-The static Tuya vendor identifier for the product *family*, embedded in the advertising
-data so the app knows what kind of device this is. Validated as a 16-byte NUL-terminated string before copying into advertising data.
+The static Tuya vendor identifier for the product *family*, embedded in Provisioning
+advertising data so the app knows what kind of device this is. Validated as a 16-byte
+NUL-terminated string before copying into advertising data.
 _Avoid_: uuid (per-device), auth_key (the secret), schema id (an IoT-Client term).
 
 **uuid**:
@@ -55,14 +64,14 @@ bytes compressed into a BLE ID. The source identifier, not the derived BLE ID.
 _Avoid_: BLE ID (the derived 16-byte value), product_key.
 
 **auth_key**:
-The 32-byte per-device shared secret, the root from which the encryption keys are derived
+The 32-byte per-device shared secret, the root from which Provisioning keys are derived
 via MD5; its first 16 bytes also key the AES block returned in the device-info response.
 Validated as a 32-byte NUL-terminated string at initialization.
 _Avoid_: key (unqualified), token, local_key (an IoT-Client term).
 
 **pair_rand**:
 The 6-byte random nonce the *device* generates and sends during device-info exchange; an
-input to `key_12`.
+input to `key_12` or `key_15` for that exchange.
 _Avoid_: server_rand (the app's nonce), IV, salt.
 
 **server_rand**:
@@ -84,8 +93,61 @@ _Avoid_: key_11 (the earlier key).
 
 **Encryption mode**:
 The one-byte selector at the front of a Packet choosing the cipher: `NONE` (`0x00`),
-`KEY_11` (`0x0B`), or `KEY_12` (`0x0C`). It names *which key*, not the key itself.
+`KEY_11` (`0x0B`), `KEY_12` (`0x0C`), `KEY_14` (`0x0E`), or `KEY_15` (`0x0F`).
+It names *which key*, not the key itself.
 _Avoid_: encryption key (the material), cipher suite.
+
+**Bound control**:
+Local DP control for an activated device initialized with both `local_key` and
+`secret_key`. Successful Pairing uses `key_14` / `key_15` and reports pair result 2.
+It does not activate, unbind or reset the device.
+_Avoid_: Provisioning, BLE bonding, cloud connection.
+
+**Activation credentials** (`local_key`, `secret_key`):
+The saved 16-byte, NUL-terminated strings supplied together for Bound control.
+Both are borrowed for the BLE state's lifetime. The names refer to the same
+Activation artefact used by the IoT Client, not new BLE-only secrets.
+_Avoid_: auth_key, provisioning Token, session key.
+
+**key_14**:
+The Bound-control device-info key, `MD5(local_key ‖ secret_key)`, mode `0x0E`.
+_Avoid_: key_11 (the Provisioning key), local_key (one input).
+
+**key_15**:
+The Bound-control Pairing and DP key,
+`MD5(local_key ‖ secret_key ‖ pair_rand)`, mode `0x0F`.
+Possession alone does not bypass successful Pairing and Frame authorization.
+_Avoid_: key_12 (the Provisioning key), key_14 (the device-info key).
+
+**DP TLV**:
+A batch of Data Points encoded as DPID (one byte), type (one byte), length
+(two bytes, big-endian) and value. Types are raw (0), bool (1), signed value
+(2), UTF-8 string (3), enum (4) and bitmap (5). IDs are nonzero and unique
+within a batch. BLE validates the representation; the application owns schema,
+access policy, hardware effects and the authoritative DP state.
+_Avoid_: DP JSON (a conversion format), schema (not carried in the TLV).
+
+**DP callback** (`dp_write`, `dp_query`):
+The application boundary for a validated write batch or DPID query. Empty query
+means all DPs. Buffers are borrowed only during the callback; return 0 after
+copying and accepting work, otherwise a failure ACK is sent. Acceptance is not
+proof that the IoT registry or hardware applied the request.
+_Avoid_: provisioning callback, automatic cloud dispatch.
+
+**DP report**:
+An explicit `tuya_ble_dp_report()` (`0x8006`) or
+`tuya_ble_dp_report_with_time()` (`0x8007`) call on the BLE owner. A query-response
+flag distinguishes requested state from unsolicited status. The application
+supplies timestamped reports' UTC seconds. Neither reports nor query ACKs
+publish MQTT, clear MQTT dirty bits or automatically generate another report.
+_Avoid_: ACK (acceptance only), cloud report.
+
+**Connection generation** (`connection_generation`):
+The application-visible fence that changes on session close and accepted
+device-info re-query. Queued DP work and report completions copy their original
+generation; the application discards stale completions before using a newer
+Pairing exchange. All BLE state access remains on the BLE owner.
+_Avoid_: Frame SN, WiFi scan token, synchronization primitive.
 
 **Frame**:
 The plaintext protocol unit: a 12-byte header (`sn`, `ack_sn`, `cmd`, `data_len`) + payload
@@ -149,8 +211,9 @@ _Avoid_: net-status (`0x001E`, the separate legacy notification), activation res
 ### Flagged ambiguities
 
 - **"key"** is badly overloaded: *auth_key* (the 32-byte root secret), *product_key* (the
-  vendor family id, not secret), *key_11* / *key_12* (the derived encryption keys), and the
-  creds *token*. Never write "key" unqualified.
+  vendor family id, not secret), the Activation credentials *local_key* / *secret_key*,
+  *key_11* / *key_12* / *key_14* / *key_15* (the derived encryption keys), and the creds
+  *token*. Never write "key" unqualified.
 - **"id"** is overloaded: *BLE ID* (16-byte, derived), *uuid* (the input string), and the
   Tuya *company id* (`0x07D0`). Name which.
 - **"rand"** is two different nonces from two different parties: *pair_rand* (6 bytes, from
@@ -166,7 +229,11 @@ _Avoid_: net-status (`0x001E`, the separate legacy notification), activation res
 
 ## Invariants
 
-- Credential delivery and inbound big-data require cryptographic Pairing and KEY_12.
+- In Provisioning, credential delivery and inbound big-data require cryptographic
+  Pairing and KEY_12. In Bound control those commands are disabled; DP writes
+  (`0x0027`) and queries (`0x0003`) require cryptographic Pairing and KEY_15.
+  KEY_11/KEY_12 can never authorize Bound control, and Provisioning cannot accept DP
+  control. There is no automatic fallback between these modes.
   The compatibility `set_paired(true)` setter cannot grant authorization. Frame bounds,
   CRC, mode, command authorization and a nonzero increasing SN are checked before
   dispatch. Payload validation follows dispatch, so a rejected JSON payload can still
@@ -176,7 +243,10 @@ _Avoid_: net-status (`0x001E`, the separate legacy notification), activation res
   `reset_conn` clears transport queues and pending credential/scan delivery but preserves
   Pairing, keys and Frame SN counters; it is not a session close.
 - One BLE owner drives RX, TX-ready and monotonic tick. Never call MQTT from this
-  context. Send callbacks copy before returning: 0 accepted, 1 busy, other failure.
+  context. DP callbacks must not block or reenter BLE state. Copy work to the IoT
+  owner before calling `iot_client_apply_local_dps()`; queue explicit reports back
+  to the BLE owner. Send callbacks copy before returning: 0 accepted, 1 busy,
+  other failure.
 - Trsmitr continuation segments contain only subpacket number and data. Version and
   Packet sequence appear in the first segment only; Frame SN is a separate counter.
 - TX adds CBC padding only to non-aligned Frames. RX accepts block-aligned ciphertext
@@ -190,10 +260,15 @@ _Avoid_: net-status (`0x001E`, the separate legacy notification), activation res
 - Ports supply a full-fill CSPRNG. Optional `random_fn` reports the number of bytes
   filled; partial output fails the exchange. The legacy void HAL cannot report errors.
 - Config strings are borrowed, NUL-terminated and validated: product_key 16 bytes,
-  auth_key 32 bytes, UUID 16 bytes or 20 alphanumeric bytes. Recompile consumers when
+  auth_key 32 bytes, UUID 16 bytes or 20 alphanumeric bytes. Both Activation
+  credentials absent means Provisioning; both present and exactly 16 bytes means
+  Bound control. A partial or malformed pair fails initialization. Stop the port
+  before reinitializing with different Activation credentials, and discard work
+  queued for the old state. Close wipes session material while retaining borrowed
+  configuration for reconnect. Recompile consumers when
   the public state layout changes. Initialize PAL/cJSON hooks with `iot_init()` before
   JSON parsing; never create a second allocator binding.
-- A configured scan provider enables scan-response flag bit 5 and appends the
+- In Provisioning, a configured scan provider enables scan-response flag bit 5 and appends the
   device-info capability tail `00 01 03` (CombosFlag bits 0 and 1: WiFi list and
   provisioning status). Without a provider these additions are absent; `comm_ability`
   alone does not enable them. The NimBLE example configures a provider. These advertised
@@ -221,7 +296,16 @@ _Avoid_: net-status (`0x001E`, the separate legacy notification), activation res
   stops the scan radio and starts STA with credentials to get a fresh STA_START event.
 - An accepted device-info re-query clears Pairing/authorization and generates a new
   pair_rand. It still requires an increasing Frame SN and an empty TX queue; it does
-  not reset SN counters or cancel the port's radio operation.
+  not reset SN counters or cancel the port's radio operation. Session close and
+  accepted device-info re-query change `connection_generation`; queued report
+  completions must not cross that boundary.
+- DP TLV validation rejects a malformed batch before invoking the application.
+  `tuya_ble_dp_to_json()` converts a valid batch to bare DP JSON for the public
+  IoT local-DP input, using Base64 for raw values. That input applies schema
+  validation and marks accepted state dirty, but does not publish. The current
+  IoT registry has no bitmap type: a product may handle bitmap TLVs directly in
+  its BLE callback instead of feeding them to that registry. Query requests and
+  writes do not automatically report state.
 
 ## Example dialogue
 
