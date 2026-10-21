@@ -123,6 +123,6 @@ SDK 不自动创建线程、不重试、不缓存。每次角色操作都同步�
 
 - POSIX：`examples/posix/ai/role-management`，提供查询、绑定、编辑、删除的命令行入口，真实变更只在显式命令下执行。
 - ESP-IDF：`examples/esp-idf/ai/role-management`，可接入已有设备工程的组件，包含工作队列和退出流程；不是独立配网固件。
-- API、ATOP 对照及完整签名见 [Business Client 参考](../reference/biz-client.md)。
+- API、ATOP 对照及完整签名见 [Biz Client 参考](../reference/biz-client.md)。
 
 至少验收模板/自定义查询、两种角色切换、模板修改产生新 ID、自定义修改保留 ID、未修改字段保留、语言和音色匹配、自定义删除、网络失败不误报成功、退出后无悬空客户端，以及新一轮实际语音效果。

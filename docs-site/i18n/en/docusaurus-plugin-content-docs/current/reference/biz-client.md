@@ -1,9 +1,9 @@
 ---
-title: Business Client API reference
-sidebar_label: Business Client
+title: Biz Client API reference
+sidebar_label: Biz Client
 ---
 
-# Business Client API reference
+# Biz Client API reference
 
 Module `modules/biz-client`, POSIX target `tuya_biz_client`, public headers
 `tuya_biz_client.h` and `tuya_ai_role.h`.
@@ -19,13 +19,13 @@ void tuya_biz_client_destroy(tuya_biz_client_t *client);
 
 Borrows the IoT Client and its PAL. NULL `request_lang` defaults to `zh`;
 nonempty values can occupy at most 31 bytes. Failure clears `*out`.
-Initialize IoT first; free results before destroying Business Client and finish
+Initialize IoT first; free results before destroying Biz Client and finish
 all calls before IoT teardown. Instances keep separate contexts and label
 languages; the application owns serialized scheduling.
 
 ## Role APIs {#role-api}
 
-All operations take a Business Client first and optional
+All operations take a Biz Client first and optional
 `iot_atop_rejection_t *` last. Complete signatures are in the public header.
 
 | API | Output or operation | ATOP v1.0 |

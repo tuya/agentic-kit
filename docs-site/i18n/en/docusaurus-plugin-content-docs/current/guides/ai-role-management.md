@@ -11,7 +11,7 @@ edits name, reply language, timbre and speed; and deletes custom roles.
 Applications supply their own display, buttons or serial UI.
 
 It uses the public `iot_atop_call()` API. IoT Client owns credentials, signing,
-encryption and HTTPS. Business Client has no RTC TCP Client dependency.
+encryption and HTTPS. Biz Client has no RTC TCP Client dependency.
 
 ## Prerequisites {#prerequisites}
 
@@ -28,7 +28,7 @@ encryption and HTTPS. Business Client has no RTC TCP Client dependency.
   value, for example 32768, subject to measured memory. Apply the definition
   to the target compiling iot-client, not just an application source file.
 
-## Create a Business Client {#client}
+## Create a Biz Client {#client}
 
 ```c
 #include "tuya_biz_client.h"
@@ -40,7 +40,7 @@ int rc = tuya_biz_client_create(iot, "en", &biz);
 
 The existing IoT Client is borrowed. `request_lang` selects the language of
 display labels, not the role's reply language; NULL defaults to `zh`.
-Free all lists, destroy the Business Client, then destroy the IoT Client.
+Free all lists, destroy the Biz Client, then destroy the IoT Client.
 POSIX consumers link `tuya_biz_client`. The bundled ESP-IDF `agentic_kit`
 component already includes its sources and public headers. PSRAM, NVS, LVGL
 and any particular board are not required by the module.
@@ -123,7 +123,7 @@ uses value-only `role_demo_job_t` messages.
 
 Release role lists with `tuya_ai_role_list_free`, languages with
 `tuya_ai_language_list_free`, and timbres with `tuya_ai_timbre_list_free`,
-using the same live Business Client that allocated them. Initialize outputs to
+using the same live Biz Client that allocated them. Initialize outputs to
 zero and free old lists before reuse. Do not retain UI pointers after freeing.
 Public string capacities are bytes including NUL; oversized cloud strings
 return `OPRT_INVALID_RESULT` rather than silently truncating IDs or codes.
@@ -155,7 +155,7 @@ Client never disconnects RTC itself.
   mutations; no implicit destructive operation.
 - `examples/esp-idf/ai/role-management`: reusable worker/queue component for an
   existing device project, not standalone provisioning firmware.
-- API and cloud interface mapping: [Business Client reference](../reference/biz-client.md).
+- API and cloud interface mapping: [Biz Client reference](../reference/biz-client.md).
 
 Verify lists, both role types, template edits producing a new ID, custom edits
 keeping their ID, omitted-field preservation, matching language/timbre, custom

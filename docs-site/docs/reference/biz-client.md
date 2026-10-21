@@ -1,9 +1,9 @@
 ---
-title: Business Client API 参考
-sidebar_label: Business Client
+title: Biz Client API 参考
+sidebar_label: Biz Client
 ---
 
-# Business Client API 参考
+# Biz Client API 参考
 
 模块目录 `modules/biz-client`，POSIX 构建目标 `tuya_biz_client`，公开头文件 `tuya_biz_client.h`、`tuya_ai_role.h`。接入步骤见 [AI 角色管理](../guides/ai-role-management.md)。
 
