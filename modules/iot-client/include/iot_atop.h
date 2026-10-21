@@ -36,10 +36,11 @@
  * ## Example
  *
  * ```c
+ * uint32_t timestamp = (uint32_t)(client->pal->wal_clock_time() / 1000U);
  * char body[128];
  * snprintf(body, sizeof(body),
  *          "{\"schemaId\":\"%s\",\"version\":\"\",\"t\":%u}",
- *          schema_id, (unsigned)time(NULL));
+ *          schema_id, (unsigned)timestamp);
  *
  * iot_atop_request_t  req  = { .api = "tuya.device.schema.newest.get",
  *                              .version = "1.0",

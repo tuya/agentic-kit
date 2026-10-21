@@ -38,6 +38,7 @@ extern const pal_t *tai_pal_freertos(void);
 
 const pal_t *get_default_pal(void)
 {
+    /* The application synchronizes the platform UTC clock via RTC/SNTP. */
     return tai_pal_freertos();
 }
 
@@ -363,7 +364,7 @@ void app_main(void)
     ESP_LOGI(TAG, "tai_ctx_size=%u", (unsigned)tai_ctx_size());
 
     /* 4. Build TAI context */
-    const pal_t *pal = tai_pal_freertos();
+    const pal_t *pal = get_default_pal();
 
     tai_config_t tai_cfg = {
         .host              = cp.host,

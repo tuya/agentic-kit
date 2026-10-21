@@ -55,7 +55,7 @@ PAL 是 Agentic-kit 的可移植边界。SDK 不直接绑定某个 RTOS 或芯�
 | --- | --- | --- |
 | 网络 | `connect / send / recv / close / poll` | 超时、部分收发、TLS 依赖、断网恢复 |
 | 并发 | `thread_create / join`、mutex | 线程栈、回调上下文、锁粒度 |
-| 系统 | `time_ms`、`malloc / free` | 时钟单调性、内存峰值与碎片 |
+| 系统 | `wal_clock_time`、`time_ms`、`malloc / free` | UTC 校时与单调计时、内存峰值与碎片 |
 
 ## 物理设备控制：DP 与端侧 MCP {#物理设备控制dp-与端侧-mcp}
 

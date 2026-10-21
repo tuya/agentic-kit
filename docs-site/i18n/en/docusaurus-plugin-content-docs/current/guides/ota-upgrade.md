@@ -220,6 +220,8 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 
 ### 3. Initialization and Upgrade Query {#3-初始化与升级查询}
 
+The FreeRTOS PAL defaults to reading libc UTC through `gettimeofday()`. The application must first synchronize that clock through platform RTC/SNTP. Replace the callback only when that UTC source is unsuitable (see [FreeRTOS UTC Clock](./porting-to-new-platform.md#freertos-wall-clock)).
+
 ```c
 #include "iot_client.h"
 #include "iot_ota.h"
@@ -244,8 +246,13 @@ iot_client_config_t iot_cfg = {
     .cert_bundle_attach = (tls_cert_bundle_attach_fn)esp_crt_bundle_attach,
 };
 
+/* The default PAL reads application-synchronized libc UTC. Share it with
+   other SDK modules. */
+const pal_t *pal = tai_pal_freertos();
 /* iot_init(pal) must be called before iot_client_init; otherwise iot_client_init returns NULL */
-iot_init(tai_pal_freertos());
+if (iot_init(pal) != OPRT_OK) {
+    return;
+}
 
 iot_client_t *iot = iot_client_init(&iot_cfg);
 

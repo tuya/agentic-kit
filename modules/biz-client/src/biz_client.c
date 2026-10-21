@@ -1,7 +1,6 @@
 #include "service_internal.h"
 #include "log.h"
 #include <string.h>
-#include <time.h>
 
 bool biz_valid_string(const char *text, size_t capacity)
 {
@@ -53,13 +52,15 @@ int biz_call(tuya_biz_client_t *ctx, const char *api, cJSON *body,
 {
     *result = NULL;
     if (!body) return OPRT_MALLOC_FAILED;
-    time_t now = time(NULL);
-    if (now < 1700000000) {
-        log_tag_warn("biz", "clock is not synchronized; refusing signed role request");
+    /* Cloud timestamps come from PAL UTC (ADR 0003; 0 = unavailable), not libc
+     * time, which ports may not have synchronized. Fail closed below Nov 2023. */
+    uint64_t utc_ms = ctx->pal->wal_clock_time();
+    if (utc_ms < 1700000000000ULL) {
+        log_tag_warn("biz", "PAL reports UTC unavailable; refusing signed role request");
         cJSON_Delete(body);
         return OPRT_UNINITIALIZED;
     }
-    if (!cJSON_AddNumberToObject(body, "t", (double)now)) {
+    if (!cJSON_AddNumberToObject(body, "t", (double)(utc_ms / 1000U))) {
         cJSON_Delete(body);
         return OPRT_MALLOC_FAILED;
     }

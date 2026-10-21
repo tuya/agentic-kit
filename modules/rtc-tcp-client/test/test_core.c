@@ -23,7 +23,8 @@
  * Minimal stub PAL.  TLS and crypto are no longer PAL responsibilities --
  * the SDK uses mbedTLS internally -- so the stub only needs time/memory/log.
  * ------------------------------------------------------------------------- */
-static uint64_t stub_time(void) { return 1700000000000ULL; }
+static uint64_t stub_wal_clock_time(void) { return 1700000000000ULL; }
+static uint64_t stub_time_ms(void) { return 0; }
 static void *stub_malloc(size_t s) { return malloc(s); }
 static void  stub_free(void *p)    { free(p); }
 /* Trivial single-threaded mutex stubs: the unit tests run on one thread, but
@@ -40,7 +41,8 @@ static const pal_t g_stub_pal = {
     .tcp_recv         = NULL,
     .tcp_close        = NULL,
     .tcp_poll         = NULL,
-    .time_ms          = stub_time,
+    .time_ms          = stub_time_ms,
+    .wal_clock_time   = stub_wal_clock_time,
     .malloc           = stub_malloc,
     .free             = stub_free,
     .mutex_create     = stub_mutex_create,

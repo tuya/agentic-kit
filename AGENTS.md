@@ -25,7 +25,8 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
   `run_leaks_check.sh ./build/iot_cipher_test` (macOS) — no-subprocess binaries only; under
   valgrind the Python mock handshakes time out. Both scripts **ignore the test's exit code**: a
   suite failing every assertion still prints "RESULT: NO MEMORY LEAKS DETECTED" and exits 0.
-  Coverage is 3 of 13 binaries, hand-listed in `.gitlab-ci.yml`; GitHub's sanitizer job sets
+  GitLab hand-lists the no-subprocess binaries, including PAL clock tests, in
+  `.gitlab-ci.yml`'s valgrind loop; GitHub's sanitizer job sets
   `detect_leaks=0`, so nothing else checks leaks anywhere.
 - **Examples** — a separate top-level project, and `AGENTIC_KIT_BUILD_EXAMPLES` defaults OFF, so
   a plain root `cmake --build build` builds none:
@@ -98,9 +99,17 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
    `TAI_LOG*`, `TUYA_BLE_HAL_LOG*`). A direct `malloc` or
    `printf` is a porting bug even where it links on the host -- and the `test` CI job greps for
    raw `log_emit(`/`printf(` call sites outside `common/log.{h,c}` and the test trees, so one
-   fails the pipeline. The one deliberate gap: `pal_t` has
-   only a monotonic `time_ms`, so ATOP signing reads libc `time(NULL)` — a port needs a real-time
-   clock the C library can see, or every signed request carries a `t` the cloud rejects.
+   fails the pipeline. `pal_t.time_ms` supplies monotonic elapsed time;
+   `pal_t.wal_clock_time` supplies Unix UTC milliseconds for cloud signing and media
+   timestamps. POSIX reads `CLOCK_REALTIME`; the FreeRTOS default UTC callback
+   reads libc `gettimeofday()` and returns zero on a failed read or non-positive
+   Unix seconds. Its platform/libc must provide that API and a UTC source, maintained
+   by the app through RTC/SNTP; without the API, adapt the PAL or provide a libc shim.
+   If that source does not fit the platform, clone the factory PAL into one
+   long-lived table, replace its UTC callback before
+   initialization, and share that PAL across IoT and TAI. The app owns UTC
+   synchronization. When TLS certificate-time checks are enabled, the port must
+   also expose that UTC source to libc/mbedTLS.
 6. **CHANGELOG entries are terse, and carry a PR number.** One line per change —
    `- <module> — <what changed>(#<PR>).` — with indented sub-bullets only for specifics a reader
    acts on (a new symbol, a changed default, a migration step). `## [0.3.0]` is the reference for
@@ -132,8 +141,9 @@ ordinary changes.
   `CMakeLists.txt` — `agentic_kit_add_iot_test(name source)` for an iot-client suite,
   `add_executable` + `add_test` otherwise; a binary that spawns no subprocess also goes in
   `.gitlab-ci.yml`'s valgrind list. Each suite derives its count from the calls it actually made,
-  and no target in this project enables `-Wall`, so an uncalled `static` test is not even a
-  warning. Never delete `CMakeLists.txt`'s explicit `enable_testing()` (the comment above it says
+  and most suites do not enable `-Wall`, so an uncalled `static` test need not produce a
+  warning. PAL clock tests use `-Wall -Wextra -Werror`. Never delete `CMakeLists.txt`'s
+  explicit `enable_testing()` (the comment above it says
   why): re-configures would silently stop regenerating the ctest list, `ctest` exits **0** on an
   empty list, and GitLab's test stage has no `--no-tests=error`.
 

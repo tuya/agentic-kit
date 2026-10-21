@@ -712,14 +712,17 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
             else:
                 key = self.config.get('authkey', '').encode('utf-8')
             
-            # Verify signature (optional for mock, but good to test)
-            # Note: We need the key to verify, but we'll skip strict verification for mock
-            # if not verify_signature(url_params.copy(), key.decode('utf-8')):
-            #     print(f"⚠️  Signature verification failed (skipped in mock)")
-            
             # Read request body
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length).decode('utf-8')
+
+            # The clock regression endpoint validates the actual wire signature,
+            # including t, independently of the C SDK. Reject before decrypting
+            # so malformed signatures cannot pass as decryption errors.
+            if api == 'tuya.test.echo.timestamp' and not verify_signature(
+                    url_params.copy(), key.decode('utf-8')):
+                self.send_error(403, "Invalid ATOP signature")
+                return
             
             # Parse request body (format: data=HEX_STRING)
             if not body.startswith('data='):
@@ -757,6 +760,14 @@ class ATOPMockHandler(BaseHTTPRequestHandler):
                 response_json = handle_version_update(decrypted_data, self.config)
             elif api == 'tuya.device.upgrade.status.update':
                 response_json = handle_upgrade_status_update(decrypted_data, self.config)
+            elif api == 'tuya.test.echo.timestamp':
+                # Reached only after MD5 signature validation above.
+                response_json = json.dumps({
+                    "success": True,
+                    "t": int(time.time()),
+                    "result": {"timestamp": url_params.get('t', ''),
+                               "signature_verified": True}
+                }, separators=(',', ':'))
             elif api == 'tuya.test.huge.result':
                 # Test-only: a response deliberately larger than the default
                 # 4096-byte AGENTIC_KIT_RESPONSE_BUFFER_SIZE, reproducing the real failure

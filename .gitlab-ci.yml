@@ -69,6 +69,9 @@ test:
         echo "Route them through the log_tag_* macros in common/log.h instead."
         exit 1
       fi
+    # Reproduce the pinned upstream-header checks; the host CTest matrix below
+    # separately exercises PAL behavior against test shims.
+    - cmake --build ${CMAKE_BUILD_DIR} --target check_freertos_pal
     # cd into the build dir rather than using `--test-dir` (the CI image's
     # ctest does not honour that flag and would silently find no tests).
     - cd ${CMAKE_BUILD_DIR}
@@ -87,6 +90,7 @@ test:memory-leak:
       VG=modules/iot-client/test/run_valgrind_check.sh
       chmod +x "$VG"
       # Leak-check the pure (no-subprocess) binaries, grouped by module:
+      #   pal            : pal_freertos_time_*_test, pal_posix_time_test
       #   rtc-tcp-client : tai_unit_tests, tai_log_level_zero_tests,
       #                    tai_log_module_zero_tests, tai_integration_tests
       #   iot-client     : iot_cipher_test, iot_ai_ctrl_test
@@ -96,7 +100,7 @@ test:memory-leak:
       # test, so there is nothing to leak-check for it here. The mock-driven iot
       # tests are covered by the `test` job; under valgrind their Python
       # handshakes would time out.
-      for t in biz_ai_role_test tai_unit_tests tai_log_level_zero_tests tai_log_module_zero_tests tai_integration_tests iot_cipher_test iot_ai_ctrl_test tuya_ble_test; do
+      for t in pal_freertos_time_16_1000_test pal_freertos_time_32_1000_test pal_freertos_time_32_100_test pal_freertos_time_32_128_test pal_freertos_time_32_2000_test pal_freertos_time_64_1000_test pal_posix_time_test biz_ai_role_test tai_unit_tests tai_log_level_zero_tests tai_log_module_zero_tests tai_integration_tests iot_cipher_test iot_ai_ctrl_test tuya_ble_test; do
         echo "==================== valgrind: ${t} ===================="
         "$VG" "./${CMAKE_BUILD_DIR}/${t}" 2>&1 | tee "valgrind-${t}.log"
         rc=${PIPESTATUS[0]}

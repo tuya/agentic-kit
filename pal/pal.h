@@ -10,7 +10,11 @@
  *
  * Two ready-made implementations are provided in the pal/ directory:
  *   pal_posix.c   -- POSIX sockets + pthreads (Linux / macOS)
- *   pal_esp_idf.c -- lwIP sockets + FreeRTOS  (ESP32)
+ *   pal_freertos.c -- lwIP sockets + FreeRTOS (ESP32)
+ * The FreeRTOS UTC callback reads libc gettimeofday(); the POSIX adapter reads
+ * CLOCK_REALTIME. The application/platform owns clock synchronization. If the
+ * default UTC source does not suit the target, copy its table into a long-lived
+ * application PAL and replace wal_clock_time before using the SDK.
  */
 
 #ifndef PAL_H
@@ -52,13 +56,11 @@ extern "C" {
  *   modules/rtc-tcp-client/test/tai_pal_loopback.c, and .../test/test_core.c
  * (test_core intentionally leaves networking/thread/sleep callbacks NULL because
  * it never passes that table through pal_is_valid()).
- * The host build compiles three of them -- pal_freertos.c is in no CMake
- * target here, only the ESP-IDF component -- and C99 zero-fills whatever a
- * designated initializer omits, with no -Wmissing-field-initializers
- * anywhere in this project.  So a green build and a green ctest run prove
- * nothing about the FreeRTOS table: it silently carries a NULL member, and
- * on device you get either pal_is_valid() refusing the pal at init or a
- * call straight through a NULL pointer.
+ * C99 zero-fills omitted designated members. The host clock regression matrix
+ * compiles pal_freertos.c against test shims and checks its table, but the real
+ * FreeRTOS/lwIP build is still the ESP-IDF component. Keep that table in step:
+ * a missing callback means pal_is_valid() rejects the port or a direct caller
+ * dereferences NULL. Host shims do not verify the real device integration.
  */
 typedef struct pal {
 
@@ -96,9 +98,18 @@ typedef struct pal {
     int   (*tcp_poll)(void *handle, int events, uint32_t timeout_ms);
 
     /* --- Time ------------------------------------------------------------
-     * Return milliseconds since some monotonic epoch (need not be wall-clock).
+     * time_ms: milliseconds since a local monotonic epoch, for elapsed
+     *   time, deadlines and keepalive. Never adjusted by wall-clock sync.
+     * wal_clock_time: wall-clock milliseconds since 1970-01-01 00:00:00 UTC
+     *   (Unix epoch, no timezone offset). Return 0 while UTC is unavailable.
+     *   Synchronization may move this clock forwards or backwards. The app
+     *   must synchronize it before sending cloud requests or media timestamps.
+     *   The FreeRTOS default reads libc gettimeofday(). Replace it at startup
+     *   if the platform needs another UTC source.
+     * Both callbacks are mandatory and must be safe for concurrent tasks.
      */
     uint64_t (*time_ms)(void);
+    uint64_t (*wal_clock_time)(void);
 
     /* --- Memory ----------------------------------------------------------
      * Standard malloc/free semantics.  malloc must return NULL on failure.
@@ -153,7 +164,8 @@ typedef struct pal {
 static inline bool pal_is_valid(const pal_t *p)
 {
     return p && p->tcp_connect && p->tcp_send && p->tcp_recv && p->tcp_close
-             && p->tcp_poll && p->time_ms && p->malloc && p->free
+             && p->tcp_poll && p->time_ms && p->wal_clock_time
+             && p->malloc && p->free
              && p->mutex_create && p->mutex_lock && p->mutex_unlock
              && p->mutex_destroy && p->thread_create && p->thread_join
              && p->sleep_ms;
