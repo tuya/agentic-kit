@@ -82,5 +82,6 @@ The following is literal example output, with the Chinese strings preserved. The
 
 ## Related Links {#相关链接}
 
+- [Device Workflow Variables](./workflow-variables.md) -- Pass typed `action` and `count` through the RTC TCP API, separately from `USER_TEXT`
 - [Create an Agent](./create-agent.md) -- Basic agent configuration steps
 - [Image Understanding Tutorial](../tutorials/edu-camera.md) -- A complete example of sending images from the device

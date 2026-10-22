@@ -55,6 +55,7 @@ const sidebars: SidebarsConfig = {
             'guides/vad-and-interrupt',
             'guides/dp-persistence',
             'guides/device-mcp',
+            'guides/workflow-variables',
             'guides/ota-upgrade',
             'guides/atop-generic-call',
             'guides/ai-role-management',

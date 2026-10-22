@@ -272,8 +272,13 @@ typedef struct tai_config {
     const char *event_user_data_json;      /* → chatAttributes value (string) */
     /* Optional per-connection custom parameters emitted on every EventStart as
      * {"sessionAttributes":{"custom.param":<this raw JSON object>}} alongside
-     * chatAttributes. This is where server-side workflows read device intent,
-     * e.g. "{\"clm_intent\":\"ai_image\"}". NULL = omit sessionAttributes. */
+     * chatAttributes. Omni parses Map<String,CustomParamValue>: each parameter
+     * needs a value wrapper, e.g.
+     * "{\"action\":{\"value\":\"sing\"},\"count\":{\"value\":2}}".
+     * Optional effectiveCount belongs inside each wrapper; omitted here, it is
+     * separate from the workflow input count. The SDK passes raw JSON through
+     * without adding value wrappers or validating shape/types.
+     * NULL = omit sessionAttributes; "{}" = empty custom.param object. */
     const char *event_custom_param_json;
     const char *agent_token;
 
@@ -383,8 +388,12 @@ void        tai_request_disconnect(tai_ctx_t *ctx);
 /* Update the user-data emitted on subsequent EventStart packets, so the intent
  * can change per turn (e.g. an image-recognition turn vs. a plain chat turn).
  * Pass NULL for user_data_json to fall back to the built-in default, and NULL
- * for custom_param_json to omit sessionAttributes.custom.param entirely.
- * The pointers must stay valid until the next call (typically string literals). */
+ * for custom_param_json to omit sessionAttributes entirely.
+ * custom_param_json is passed through as raw JSON: supply each Omni parameter
+ * as {"value":...}, as documented on event_custom_param_json. Optional
+ * effectiveCount is wrapper metadata, not the workflow input count.
+ * The pointers must stay valid until replacement and completion of sends using
+ * them. Serialize updates with Event-producing sends; this setter does not lock. */
 void tai_set_event_params(tai_ctx_t *ctx,
                           const char *user_data_json,
                           const char *custom_param_json);

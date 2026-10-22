@@ -158,6 +158,7 @@ Populate this structure before calling `tai_ctx_init`. All pointer fields must r
 |------|------|------|
 | `session_attrs_json` | `const char *` | Session attributes JSON (NULL uses the default). Can configure Server VAD, audio format, and other options |
 | `event_user_data_json` | `const char *` | Event user data JSON (NULL uses the default) |
+| `event_custom_param_json` | `const char *` | Borrowed raw JSON object emitted at `sessionAttributes["custom.param"]` on every EventStart; Omni requires a caller-supplied `{"value":...}` wrapper per parameter; NULL omits `sessionAttributes`, `"{}"` sends an empty object; shape and types are not validated |
 | `agent_token` | `const char *` | Agent Token (specifies a particular Agent; NULL uses the product's default Agent) |
 
 ### 3.4 Business Identifiers {#34-业务标识}
@@ -424,6 +425,28 @@ Requests the background worker to stop, but **does not** join it or tear down th
 ---
 
 ## 5. Send API {#5-发送-api}
+
+### `tai_set_event_params` {#tai_set_event_params}
+
+```c
+void tai_set_event_params(tai_ctx_t *ctx,
+                          const char *user_data_json,
+                          const char *custom_param_json);
+```
+
+Replaces parameters for subsequent EventStart Packets. It sends no Packet and does not modify an open Event. `user_data_json` is encoded as the `chatAttributes` string; NULL restores built-in defaults, rather than retaining the previous value. `custom_param_json` is the inner raw JSON object; the SDK adds the `sessionAttributes["custom.param"]` wrapper. NULL omits `sessionAttributes`, while `"{}"` retains an empty object. Replacement is not merging, and omission does not guarantee clearing cloud variables.
+
+The Omni parser requires `Map<String,CustomParamValue>`, so the caller must supply this object shape:
+
+```json
+{"action":{"value":"sing"},"count":{"value":2}}
+```
+
+Each parameter's `value` retains its JSON type. Optional `effectiveCount` belongs inside the corresponding wrapper and is omitted here; it is not the workflow input `count`. SDK raw pass-through is unchanged: it adds only the outer `sessionAttributes["custom.param"]` layers, not each parameter's `value` wrapper, and does not validate them.
+
+The function does not lock, copy, or validate JSON. Serialize updates with Event-producing sends and keep strings valid until replacement and completion of sends using them. Initial parameters can also be set through `tai_config_t.event_custom_param_json`. See [Device Workflow Variables](../guides/workflow-variables.md) for the complete example and verification limits: only sing input and routing are verified, internal node results are not emitted text, and there is no end-to-end success yet.
+
+---
 
 ### `tai_send_text` {#tai_send_text}
 

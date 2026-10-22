@@ -158,6 +158,7 @@ sidebar_position: 1
 |------|------|------|
 | `session_attrs_json` | `const char *` | 会话属性 JSON（NULL 使用默认值）。可配置云端 VAD、音频格式等 |
 | `event_user_data_json` | `const char *` | 事件用户数据 JSON（NULL 使用默认值） |
+| `event_custom_param_json` | `const char *` | 借用的原始 JSON 对象，每次 EventStart 写入 `sessionAttributes["custom.param"]`；Omni 要求每个参数为 `{"value":...}`，调用方提供包装；NULL 省略 `sessionAttributes`，`"{}"` 发送空对象；SDK 不验证形状或类型 |
 | `agent_token` | `const char *` | Agent Token（指定特定 Agent，NULL 使用产品默认 Agent） |
 
 ### 3.4 业务标识 {#34-业务标识}
@@ -424,6 +425,28 @@ void tai_request_disconnect(tai_ctx_t *ctx);
 ---
 
 ## 5. 发送 API {#5-发送-api}
+
+### `tai_set_event_params` {#tai_set_event_params}
+
+```c
+void tai_set_event_params(tai_ctx_t *ctx,
+                          const char *user_data_json,
+                          const char *custom_param_json);
+```
+
+替换后续 EventStart 的参数，不发送 Packet，也不修改已打开的 Event。`user_data_json` 编码为 `chatAttributes` 字符串，NULL 恢复内置默认值（不是保留原值）。`custom_param_json` 是内层原始 JSON 对象，SDK 添加 `sessionAttributes["custom.param"]` 包装；NULL 省略 `sessionAttributes`，`"{}"` 保留空对象。替换不是合并，省略字段不保证清除云端变量。
+
+Omni 解析器要求 `Map<String,CustomParamValue>`，所以调用方传入的对象必须为：
+
+```json
+{"action":{"value":"sing"},"count":{"value":2}}
+```
+
+每个参数的 `value` 保留其 JSON 类型；可选 `effectiveCount` 位于对应包装对象内，本例省略，不能与工作流输入 `count` 混淆。SDK 原始透传行为未改变：只添加外层 `sessionAttributes["custom.param"]`，不添加各参数的 `value` 包装，也不验证它们。
+
+函数不加锁、不复制、不验证 JSON。调用方必须将更新与产生 Event 的发送操作串行化，并保证字符串在被替换且使用它的发送结束前有效。初始参数也可通过 `tai_config_t.event_custom_param_json` 设置。完整示例及实测边界见 [设备传递工作流变量](../guides/workflow-variables.md)：仅 sing 输入与路由已验证，内部节点结果不等于下发文本，尚无端到端成功。
+
+---
 
 ### `tai_send_text` {#tai_send_text}
 

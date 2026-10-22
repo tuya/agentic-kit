@@ -836,20 +836,36 @@ static int tai_process_rx(tai_ctx_t *ctx, int *paused)
         } else if (frag_flag == TAI_FRAG_FIRST) {
             ctx->frag_len   = 0;
             ctx->frag_state = 1;
-            if (payload_len > sizeof(ctx->frag_buf))
-                return TAI_PROTO_ERR_FRAG;                 /* oversized first fragment */
+            if (payload_len > sizeof(ctx->frag_buf)) {
+                TAI_LOGE(ctx->pal, TAG,
+                         "first fragment exceeds reassembly buffer: seq=%u bytes=%zu capacity=%zu",
+                         (unsigned)seq, payload_len, sizeof(ctx->frag_buf));
+                return TAI_PROTO_ERR_FRAG;
+            }
             memcpy(ctx->frag_buf, payload, payload_len);
             ctx->frag_len = payload_len;
         } else if (frag_flag == TAI_FRAG_MIDDLE) {
             if (ctx->frag_state != 1 ||
-                ctx->frag_len + payload_len > sizeof(ctx->frag_buf))
-                return TAI_PROTO_ERR_FRAG;                 /* orphan / overflow */
+                ctx->frag_len + payload_len > sizeof(ctx->frag_buf)) {
+                TAI_LOGE(ctx->pal, TAG,
+                         "fragment rejected (%s): flag=%u seq=%u buffered=%zu incoming=%zu capacity=%zu",
+                         ctx->frag_state != 1 ? "orphan" : "reassembly overflow",
+                         (unsigned)frag_flag, (unsigned)seq, ctx->frag_len,
+                         payload_len, sizeof(ctx->frag_buf));
+                return TAI_PROTO_ERR_FRAG;
+            }
             memcpy(ctx->frag_buf + ctx->frag_len, payload, payload_len);
             ctx->frag_len += payload_len;
         } else { /* TAI_FRAG_LAST */
             if (ctx->frag_state != 1 ||
-                ctx->frag_len + payload_len > sizeof(ctx->frag_buf))
-                return TAI_PROTO_ERR_FRAG;                 /* orphan / overflow */
+                ctx->frag_len + payload_len > sizeof(ctx->frag_buf)) {
+                TAI_LOGE(ctx->pal, TAG,
+                         "fragment rejected (%s): flag=%u seq=%u buffered=%zu incoming=%zu capacity=%zu",
+                         ctx->frag_state != 1 ? "orphan" : "reassembly overflow",
+                         (unsigned)frag_flag, (unsigned)seq, ctx->frag_len,
+                         payload_len, sizeof(ctx->frag_buf));
+                return TAI_PROTO_ERR_FRAG;
+            }
             memcpy(ctx->frag_buf + ctx->frag_len, payload, payload_len);
             ctx->frag_len += payload_len;
             app_bytes = ctx->frag_buf;

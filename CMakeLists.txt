@@ -353,6 +353,11 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
         COMMENT "Check the PAL against pinned official FreeRTOS 10/11 headers"
         VERBATIM)
 
+    add_executable(workflow_variables_demo_test
+        "${AI_TCP_TESTS_DIR}/workflow_variables_demo_test.c")
+    target_link_libraries(workflow_variables_demo_test PRIVATE tuya_iot_client tuya_ai_tcp)
+    add_test(NAME workflow_variables_demo_test COMMAND workflow_variables_demo_test)
+
     add_executable(tai_unit_tests
         ${AI_TCP_SOURCES}
         "${AI_TCP_TESTS_DIR}/test_core.c"

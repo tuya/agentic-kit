@@ -142,8 +142,14 @@ else()
 endif()
 
 # -- ai / rtc-tcp-client ----------------------------------------------------
+# Generated image Packets exceed the embedded default reassembly capacity.
+target_compile_definitions(tuya_ai_tcp PUBLIC AGENTIC_KIT_TAI_FRAG_BUF_SIZE=1048576)
+
 add_executable(text_chat_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/text_chat_demo.c")
 target_link_libraries(text_chat_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
+
+add_executable(workflow_variables_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/workflow_variables_demo.c")
+target_link_libraries(workflow_variables_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)
 
 add_executable(edu_camera_demo "${CMAKE_CURRENT_SOURCE_DIR}/ai/rtc-tcp-client/edu_camera_demo.c")
 target_link_libraries(edu_camera_demo PRIVATE tuya_ai_tcp tuya_iot_client agentic_kit_pal)

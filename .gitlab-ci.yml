@@ -100,7 +100,7 @@ test:memory-leak:
       # test, so there is nothing to leak-check for it here. The mock-driven iot
       # tests are covered by the `test` job; under valgrind their Python
       # handshakes would time out.
-      for t in pal_freertos_time_16_1000_test pal_freertos_time_32_1000_test pal_freertos_time_32_100_test pal_freertos_time_32_128_test pal_freertos_time_32_2000_test pal_freertos_time_64_1000_test pal_posix_time_test biz_ai_role_test tai_unit_tests tai_log_level_zero_tests tai_log_module_zero_tests tai_integration_tests iot_cipher_test iot_ai_ctrl_test tuya_ble_test; do
+      for t in pal_freertos_time_16_1000_test pal_freertos_time_32_1000_test pal_freertos_time_32_100_test pal_freertos_time_32_128_test pal_freertos_time_32_2000_test pal_freertos_time_64_1000_test pal_posix_time_test biz_ai_role_test tai_unit_tests tai_log_level_zero_tests tai_log_module_zero_tests tai_integration_tests workflow_variables_demo_test iot_cipher_test iot_ai_ctrl_test tuya_ble_test; do
         echo "==================== valgrind: ${t} ===================="
         "$VG" "./${CMAKE_BUILD_DIR}/${t}" 2>&1 | tee "valgrind-${t}.log"
         rc=${PIPESTATUS[0]}

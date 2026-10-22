@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Examples — `workflow_variables_demo` sends sequential `chat`, `generate-img`, and `decide` Events with plain-text, saved-image, and boolean-result JSON responses (PR pending).
 - biz-client — typed AI role management, language/timbre queries, POSIX and ESP-IDF examples, and bilingual API documentation (#47).
 - iot-client — `iot_get_binding_status()` queries `tuya.device.info.sync` with saved credentials, without an IoT client (#44).
   - `iot_client_get_binding_status()` reuses an existing client's endpoint and TLS settings.
