@@ -34,8 +34,10 @@ build:
     - pip install -q ${PIP_DEPS}
   script:
     - cmake --version
-    - cmake -B ${CMAKE_BUILD_DIR} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPython3_EXECUTABLE=$(which python3)
+    - cmake -B ${CMAKE_BUILD_DIR} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPython3_EXECUTABLE=$(which python3) -DAGENTIC_KIT_ENABLE_LAN=ON
     - cmake --build ${CMAKE_BUILD_DIR} -j$(nproc)
+    - cmake -S . -B build-no-lan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPython3_EXECUTABLE=$(which python3) -DAGENTIC_KIT_ENABLE_LAN=OFF -DAGENTIC_KIT_BUILD_TESTS=OFF
+    - cmake --build build-no-lan --target tuya_iot_client tuya_ai_tcp -j$(nproc)
   artifacts:
     paths:
       - ${CMAKE_BUILD_DIR}/
@@ -90,17 +92,19 @@ test:memory-leak:
       VG=modules/iot-client/test/run_valgrind_check.sh
       chmod +x "$VG"
       # Leak-check the pure (no-subprocess) binaries, grouped by module:
-      #   pal            : pal_freertos_time_*_test, pal_posix_time_test
+      #   common         : json_lexical_test, bounded_string_test
+      #   pal            : pal_freertos_time_*_test, pal_posix_time_test, pal_net_test, pal_freertos_net_test
       #   rtc-tcp-client : tai_unit_tests, tai_log_level_zero_tests,
       #                    tai_log_module_zero_tests, tai_integration_tests
       #   iot-client     : iot_cipher_test, iot_ai_ctrl_test
       #   tuya-ble       : tuya_ble_test
       #   biz-client     : biz_ai_role_test (public ATOP boundary faked)
+      #   tuya-lan       : tuya_lan_protocol_test, tuya_lan_service_test
       # rtc-client is a prebuilt closed lib (headers + libstm.a) with no offline
       # test, so there is nothing to leak-check for it here. The mock-driven iot
       # tests are covered by the `test` job; under valgrind their Python
       # handshakes would time out.
-      for t in pal_freertos_time_16_1000_test pal_freertos_time_32_1000_test pal_freertos_time_32_100_test pal_freertos_time_32_128_test pal_freertos_time_32_2000_test pal_freertos_time_64_1000_test pal_posix_time_test biz_ai_role_test tai_unit_tests tai_log_level_zero_tests tai_log_module_zero_tests tai_integration_tests iot_cipher_test iot_ai_ctrl_test tuya_ble_test; do
+      for t in json_lexical_test bounded_string_test pal_freertos_time_16_1000_test pal_freertos_time_32_1000_test pal_freertos_time_32_100_test pal_freertos_time_32_128_test pal_freertos_time_32_2000_test pal_freertos_time_64_1000_test pal_posix_time_test pal_net_test pal_freertos_net_test biz_ai_role_test tai_unit_tests tai_log_level_zero_tests tai_log_module_zero_tests tai_integration_tests iot_cipher_test iot_ai_ctrl_test tuya_ble_test tuya_lan_protocol_test tuya_lan_service_test; do
         echo "==================== valgrind: ${t} ===================="
         "$VG" "./${CMAKE_BUILD_DIR}/${t}" 2>&1 | tee "valgrind-${t}.log"
         rc=${PIPESTATUS[0]}

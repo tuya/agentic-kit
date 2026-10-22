@@ -15,6 +15,8 @@ and decisions.
   block in `modules/rtc-tcp-client/include/tuya_ai.h`.
 - [Tuya BLE](./modules/tuya-ble/CONTEXT.md) — device ↔ app BLE provisioning: advertising,
   the pairing handshake, and WiFi-credential delivery.
+- [Tuya LAN](./modules/tuya-lan/CONTEXT.md) — activated device ↔ app local control:
+  discovery, authenticated LAN 3.5 Sessions, DP requests and status reports.
 
 ## Relationships
 
@@ -33,3 +35,7 @@ and decisions.
   against the cloud.
 - All contexts share the Platform Abstraction Layer (`pal/pal.h`) for sockets, memory,
   mutex, threads, and time.
+- **Tuya LAN → IoT Client**: the application supplies Activation credentials and
+  connects LAN callbacks to the IoT Client's public local-DP input and DP state.
+  LAN reports do not publish MQTT or clear MQTT dirty bits; the application owns
+  channel reporting. Optional server/datagram operations share `pal_t` in `pal/pal.h`.

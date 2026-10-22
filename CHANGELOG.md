@@ -9,7 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- biz-client — `AGENTIC_KIT_BIZ_LOG_LEVEL` lowers business-service logs below the SDK-wide ceiling (#48).
 - biz-client — typed AI role management, language/timbre queries, POSIX and ESP-IDF examples, and bilingual API documentation (#47).
+- tuya-lan — application-driven LAN 3.5 discovery, authenticated Sessions and local DP control (#48).
+  - Opt in with CMake `AGENTIC_KIT_ENABLE_LAN=ON` or ESP-IDF `CONFIG_AGENTIC_KIT_ENABLE_LAN=y`; both default off.
+  - Server/datagram callbacks are optional members of `pal_t`; custom LAN ports must implement them. Rebuild consumers after the layout change and pass only `config.pal`.
+- iot-client — `iot_client_apply_local_dps()` validates local DP controls, marks changes dirty and invokes existing callbacks (#48).
+
 - iot-client — `iot_get_binding_status()` queries `tuya.device.info.sync` with saved credentials, without an IoT client (#44).
   - `iot_client_get_binding_status()` reuses an existing client's endpoint and TLS settings.
 - Examples — `unbind_demo` checks cloud binding status before client initialization/reconnect and after a removal notice (#44).
@@ -26,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- pal — socket handle allocation failures emit an explicit allocation diagnostic (#48).
 - pal — FreeRTOS `time_ms` preserves tick wraps and converts non-integral tick periods correctly (#45).
 - biz-client — role request timestamps and the clock gate read PAL UTC instead of libc time, so ports without a synchronized libc clock work (#45).
 

@@ -42,16 +42,24 @@ extern "C" {
  * ------------------------------------------------------------------------- */
 #define PAL_ERR_NET    (-3)  /* fatal network error */
 #define PAL_ERR_AGAIN  (-7)  /* timed out / would block, try again later */
+#define PAL_ERR_INVALID (-2) /* invalid network arguments */
+
+/* Numeric IPv4 endpoint used by the optional server/datagram operations.
+ * A NULL bind IP means INADDR_ANY. Addresses returned by the port are NUL-terminated. */
+typedef struct {
+    char ip[16];
+    uint16_t port;
+} pal_addr_t;
 
 /* -------------------------------------------------------------------------
  * pal_t -- function pointer table
  * -------------------------------------------------------------------------
- * Every callback below is mandatory.  pal_is_valid() rejects any pal_t
- * that leaves a field NULL, so SDK call sites may dereference these
- * pointers without re-checking.
+ * The base callbacks are mandatory. pal_is_valid() checks them at initialization.
+ * The optional server/datagram callbacks at the end are checked separately by
+ * their consumers; their fields exist even when the implementation is disabled.
  *
- * ADDING, REMOVING OR REORDERING A MEMBER means editing four separate
- * designated-initializer tables plus pal_is_valid() below:
+ * ADDING, REMOVING OR REORDERING A MEMBER requires reviewing four separate
+ * designated-initializer tables (and pal_is_valid() for base callbacks):
  *   pal/pal_posix.c, pal/pal_freertos.c,
  *   modules/rtc-tcp-client/test/tai_pal_loopback.c, and .../test/test_core.c
  * (test_core intentionally leaves networking/thread/sleep callbacks NULL because
@@ -59,8 +67,9 @@ extern "C" {
  * C99 zero-fills omitted designated members. The host clock regression matrix
  * compiles pal_freertos.c against test shims and checks its table, but the real
  * FreeRTOS/lwIP build is still the ESP-IDF component. Keep that table in step:
- * a missing callback means pal_is_valid() rejects the port or a direct caller
- * dereferences NULL. Host shims do not verify the real device integration.
+ * a missing base callback means pal_is_valid() rejects the port; optional
+ * capabilities need their own completeness check. All consumers must rebuild
+ * after a table layout change. Host shims do not verify device integration.
  */
 typedef struct pal {
 
@@ -146,6 +155,35 @@ typedef struct pal {
      */
     void  (*sleep_ms)(uint32_t ms);
 
+    /* --- Optional IPv4 server and datagram operations ---------------------
+     * tcp_listen/udp_bind: bind a numeric IPv4 address (NULL = any address).
+     *   Port 0 requests an ephemeral port. Use pal's allocator for the handle.
+     *   Return 0 on success and set *out; errors leave *out NULL.
+     * tcp_accept: one nonblocking accept attempt; peer is optional. Accepted
+     *   connections use the SAME handle/operations as tcp_connect connections:
+     *   tcp_send/recv/poll/close. timeout_ms=0 on those calls never waits.
+     * udp_sendto/udp_recvfrom: one nonblocking datagram attempt. A receive of 0
+     *   is a valid empty datagram. Oversized datagrams are consumed and fail,
+     *   never returned truncated. udp_close releases a UDP handle.
+     * socket_local_port: get a listening, accepted or UDP handle's bound port.
+     * Errors use PAL_ERR_INVALID/NET/AGAIN; AGAIN also includes an interrupted
+     *   nonblocking attempt. Never mix TCP and UDP handles or platform ports.
+     * These callbacks may be NULL. LAN validates the complete group before use.
+     * The built-in ports enable them with AGENTIC_KIT_ENABLE_LAN; conditional
+     *   compilation must never change the pal_t member layout.
+     */
+    int (*tcp_listen)(const struct pal *pal, const char *ip, uint16_t port,
+                      unsigned backlog, void **out);
+    int (*tcp_accept)(void *listener, void **out, pal_addr_t *peer);
+    int (*udp_bind)(const struct pal *pal, const char *ip, uint16_t port,
+                    bool broadcast, void **out);
+    int (*udp_sendto)(void *socket, const pal_addr_t *peer,
+                      const uint8_t *data, size_t len);
+    int (*udp_recvfrom)(void *socket, pal_addr_t *peer,
+                        uint8_t *data, size_t capacity);
+    int (*socket_local_port)(void *socket, uint16_t *port);
+    void (*udp_close)(void *socket);
+
 } pal_t;
 
 /* -------------------------------------------------------------------------
@@ -169,6 +207,14 @@ static inline bool pal_is_valid(const pal_t *p)
              && p->mutex_create && p->mutex_lock && p->mutex_unlock
              && p->mutex_destroy && p->thread_create && p->thread_join
              && p->sleep_ms;
+}
+
+/* Server/datagram capability is optional for IoT and RTC, required for LAN. */
+static inline bool pal_has_server_network(const pal_t *p)
+{
+    return p && p->tcp_listen && p->tcp_accept && p->tcp_send && p->tcp_recv
+             && p->tcp_close && p->tcp_poll && p->udp_bind && p->udp_sendto
+             && p->udp_recvfrom && p->socket_local_port && p->udp_close;
 }
 
 #ifdef __cplusplus

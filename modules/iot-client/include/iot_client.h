@@ -320,6 +320,38 @@ struct iot_dp_context;
 IOT_API iot_client_t *iot_client_init(const iot_client_config_t *config);
 
 /**
+ * @brief Apply an authenticated local DP set from a LAN/BLE transport.
+ *
+ * The application authenticates the request before calling this function. Input
+ * is a non-empty bare DP object, e.g. {"1":true,"2":42}, in exactly @p len bytes
+ * (excluding a terminating NUL). The buffer need not be NUL-terminated. IDs must
+ * be unescaped decimal strings in 1..255, without leading zeros or duplicates.
+ * Values use the schema's wire form: bool, integer, string, enum label/index,
+ * or base64 for raw. Integer values must be integral and fit int32_t. Embedded
+ * NUL, escaped NUL, malformed UTF-8/JSON, and trailing data are rejected.
+ *
+ * The whole batch is validated and its storage/notification snapshots allocated
+ * before committing: any error leaves all DP values and dirty flags unchanged
+ * and fires no callback. Success marks each supplied DP dirty, fires the save
+ * callback once, then the existing DP callback once per supplied DP in request
+ * order, all outside the internal lock. Callback values are borrowed for the
+ * duration of each call and independent of the live cache. Raw DPs are omitted
+ * from the persistence snapshot, as with other DP writes.
+ *
+ * This function never publishes MQTT. The application owns cloud reporting and
+ * must serialize any callback-initiated MQTT operation with its IoT process loop.
+ * The caller keeps @p client alive through all callbacks and until return.
+ * Schema access mode is not enforced, matching the existing DP API.
+ *
+ * @return OPRT_OK; OPRT_INVALID_PARAMETER for malformed/empty input or duplicate
+ *         IDs; OPRT_UNINITIALIZED if the DP context is unavailable;
+ *         OPRT_DP_INVALID_ID for an unknown/out-of-range ID or loose mode;
+ *         OPRT_DP_TYPE_MISMATCH / OPRT_DP_VALUE_OUT_OF_RANGE for schema violations;
+ *         OPRT_MALLOC_FAILED if staging or notification allocation fails.
+ */
+IOT_API int iot_client_apply_local_dps(iot_client_t *client, const char *dps_json, size_t len);
+
+/**
  * @brief Initialize IoT client via QR code on-boarding (first-time activation).
  *
  * Blocks until a user scans the QR code and the device is activated, or

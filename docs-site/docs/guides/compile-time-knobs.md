@@ -16,7 +16,7 @@ toc_labels:
 
 # 编译期配置
 
-SDK 提供 **22 个编译期配置项**，用于调整缓冲大小、超时、任务调度与日志级别。本页介绍如何按产品覆盖默认值，并提供设计说明和配置项速查表。
+SDK 提供 **24 个编译期配置项**，用于调整缓冲大小、超时、任务调度与日志级别。本页介绍如何按产品覆盖默认值，并提供设计说明和配置项速查表。
 
 **推荐方式：** 将需要修改的配置项统一写入 `agentic_kit_config.h`，无需修改 SDK 源文件，也无需按模块拆分覆盖文件。
 
@@ -39,6 +39,12 @@ SDK 提供 **22 个编译期配置项**，用于调整缓冲大小、超时、�
 - **tuya-ble** — 模块日志上限，目前仅此一个配置项。
 
   文件：`modules/tuya-ble/include/tuya_ble_config_defaults.h`
+- **tuya-lan** — 帧大小与模块日志上限。
+
+  文件：`modules/tuya-lan/include/tuya_lan_config_defaults.h`
+- **biz-client** — 模块日志上限。
+
+  文件：`modules/biz-client/include/biz_client_config_defaults.h`
 
 统一加载入口的原因见[设计说明](#为什么这样设计)；BLE 布局常量为何不属于配置项，见[配置范围](#这些名字故意不在-config-文件里)。
 
@@ -101,7 +107,7 @@ target_compile_definitions(my_sdk_target PRIVATE
 
 **为什么默认值分散在各子系统、覆盖挂载点却只有一个。** 这些默认值原本散落在各调用点，缓冲大小实际是**产品属性**（schema 多大、有没有 PSRAM、音频帧长多少），选型时需要按内存预算逐项审；生产事故复盘时也要能一眼回答"这块内存是哪个配置项、为什么是这个值"。现在默认值跟着所属子系统走——日志在 `common/log.h`、FreeRTOS 任务在 `pal/pal_config_defaults.h`、模块配置项在各自 include/——审预算、做评审时对着所属文件即可。
 
-集成方覆盖的**捡起逻辑**只存在于 `common/log.h` 一处：SDK 每个编译单元都包含这个头，各 `*_config_defaults.h` 也都先包含它，因此任何 `#ifndef` 默认值生效前，你的覆盖一定已经就位——一份 `agentic_kit_config.h` 统一覆盖全部 22 个配置项，不需要按子系统拆多个覆盖文件。
+集成方覆盖的**捡起逻辑**只存在于 `common/log.h` 一处：SDK 每个编译单元都包含这个头，各 `*_config_defaults.h` 也都先包含它，因此任何 `#ifndef` 默认值生效前，你的覆盖一定已经就位——一份 `agentic_kit_config.h` 统一覆盖全部 24 个配置项，不需要按子系统拆多个覆盖文件。
 
 **为什么都加 `AGENTIC_KIT_` 前缀。** 撞名不是假设出来的风险：coreMQTT 自带的 `core_mqtt_config_defaults.h` 定义了同名 `MQTT_SEND_TIMEOUT_MS`（默认 20000U），与 SDK 的 2000U 谁生效取决于包含顺序；`LOG_LEVEL` 也被多个平台 SDK 占用。前缀把这些名字搬进 SDK 自己的命名空间——你的 `-D` 不会再打到别人的宏，别人的也不会打到你的。
 
@@ -125,7 +131,7 @@ target_compile_definitions(my_sdk_target PRIVATE
 
 **没有运行时级别，编译进什么就出什么。** 上限以内的日志无条件输出。
 
-需要按模块区分级别时（比如 iot-client 只要 info、rtc-tcp-client 要 debug），用**每模块上限**：`AGENTIC_KIT_IOT_LOG_LEVEL`、`AGENTIC_KIT_TAI_LOG_LEVEL`、`AGENTIC_KIT_TUYA_BLE_LOG_LEVEL`，默认都等于全局上限，且**只能把单个模块再压低**——有效上限 = 两者取小，设得比全局高没有效果（超出部分会在模块的 config 文件里被钳回全局值，块级门控看到的就是有效上限）。它们门控在各自模块词汇表的定义处（`IOT_LOG*` / `TAI_LOG*` / `TUYA_BLE_HAL_LOG*`，外加 rtc-tcp-client 的包日志格式化器），与全局上限走同一条覆盖捡起通道。
+需要按模块区分级别时（比如 iot-client 只要 info、rtc-tcp-client 要 debug），用**每模块上限**：`AGENTIC_KIT_IOT_LOG_LEVEL`、`AGENTIC_KIT_TAI_LOG_LEVEL`、`AGENTIC_KIT_TUYA_BLE_LOG_LEVEL`、`AGENTIC_KIT_LAN_LOG_LEVEL`、`AGENTIC_KIT_BIZ_LOG_LEVEL`，默认都等于全局上限，且**只能把单个模块再压低**——有效上限 = 两者取小，设得比全局高没有效果（超出部分会在模块的 config 文件里被钳回全局值，块级门控看到的就是有效上限）。它们门控在各自模块词汇表的定义处（`IOT_LOG*` / `TAI_LOG*` / `TUYA_BLE_HAL_LOG*` / `LAN_LOG*` / `BIZ_LOG*`，外加 rtc-tcp-client 的包日志格式化器），与全局上限走同一条覆盖捡起通道。
 
 上面那个"iot 只要 info、rtc 要 debug"就是：全局保持默认 4，再加一行 `-DAGENTIC_KIT_IOT_LOG_LEVEL=3`。注意上限按**行实际输出的级别**判断：tuya-ble 的 `TUYA_BLE_HAL_LOGI` 派发在 debug，想保留它得给 4 而不是 3。
 
@@ -191,6 +197,8 @@ void my_sink(log_level_t level, const char *fmt, ...)
 | `AGENTIC_KIT_IOT_LOG_LEVEL` | = `AGENTIC_KIT_LOG_LEVEL` | 只压低 iot-client 一个模块（只降不升，见上文"日志"节） |
 | `AGENTIC_KIT_TAI_LOG_LEVEL` | = `AGENTIC_KIT_LOG_LEVEL` | 只压低 rtc-tcp-client；低于 3 时连包日志格式化器一起去掉 |
 | `AGENTIC_KIT_TUYA_BLE_LOG_LEVEL` | = `AGENTIC_KIT_LOG_LEVEL` | 只压低 tuya-ble；`TUYA_BLE_HAL_LOGI` 派发在 debug，保留它需 4 |
+| `AGENTIC_KIT_LAN_LOG_LEVEL` | = `AGENTIC_KIT_LOG_LEVEL` | 只压低 tuya-lan；仅在启用 LAN 时使用 |
+| `AGENTIC_KIT_BIZ_LOG_LEVEL` | = `AGENTIC_KIT_LOG_LEVEL` | 只压低 biz-client，包括角色请求警告 |
 
 ### iot-client：MQTT {#iot-client-mqtt}
 
