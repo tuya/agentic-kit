@@ -134,7 +134,7 @@ def main():
                 command = compiler + [
                     "-std=c99", "-Wall", "-Wextra", "-Werror", "-fsyntax-only",
                     f"-DTEST_KERNEL_MAJOR={major}", f"-DTEST_TICK_BITS={bits}",
-                    "-DAGENTIC_KIT_LOG_LEVEL=0",
+                    "-DAGENTIC_KIT_LOG_LEVEL=0", "-DAGENTIC_KIT_ENABLE_LAN=1",
                     # Strict C99 hides POSIX declarations in glibc's netdb.h
                     # (struct addrinfo, getaddrinfo); the shim passes through to
                     # the host headers, so request POSIX.1-2001 explicitly.

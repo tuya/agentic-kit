@@ -28,7 +28,7 @@ The RTC TCP Client uses a PAL (Platform Abstraction Layer) for cross-platform po
 
 ### 1. Implement the PAL Interfaces {#1-实现-pal-接口}
 
-Create a `pal_xxx.c` file, implement every PAL function, and populate the `pal_t` struct:
+Create a `pal_xxx.c` file, implement the base PAL functions, and populate the `pal_t` struct:
 
 ```c
 #include "pal.h"
@@ -112,6 +112,22 @@ Reference implementation: `pal/pal_posix.c`
 > **Note:** The `mutex_create` contract in `pal.h` (see the header comment) requires a **recursive mutex**. Therefore, you must use `xSemaphoreCreateRecursiveMutex` with `xSemaphoreTakeRecursive` / `xSemaphoreGiveRecursive`, not the non-recursive `xSemaphoreCreateMutex`; otherwise, reentrant locking paths deadlock.
 
 The TCP implementation depends on the specific network stack, such as lwIP or AT commands.
+
+### Optional LAN Networking {#lan-network}
+
+All platform capabilities share `pal_t`. LAN additionally needs `tcp_listen`,
+`tcp_accept`, `udp_bind`, `udp_sendto`, `udp_recvfrom`, `socket_local_port` and
+`udp_close`. Listening and datagram operations must be nonblocking. Accepted TCP
+handles must work with the existing `tcp_send/recv/poll/close`, preserving immediate
+returns at timeout zero and bounded waits at positive timeouts. LAN uses timeout
+zero for TCP I/O. Listening, accepted and UDP handles use the supplied PAL's
+allocator and must be released through that same allocator.
+
+`pal_is_valid()` checks only base callbacks; LAN checks the complete optional
+group with `pal_has_server_network()`. The built-in POSIX/FreeRTOS ports supply
+them with `AGENTIC_KIT_ENABLE_LAN=1` and leave them NULL when disabled. Field
+layout is independent of the build option; rebuild the SDK and all consumers
+after extending `pal_t`. Custom ports may omit this group when not using LAN.
 
 ### FreeRTOS Monotonic Time {#freertos-tick-clock}
 

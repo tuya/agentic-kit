@@ -32,6 +32,7 @@ set(AK_SRCS
 
     # tuya-ble
     ${AK_DIR}/modules/tuya-ble/src/tuya_ble_bigdata.c
+    ${AK_DIR}/modules/tuya-ble/src/tuya_ble_dp.c
     ${AK_DIR}/modules/tuya-ble/src/tuya_ble_prov.c
     ${AK_DIR}/modules/tuya-ble/src/tuya_ble_trsmitr.c
 
@@ -40,6 +41,7 @@ set(AK_SRCS
     ${AK_DIR}/common/tls.c
     ${AK_DIR}/common/log.c
     ${AK_DIR}/common/rng.c
+    ${AK_DIR}/common/json_lexical.c
 
     # vendored coreHTTP
     ${AK_DIR}/third_party/coreHTTP/source/core_http_client.c
@@ -53,6 +55,19 @@ set(AK_SRCS
     ${AK_DIR}/third_party/coreMQTT/source/core_mqtt_state.c
 )
 
+set(AK_LAN_ENABLED 0)
+set(AK_LAN_INCLUDE_DIRS)
+set(AK_LAN_PRIV_INCLUDE_DIRS)
+if(CONFIG_AGENTIC_KIT_ENABLE_LAN)
+    set(AK_LAN_ENABLED 1)
+    list(APPEND AK_SRCS
+        ${AK_DIR}/modules/tuya-lan/src/tuya_lan.c
+        ${AK_DIR}/modules/tuya-lan/src/tuya_lan_protocol.c
+    )
+    list(APPEND AK_LAN_INCLUDE_DIRS ${AK_DIR}/modules/tuya-lan/include)
+    list(APPEND AK_LAN_PRIV_INCLUDE_DIRS ${AK_DIR}/modules/tuya-lan/src)
+endif()
+
 idf_component_register(
     SRCS ${AK_SRCS}
     INCLUDE_DIRS
@@ -60,11 +75,13 @@ idf_component_register(
         ${AK_DIR}/modules/rtc-tcp-client/include
         ${AK_DIR}/modules/iot-client/include
         ${AK_DIR}/modules/tuya-ble/include
+        ${AK_LAN_INCLUDE_DIRS}
         ${AK_DIR}/pal
         ${AK_DIR}/common
     PRIV_INCLUDE_DIRS
         ${AK_DIR}/modules/rtc-tcp-client/src
         ${AK_DIR}/modules/iot-client/src
+        ${AK_LAN_PRIV_INCLUDE_DIRS}
         ${AK_DIR}/third_party/coreHTTP/source/include
         ${AK_DIR}/third_party/coreHTTP/source/interface
         ${AK_DIR}/third_party/coreHTTP/source/dependency/3rdparty/llhttp/include
@@ -72,6 +89,11 @@ idf_component_register(
         ${AK_DIR}/third_party/coreMQTT/source/interface
         ${AK_DIR}/third_party/cJSON
     REQUIRES mbedtls json freertos lwip esp_event esp_netif esp_timer esp_wifi
+)
+
+# Public so application code can guard its optional LAN integration too.
+target_compile_definitions(${COMPONENT_LIB} PUBLIC
+    AGENTIC_KIT_ENABLE_LAN=${AK_LAN_ENABLED}
 )
 
 # No MQTT_DO_NOT_USE_CUSTOM_CONFIG: coreMQTT must pick up common/core_mqtt_config.h

@@ -13,8 +13,11 @@ and decisions.
   real-time audio/video/text transport: the Connection, Session, Event lifecycle and the
   binary packet/frame framing. Design decisions live in CONTEXT.md and the callback-contract
   block in `modules/rtc-tcp-client/include/tuya_ai.h`.
-- [Tuya BLE](./modules/tuya-ble/CONTEXT.md) — device ↔ app BLE provisioning: advertising,
-  the pairing handshake, and WiFi-credential delivery.
+- [Tuya BLE](./modules/tuya-ble/CONTEXT.md) — device ↔ app BLE provisioning and
+  activated-device local control: advertising, Pairing, WiFi-credential delivery,
+  DP commands and explicit status reports. ADRs: `modules/tuya-ble/docs/adr/`.
+- [Tuya LAN](./modules/tuya-lan/CONTEXT.md) — activated device ↔ app local control:
+  discovery, authenticated LAN 3.5 Sessions, DP requests and status reports.
 
 ## Relationships
 
@@ -30,6 +33,14 @@ and decisions.
   and `modules/rtc-tcp-client/docs/adr/0001-receive-backpressure-pauses-the-connection.md`.
 - **Tuya BLE → IoT Client**: BLE provisioning runs first and hands the device its WiFi
   credentials (incl. the pairing token); once on WiFi, the IoT Client uses them to activate
-  against the cloud.
+  against the cloud. For an activated device the application supplies the saved
+  `local_key` and `secret_key` to BLE, then copies validated DP commands from the
+  BLE owner to the IoT owner. The public local-DP input reuses the IoT schema,
+  state and callbacks; explicit BLE reports return through the BLE owner.
+  BLE never publishes MQTT or calls IoT APIs from its receive callback.
 - All contexts share the Platform Abstraction Layer (`pal/pal.h`) for sockets, memory,
   mutex, threads, and time.
+- **Tuya LAN → IoT Client**: the application supplies Activation credentials and
+  connects LAN callbacks to the IoT Client's public local-DP input and DP state.
+  LAN reports do not publish MQTT or clear MQTT dirty bits; the application owns
+  channel reporting. Optional server/datagram operations share `pal_t` in `pal/pal.h`.

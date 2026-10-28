@@ -1,0 +1,13 @@
+menu "Agentic Kit"
+
+    config AGENTIC_KIT_ENABLE_LAN
+        bool "Enable Tuya LAN 3.5"
+        default n
+        help
+            Build the optional Tuya LAN 3.5 service and socket PAL extension
+            for local discovery and DP control. The application must initialize
+            and process the LAN service explicitly after the network is ready.
+            When disabled, LAN sources and include paths are excluded from
+            the Agentic Kit component.
+
+endmenu

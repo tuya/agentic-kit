@@ -10,6 +10,7 @@ set(CMAKE_C_EXTENSIONS ON)
 
 option(AGENTIC_KIT_BUILD_TESTS "Build tests" ON)
 option(AGENTIC_KIT_BUILD_EXAMPLES "Build posix examples" OFF)
+option(AGENTIC_KIT_ENABLE_LAN "Build Tuya LAN 3.5 local control" OFF)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -142,12 +143,15 @@ add_library(agentic_kit_common STATIC
     "${COMMON_DIR}/log.c"
     "${COMMON_DIR}/tls.c"
     "${COMMON_DIR}/rng.c"
+    "${COMMON_DIR}/json_lexical.c"
 )
 target_include_directories(agentic_kit_common PUBLIC
     "${COMMON_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/pal"   # tls.c / tls.h need pal.h
 )
 target_link_libraries(agentic_kit_common PUBLIC ${AGENTIC_KIT_MBEDTLS_TARGETS})
+target_compile_definitions(agentic_kit_common PUBLIC
+    AGENTIC_KIT_ENABLE_LAN=$<BOOL:${AGENTIC_KIT_ENABLE_LAN}>)
 
 # -----------------------------------------------------------------------------
 # PAL (Platform Abstraction Layer)
@@ -272,6 +276,7 @@ set(TUYA_BLE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/modules/tuya-ble")
 
 add_library(tuya_ble STATIC
     "${TUYA_BLE_DIR}/src/tuya_ble_bigdata.c"
+    "${TUYA_BLE_DIR}/src/tuya_ble_dp.c"
     "${TUYA_BLE_DIR}/src/tuya_ble_prov.c"
     "${TUYA_BLE_DIR}/src/tuya_ble_trsmitr.c"
 )
@@ -286,9 +291,42 @@ target_link_libraries(tuya_ble PUBLIC
 )
 
 # -----------------------------------------------------------------------------
+# tuya-lan module (application-driven Tuya LAN 3.5 service)
+# -----------------------------------------------------------------------------
+if(AGENTIC_KIT_ENABLE_LAN)
+    set(TUYA_LAN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/modules/tuya-lan")
+    add_library(tuya_lan STATIC
+        "${TUYA_LAN_DIR}/src/tuya_lan.c"
+        "${TUYA_LAN_DIR}/src/tuya_lan_protocol.c"
+    )
+    target_include_directories(tuya_lan PUBLIC "${TUYA_LAN_DIR}/include"
+        PRIVATE "${TUYA_LAN_DIR}/src" "${cjson_source_dir}")
+    target_link_libraries(tuya_lan PUBLIC agentic_kit_pal agentic_kit_common
+        ${AGENTIC_KIT_CJSON_TARGET})
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(tuya_lan PRIVATE -Wall -Wextra -Werror)
+    endif()
+endif()
+
+# -----------------------------------------------------------------------------
 # Tests
 # -----------------------------------------------------------------------------
 if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
+    add_executable(json_lexical_test
+        "${COMMON_DIR}/json_lexical.c" "${COMMON_DIR}/test/test_json_lexical.c")
+    target_include_directories(json_lexical_test PRIVATE "${COMMON_DIR}")
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(json_lexical_test PRIVATE -Wall -Wextra -Werror)
+    endif()
+    add_test(NAME json_lexical_test COMMAND json_lexical_test)
+
+    add_executable(bounded_string_test "${COMMON_DIR}/test/test_bounded_string.c")
+    target_include_directories(bounded_string_test PRIVATE "${COMMON_DIR}")
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(bounded_string_test PRIVATE -Wall -Wextra -Werror)
+    endif()
+    add_test(NAME bounded_string_test COMMAND bounded_string_test)
+
     # Fake only the public ATOP boundary, so service parsing/ownership can be
     # checked without network credentials or a subprocess. Register in ctest.
     add_executable(biz_ai_role_test ${BIZ_CLIENT_SOURCES}
@@ -303,6 +341,10 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
         target_link_libraries(biz_ai_role_test PRIVATE m)
     endif()
     add_test(NAME biz_ai_role_test COMMAND biz_ai_role_test)
+
+    add_test(NAME biz_log_compile_matrix
+        COMMAND "${Python3_EXECUTABLE}" "${BIZ_CLIENT_DIR}/test/test_log_compile.py"
+            --cc "${CMAKE_C_COMPILER}")
 
     set(AI_TCP_TESTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/modules/rtc-tcp-client/test")
     set(IOT_CLIENT_TESTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/modules/iot-client/test")
@@ -565,9 +607,11 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     # test_wire assert on "[ble] [TRSMITR]" warns.
     add_executable(tuya_ble_test
         "${TUYA_BLE_DIR}/src/tuya_ble_bigdata.c"
+        "${TUYA_BLE_DIR}/src/tuya_ble_dp.c"
         "${TUYA_BLE_DIR}/src/tuya_ble_prov.c"
         "${TUYA_BLE_DIR}/src/tuya_ble_trsmitr.c"
         "${TUYA_BLE_TESTS_DIR}/test_wire.c"
+        "${TUYA_BLE_TESTS_DIR}/test_control.c"
         "${TUYA_BLE_TESTS_DIR}/test_prov.c"
         "${TUYA_BLE_TESTS_DIR}/tuya_ble_hal_host.c"
     )
@@ -578,6 +622,52 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     )
     target_link_libraries(tuya_ble_test PRIVATE tuya_iot_client_testlog)
     add_test(NAME tuya_ble_test COMMAND tuya_ble_test)
+
+    if(AGENTIC_KIT_ENABLE_LAN)
+        add_executable(tuya_lan_service_test "${TUYA_LAN_DIR}/test/test_service.c")
+        target_include_directories(tuya_lan_service_test PRIVATE "${TUYA_LAN_DIR}/src")
+        target_link_libraries(tuya_lan_service_test PRIVATE tuya_lan)
+        if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(tuya_lan_service_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        add_test(NAME tuya_lan_service_test COMMAND tuya_lan_service_test)
+        # The independent peer harness supplies a deterministic/failing RNG; do not
+        # link iot-client/rng.c into this target or rebind a process-wide allocator.
+        add_executable(tuya_lan_protocol_test
+            "${TUYA_LAN_DIR}/src/tuya_lan_protocol.c"
+            "${TUYA_LAN_DIR}/test/test_protocol.c")
+        target_include_directories(tuya_lan_protocol_test PRIVATE
+            "${TUYA_LAN_DIR}/include" "${TUYA_LAN_DIR}/src" "${cjson_source_dir}")
+        target_link_libraries(tuya_lan_protocol_test PRIVATE agentic_kit_common
+            ${AGENTIC_KIT_CJSON_TARGET})
+        if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(tuya_lan_protocol_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        add_test(NAME tuya_lan_protocol_test COMMAND tuya_lan_protocol_test)
+        add_executable(tuya_lan_peer_device "${CMAKE_CURRENT_SOURCE_DIR}/examples/posix/lan/lan_demo.c")
+        target_link_libraries(tuya_lan_peer_device PRIVATE tuya_lan tuya_iot_client)
+        add_test(NAME tuya_lan_peer_test COMMAND "${Python3_EXECUTABLE}"
+            "${TUYA_LAN_DIR}/test/test_peer.py" "$<TARGET_FILE:tuya_lan_peer_device>")
+        add_executable(pal_net_test "${PAL_DIR}/test/test_net.c")
+        target_link_libraries(pal_net_test PRIVATE agentic_kit_pal)
+        if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(pal_net_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        add_test(NAME pal_net_test COMMAND pal_net_test)
+        # Exercise the same unified network contract in the actual FreeRTOS
+        # port against host kernel/lwIP declarations, not a second net adapter.
+        add_executable(pal_freertos_net_test
+            "${PAL_DIR}/pal_freertos.c" "${PAL_DIR}/test/test_net.c")
+        target_include_directories(pal_freertos_net_test PRIVATE
+            "${PAL_DIR}/test" "${PAL_DIR}" "${COMMON_DIR}")
+        target_compile_definitions(pal_freertos_net_test PRIVATE
+            PAL_TEST_FREERTOS=1 TEST_TICK_BITS=32 TEST_TICK_HZ=1000
+            AGENTIC_KIT_ENABLE_LAN=1 AGENTIC_KIT_LOG_LEVEL=0)
+        if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(pal_freertos_net_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        add_test(NAME pal_freertos_net_test COMMAND pal_freertos_net_test)
+    endif()
 endif()
 
 # -----------------------------------------------------------------------------
