@@ -16,7 +16,7 @@ toc_labels:
 
 # Compile-Time Configuration
 
-The SDK provides **22 compile-time configuration options** for buffers, timeouts, task scheduling, and log levels. This page explains how to override defaults per product, describes the design, and provides quick-reference tables.
+The SDK provides **24 compile-time configuration options** for buffers, timeouts, task scheduling, and log levels. This page explains how to override defaults per product, describes the design, and provides quick-reference tables.
 
 **Recommended approach:** put the configuration options you want to change in one `agentic_kit_config.h`. There is no need to edit SDK sources or create separate override files per module.
 
@@ -39,6 +39,12 @@ Defaults live with their owning subsystem. Each file's comments document the uni
 - **tuya-ble** — the module log ceiling, currently its only configuration option.
 
   File: `modules/tuya-ble/include/tuya_ble_config_defaults.h`
+- **tuya-lan** — frame size and the module log ceiling.
+
+  File: `modules/tuya-lan/include/tuya_lan_config_defaults.h`
+- **biz-client** — the module log ceiling.
+
+  File: `modules/biz-client/include/biz_client_config_defaults.h`
 
 See the [design rationale](#为什么这样设计) for the shared configuration entry point, and [configuration scope](#这些名字故意不在-config-文件里) for why BLE layout constants are not configuration options.
 
@@ -101,7 +107,7 @@ Configuration options are compile-time constants that directly determine struct 
 
 **Why the defaults are distributed across subsystems while the override pickup is in one place.** These defaults used to be scattered at their call sites, and buffer sizes are really **product properties** (how large the schema is, whether there is PSRAM, the audio frame length) — choosing them means going over the memory budget item by item, and a production incident review needs to answer at a glance "which configuration option owns this memory and why that value". Now each default lives with its owning subsystem — logs in `common/log.h`, the FreeRTOS task in `pal/pal_config_defaults.h`, module configuration options in each module's include/ — so budget reviews and code reviews look at the owning file.
 
-The **pickup logic** for integrator overrides, though, exists in exactly one place, `common/log.h`: every SDK translation unit includes that header, and every `*_config_defaults.h` includes it first, so by the time any `#ifndef` default takes effect your override is already in place — one `agentic_kit_config.h` overrides all 22 configuration options, with no need to split overrides per subsystem.
+The **pickup logic** for integrator overrides, though, exists in exactly one place, `common/log.h`: every SDK translation unit includes that header, and every `*_config_defaults.h` includes it first, so by the time any `#ifndef` default takes effect your override is already in place — one `agentic_kit_config.h` overrides all 24 configuration options, with no need to split overrides per subsystem.
 
 **Why every configuration option carries the `AGENTIC_KIT_` prefix.** The name collision is not hypothetical: coreMQTT's bundled `core_mqtt_config_defaults.h` defines a same-named `MQTT_SEND_TIMEOUT_MS` (default 20000U) that fought the SDK's 2000U by include order, and `LOG_LEVEL` is claimed by several platform SDKs. The prefix moves these names into the SDK's own namespace — your `-D` no longer hits someone else's macro, and theirs no longer hits yours.
 
@@ -125,7 +131,7 @@ Lines above the ceiling vanish at compile time: no function call, no argument ev
 
 **There is no runtime level: what compiles in is what prints.** Lines at or below the ceiling emit unconditionally.
 
-When modules need different levels (iot-client at info while rtc-tcp-client stays at debug, say), use the **per-module ceilings**: `AGENTIC_KIT_IOT_LOG_LEVEL`, `AGENTIC_KIT_TAI_LOG_LEVEL` and `AGENTIC_KIT_TUYA_BLE_LOG_LEVEL` all default to the SDK-wide ceiling and can only **lower their one module** further — the effective ceiling is the smaller of the two, so a value above `AGENTIC_KIT_LOG_LEVEL` has no effect (the excess is clamped back to the global value in the module's config file, so block-level gates see the effective ceiling). They gate each module's vocabulary where it is defined (`IOT_LOG*` / `TAI_LOG*` / `TUYA_BLE_HAL_LOG*`, plus rtc-tcp-client's packet-log formatter) and ride the same override pickup as the global ceiling.
+When modules need different levels (iot-client at info while rtc-tcp-client stays at debug, say), use the **per-module ceilings**: `AGENTIC_KIT_IOT_LOG_LEVEL`, `AGENTIC_KIT_TAI_LOG_LEVEL`, `AGENTIC_KIT_TUYA_BLE_LOG_LEVEL`, `AGENTIC_KIT_LAN_LOG_LEVEL` and `AGENTIC_KIT_BIZ_LOG_LEVEL` all default to the SDK-wide ceiling and can only **lower their one module** further — the effective ceiling is the smaller of the two, so a value above `AGENTIC_KIT_LOG_LEVEL` has no effect (the excess is clamped back to the global value in the module's config file, so block-level gates see the effective ceiling). They gate each module's vocabulary where it is defined (`IOT_LOG*` / `TAI_LOG*` / `TUYA_BLE_HAL_LOG*` / `LAN_LOG*` / `BIZ_LOG*`, plus rtc-tcp-client's packet-log formatter) and ride the same override pickup as the global ceiling.
 
 The example above — iot at info, rtc at debug — is the default ceiling of 4 plus one line, `-DAGENTIC_KIT_IOT_LOG_LEVEL=3`. Note that the ceiling applies at the level a line actually emits at: tuya-ble's `TUYA_BLE_HAL_LOGI` dispatches at debug, so keeping it takes a 4, not a 3.
 
@@ -191,6 +197,8 @@ See [Where Defaults Live](#默认值在哪里) for each subsystem's file path. T
 | `AGENTIC_KIT_IOT_LOG_LEVEL` | = `AGENTIC_KIT_LOG_LEVEL` | Lower iot-client alone (lower-only, see the log section above) |
 | `AGENTIC_KIT_TAI_LOG_LEVEL` | = `AGENTIC_KIT_LOG_LEVEL` | Lower rtc-tcp-client alone; below 3 the packet-log formatter goes too |
 | `AGENTIC_KIT_TUYA_BLE_LOG_LEVEL` | = `AGENTIC_KIT_LOG_LEVEL` | Lower tuya-ble alone; `TUYA_BLE_HAL_LOGI` dispatches at debug, keeping it takes a 4 |
+| `AGENTIC_KIT_LAN_LOG_LEVEL` | = `AGENTIC_KIT_LOG_LEVEL` | Lower tuya-lan alone; used only when LAN is enabled |
+| `AGENTIC_KIT_BIZ_LOG_LEVEL` | = `AGENTIC_KIT_LOG_LEVEL` | Lower biz-client alone, including role-request warnings |
 
 ### iot-client: MQTT {#iot-client-mqtt}
 

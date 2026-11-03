@@ -17,6 +17,10 @@ cloud rejection details, validate results, and reject truncation. Use PAL
 allocation and the common log facade so POSIX and FreeRTOS share implementation.
 Add sources to both root CMake and the ESP-IDF component.
 
+Typed list wrappers share one private decoder for result envelopes, allocation,
+iteration and failure cleanup. Type-specific callbacks validate role, language
+and timbre fields; no generic list interface is exposed to applications.
+
 NVS caching, workers, queue ownership, avatar HTTP fetching/decoding, LVGL and
 TAI reconnection remain application concerns. Copying the study-machine role
 component unchanged would import ESP-IDF/PSRAM/NVS and a global client into a

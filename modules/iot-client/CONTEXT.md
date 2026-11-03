@@ -67,6 +67,18 @@ validates and exposes the notice; the application owns playback interruption,
 Event correlation, and any TAI action.
 _Avoid_: DP set, TAI Event, injected callback.
 
+**Local DP control**:
+An application-authenticated LAN/BLE request applied through
+`iot_client_apply_local_dps()`. It shares the schema, DP state and application
+DP callback with cloud downlink, but marks its writes dirty for a later cloud
+report. The complete batch and notification snapshots are prepared before
+commit; failures leave state unchanged. Persistence fires before DP callbacks,
+outside the lock. The application owns authentication and channel reporting.
+String and number lexical checks are shared with LAN in `common/json_lexical.h`;
+canonical DP IDs, duplicate-ID rejection and the flat DP-object grammar remain
+IoT Client responsibilities.
+_Avoid_: cloud downlink (its writes remain clean), Report (an outbound action).
+
 **Activation** (on-boarding):
 First-time provisioning that authenticates the device and returns its credentials
 (devid / secret_key / local_key) together with its schema and schema id.

@@ -103,6 +103,12 @@ add_executable(dp_management_demo
 target_include_directories(dp_management_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/dp-management")
 target_link_libraries(dp_management_demo PRIVATE tuya_iot_client)
 
+# -- lan ---------------------------------------------------------------------
+if(AGENTIC_KIT_ENABLE_LAN)
+    add_executable(lan_demo "${CMAKE_CURRENT_SOURCE_DIR}/lan/lan_demo.c")
+    target_link_libraries(lan_demo PRIVATE tuya_lan tuya_iot_client)
+endif()
+
 # -- ota-demo ----------------------------------------------------------------
 add_executable(ota_demo
     "${CMAKE_CURRENT_SOURCE_DIR}/ota-demo/ota_demo.c"

@@ -16,6 +16,7 @@
 #include "atop.h"                  /* atop_schema_newest_get */
 #include "iot_dns.h"               /* iot_region_to_host (via resolve helper) */
 #include "cJSON.h"
+#include "json_lexical.h"
 #include "mbedtls/base64.h"
 
 #include <string.h>
@@ -514,11 +515,9 @@ static int dp_add_value(cJSON *dps, const char *key, const iot_dp_entry_t *e, co
  * When include_raw is false, raw DPs are omitted: raw carries transient binary
  * frames that must not be persisted/restored. They are still reported uplink (see
  * dp_build_report_json) and preserved across a schema upgrade (include_raw=true). */
-static char *dp_build_state_json(iot_client_t *client, bool include_raw)
+static char *dp_build_state_json_for(const pal_t *pal, struct iot_dp_context *ctx,
+                                    bool include_raw)
 {
-    struct iot_dp_context *ctx = client->dp;
-    const pal_t *pal = client->pal;
-
     cJSON *root = cJSON_CreateObject();
     if (!root) return NULL;
     cJSON *dps = cJSON_CreateObject();
@@ -540,6 +539,11 @@ static char *dp_build_state_json(iot_client_t *client, bool include_raw)
     char *s = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     return s;
+}
+
+static char *dp_build_state_json(iot_client_t *client, bool include_raw)
+{
+    return dp_build_state_json_for(client->pal, client->dp, include_raw);
 }
 
 /* Build a {"protocol":3,"t":..,"data":{"dps":{...}}} report (lock held). */
@@ -1003,6 +1007,235 @@ static void dp_value_snapshot_free(const pal_t *pal, iot_dp_value_t *v)
         pal->free((void *)v->value.string);
     else if (v->type == IOT_DP_TYPE_RAW && v->value.raw.data)
         pal->free((void *)v->value.raw.data);
+}
+
+/* cJSON deliberately accepts some non-JSON numbers and whitespace. This local
+ * ingress accepts only a flat DP object, so validate its complete wire grammar
+ * before parsing, without allocating or reading outside the supplied slice. */
+static void dp_local_skip_space(const char *s, size_t len, size_t *pos)
+{
+    while (*pos < len && (s[*pos] == ' ' || s[*pos] == '\t' ||
+                         s[*pos] == '\r' || s[*pos] == '\n')) ++*pos;
+}
+
+static int dp_local_validate_document(const char *s, size_t len, size_t *count)
+{
+    bool seen[256] = {false};
+    size_t pos = 0;
+    *count = 0;
+    dp_local_skip_space(s, len, &pos);
+    if (pos == len || s[pos++] != '{') return OPRT_INVALID_PARAMETER;
+    for (;;) {
+        dp_local_skip_space(s, len, &pos);
+        if (pos == len || s[pos++] != '"') return OPRT_INVALID_PARAMETER;
+        if (pos == len || s[pos] < '1' || s[pos] > '9') {
+            IOT_LOGW("dp: local batch rejected: DP id must be canonical decimal in 1..255");
+            return OPRT_INVALID_PARAMETER;
+        }
+        unsigned id = 0;
+        while (pos < len && s[pos] >= '0' && s[pos] <= '9') {
+            id = id * 10 + (unsigned)(s[pos++] - '0');
+            if (id > 255) {
+                IOT_LOGW("dp: local batch rejected: DP id outside 1..255");
+                return OPRT_DP_INVALID_ID;
+            }
+        }
+        if (pos == len || s[pos++] != '"') {
+            IOT_LOGW("dp: local batch rejected: malformed DP id");
+            return OPRT_INVALID_PARAMETER;
+        }
+        if (seen[id]) {
+            IOT_LOGW("dp: local batch rejected: duplicate DP id %u", id);
+            return OPRT_INVALID_PARAMETER;
+        }
+        seen[id] = true;
+        ++*count;
+        dp_local_skip_space(s, len, &pos);
+        if (pos == len || s[pos++] != ':') return OPRT_INVALID_PARAMETER;
+        dp_local_skip_space(s, len, &pos);
+        if (pos == len) return OPRT_INVALID_PARAMETER;
+        if (s[pos] == '"') {
+            if (!json_lexical_scan_string(s, len, &pos)) return OPRT_INVALID_PARAMETER;
+        } else if (s[pos] == '-' || (s[pos] >= '0' && s[pos] <= '9')) {
+            if (!json_lexical_scan_number(s, len, &pos)) return OPRT_INVALID_PARAMETER;
+        } else if (len - pos >= 4 && memcmp(s + pos, "true", 4) == 0) pos += 4;
+        else if (len - pos >= 5 && memcmp(s + pos, "false", 5) == 0) pos += 5;
+        else if (len - pos >= 4 && memcmp(s + pos, "null", 4) == 0) pos += 4;
+        else return OPRT_INVALID_PARAMETER;
+        dp_local_skip_space(s, len, &pos);
+        if (pos == len) return OPRT_INVALID_PARAMETER;
+        if (s[pos] == '}') { ++pos; break; }
+        if (s[pos++] != ',') return OPRT_INVALID_PARAMETER;
+    }
+    dp_local_skip_space(s, len, &pos);
+    return pos == len ? OPRT_OK : OPRT_INVALID_PARAMETER;
+}
+
+int iot_client_apply_local_dps(iot_client_t *client, const char *dps_json, size_t len)
+{
+    if (!client || !dps_json || len == 0) {
+        IOT_LOGW("dp: local batch not committed: invalid arguments (bytes=%zu)", len);
+        return OPRT_INVALID_PARAMETER;
+    }
+    struct iot_dp_context *ctx = client->dp;
+    if (!ctx) {
+        IOT_LOGW("dp: local batch not committed: DP context uninitialized");
+        return OPRT_UNINITIALIZED;
+    }
+    IOT_LOGD("dp: local batch received (bytes=%zu)", len);
+    size_t count;
+    int rt = dp_local_validate_document(dps_json, len, &count);
+    if (rt != OPRT_OK) {
+        IOT_LOGW("dp: local batch not committed: invalid DP document (bytes=%zu, rc=%d)", len, rt);
+        return rt;
+    }
+    IOT_LOGD("dp: local batch document validated (bytes=%zu, count=%zu)", len, count);
+    /* Syntax and Unicode are already checked; parsing can now fail only when
+     * allocating. The buffer need not have a terminating NUL. */
+    cJSON *root = cJSON_ParseWithLength(dps_json, len);
+    if (!root) {
+        IOT_LOGE("dp: local batch not committed: JSON allocation failed (bytes=%zu, count=%zu)", len, count);
+        return OPRT_MALLOC_FAILED;
+    }
+    const pal_t *pal = client->pal;
+    uint8_t changed[256];
+    size_t nchanged = 0;
+    iot_dp_value_t *snap = NULL;
+    char *save_json = NULL;
+    iot_dp_callback_t cb = NULL;
+    iot_dp_save_callback_t save_cb = NULL;
+    void *cb_user = NULL, *save_user = NULL;
+    struct iot_dp_context staged;
+    memset(&staged, 0, sizeof(staged));
+
+    pal->mutex_lock(ctx->mutex);
+    if (ctx->loose || ctx->entry_count == 0) {
+        IOT_LOGW("dp: local batch rejected: no usable schema (loose=%d, entries=%zu)",
+                 ctx->loose, ctx->entry_count);
+        rt = OPRT_DP_INVALID_ID;
+        goto done;
+    }
+    staged = *ctx;
+    staged.entries = pal->malloc(sizeof(*staged.entries) * ctx->entry_count);
+    if (!staged.entries) {
+        IOT_LOGE("dp: local batch staging allocation failed (entries=%zu, bytes=%zu)",
+                 ctx->entry_count, sizeof(*staged.entries) * ctx->entry_count);
+        rt = OPRT_MALLOC_FAILED;
+        goto done;
+    }
+    memcpy(staged.entries, ctx->entries, sizeof(*staged.entries) * ctx->entry_count);
+    cJSON *kv;
+    cJSON_ArrayForEach(kv, root) {
+        uint8_t id = (uint8_t)atoi(kv->string); /* canonical decimal checked above */
+        iot_dp_entry_t *e = dp_find(&staged, id);
+        if (!e) {
+            IOT_LOGW("dp: local batch rejected: DP id %u absent from schema", (unsigned)id);
+            rt = OPRT_DP_INVALID_ID;
+            goto done;
+        }
+        e->str_buf = NULL;
+        e->raw_buf = NULL;
+        e->raw_len = 0;
+        changed[nchanged++] = id;
+        /* Local integer DPs must not silently truncate cJSON doubles, including
+         * range-less ENUMs. Keep the established MQTT coercion unchanged. */
+        if (cJSON_IsNumber(kv) && (e->type == IOT_DP_TYPE_VALUE || e->type == IOT_DP_TYPE_ENUM)) {
+            double d = kv->valuedouble;
+            if (!(d >= INT32_MIN && d <= INT32_MAX) || d != (double)(int32_t)d) {
+                IOT_LOGW("dp: local batch rejected: DP id %u requires an int32 integer (type=%d)",
+                         (unsigned)id, e->type);
+                rt = OPRT_DP_VALUE_OUT_OF_RANGE;
+                goto done;
+            }
+        }
+        rt = dp_apply_json(&staged, pal, id, kv, true, false);
+        if (rt != OPRT_OK) {
+            if (rt == OPRT_MALLOC_FAILED)
+                IOT_LOGE("dp: local batch DP allocation failed (id=%u, type=%d)", (unsigned)id, e->type);
+            else if (rt == OPRT_DP_TYPE_MISMATCH)
+                IOT_LOGW("dp: local batch rejected: DP type or encoding mismatch (id=%u, type=%d)",
+                         (unsigned)id, e->type);
+            else if (rt == OPRT_DP_VALUE_OUT_OF_RANGE)
+                IOT_LOGW("dp: local batch rejected: DP outside schema range or length (id=%u, type=%d)",
+                         (unsigned)id, e->type);
+            else
+                IOT_LOGW("dp: local batch rejected: DP validation failed (id=%u, rc=%d)", (unsigned)id, rt);
+            goto done;
+        }
+        IOT_LOGD("dp: local batch DP staged (id=%u, type=%d)", (unsigned)id, e->type);
+    }
+    cb = ctx->dp_cb;
+    cb_user = ctx->dp_cb_user;
+    save_cb = ctx->save_cb;
+    save_user = ctx->save_cb_user;
+    if (cb) {
+        snap = pal->malloc(sizeof(*snap) * count);
+        if (!snap) {
+            IOT_LOGE("dp: local batch notification snapshot allocation failed (count=%zu, bytes=%zu)",
+                     count, sizeof(*snap) * count);
+            rt = OPRT_MALLOC_FAILED;
+            goto done;
+        }
+        memset(snap, 0, sizeof(*snap) * count);
+        for (size_t i = 0; i < count; ++i) {
+            iot_dp_entry_t *e = dp_find(&staged, changed[i]);
+            dp_value_snapshot(pal, e, &snap[i]);
+            if ((e->type == IOT_DP_TYPE_STRING && !snap[i].value.string) ||
+                (e->type == IOT_DP_TYPE_RAW && snap[i].value.raw.len != e->raw_len)) {
+                IOT_LOGE("dp: local batch notification value snapshot allocation failed (id=%u, type=%d)",
+                         (unsigned)e->id, e->type);
+                rt = OPRT_MALLOC_FAILED;
+                goto done;
+            }
+        }
+    }
+    if (save_cb) {
+        save_json = dp_build_state_json_for(pal, &staged, false);
+        if (!save_json) {
+            IOT_LOGE("dp: local batch save snapshot allocation failed (count=%zu)", count);
+            rt = OPRT_MALLOC_FAILED;
+            goto done;
+        }
+    }
+    /* Every fallible operation precedes the commit, including notification
+     * snapshots. Move owned buffers without allocating while holding the lock. */
+    for (size_t i = 0; i < count; ++i) {
+        iot_dp_entry_t *e = dp_find(ctx, changed[i]);
+        iot_dp_entry_t *s = dp_find(&staged, changed[i]);
+        dp_entry_free_buffers(pal, e);
+        e->cur = s->cur;
+        e->str_buf = s->str_buf;
+        e->raw_buf = s->raw_buf;
+        e->raw_len = s->raw_len;
+        e->has_value = true;
+        e->dirty = true;
+        s->str_buf = NULL;
+        s->raw_buf = NULL;
+    }
+done:
+    pal->mutex_unlock(ctx->mutex);
+    cJSON_Delete(root);
+    if (staged.entries) {
+        for (size_t i = 0; i < nchanged; ++i)
+            dp_entry_free_buffers(pal, dp_find(&staged, changed[i]));
+        pal->free(staged.entries);
+    }
+    /* Save the committed batch before an application DP callback can perform
+     * another write. Both notifications borrow independent, stable snapshots. */
+    if (rt == OPRT_OK) {
+        IOT_LOGD("dp: local batch committed (count=%zu, marked_dirty=%zu, save_callback=%d, dp_callback=%d)",
+                 count, count, save_cb != NULL, cb != NULL);
+        if (save_cb) save_cb(save_json, save_user);
+        if (cb) for (size_t i = 0; i < count; ++i) cb(changed[i], &snap[i], cb_user);
+    } else {
+        IOT_LOGW("dp: local batch not committed (count=%zu, rc=%d)", count, rt);
+    }
+    if (save_json) pal->free(save_json);
+    if (snap) {
+        for (size_t i = 0; i < count; ++i) dp_value_snapshot_free(pal, &snap[i]);
+        pal->free(snap);
+    }
+    return rt;
 }
 
 bool iot_dp_dispatch_downlink(iot_client_t *client, const char *topic, size_t topic_len,

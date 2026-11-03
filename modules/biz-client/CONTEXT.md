@@ -34,6 +34,8 @@ storage, background tasks, MQTT loop, or RTC Session ownership.
   An accepted envelope is not enough: each result must match the operation's
   shape. Empty lists are valid; absent/null results and false acknowledgements
   are invalid. IDs and strings are never silently truncated.
+- Logs use `BIZ_LOG*` through the shared facade. `AGENTIC_KIT_BIZ_LOG_LEVEL`
+  defaults to the SDK-wide ceiling and can only lower the business-service level.
 - No RTC TCP Client dependency. The app verifies when a new role affects its
   next Event and decides if a new Session is required.
 
