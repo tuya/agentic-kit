@@ -75,6 +75,11 @@
 #include "lwip/inet.h"
 #endif
 
+#ifdef ESP_PLATFORM
+/* ESP-IDF: heap_caps_* for the PSRAM-preferring pal_malloc below. */
+#include "esp_heap_caps.h"
+#endif
+
 #include "pal.h"
 #include "log.h"
 
@@ -577,8 +582,23 @@ static void pal_sleep_ms(uint32_t ms)
 /* -------------------------------------------------------------------------
  * Memory
  * ------------------------------------------------------------------------- */
+#ifdef ESP_PLATFORM
+/* ESP-IDF: prefer PSRAM for SDK buffers (TLS + fragment buffers are the big
+ * ones), falling back to internal RAM when PSRAM is absent or exhausted.
+ * heap_caps_free releases either kind. Other FreeRTOS builds keep the plain
+ * FreeRTOS heap. */
+static void *pal_malloc(size_t sz)
+{
+    /* INTERNAL alone can select 32-bit-only IRAM on ESP32. SDK buffers need
+     * ordinary byte access in both the preferred and fallback heaps. */
+    return heap_caps_malloc_prefer(sz, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                  MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+static void  pal_free(void *p) { heap_caps_free(p); }
+#else
 static void *pal_malloc(size_t sz) { return pvPortMalloc(sz); }
 static void  pal_free(void *p)     { vPortFree(p); }
+#endif
 
 /* -------------------------------------------------------------------------
  * Mutex (FreeRTOS recursive semaphore)

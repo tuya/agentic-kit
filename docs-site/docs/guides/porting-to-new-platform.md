@@ -84,9 +84,13 @@ tai_config_t cfg = {
 | 线程 | `xTaskCreate` / `vTaskDelete` |
 | 互斥锁 | `xSemaphoreCreateRecursiveMutex` |
 | 时间 | `time_ms`：FreeRTOS tick；`wal_clock_time`：libc `gettimeofday()` |
-| 内存 | `pvPortMalloc` / `vPortFree` |
+| 内存 | `heap_caps_malloc_prefer` / `heap_caps_free` |
 
 现成实现参考：`pal/pal_freertos.c` 和 `examples/esp-idf/components/agentic_kit/`
+
+ESP-IDF PAL 优先分配可按字节访问的 PSRAM，不足或不可用时回退到可按字节访问的
+内部 RAM。两级偏好均要求 `MALLOC_CAP_8BIT`，避免将字符串、JSON 或加密缓冲分配到
+仅支持 32 位访问的 IRAM。其他 FreeRTOS 移植仍使用 `pvPortMalloc` / `vPortFree`。
 
 ### Linux / macOS (POSIX) {#linux--macos-posix}
 

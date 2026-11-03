@@ -85,9 +85,15 @@ Compile the source files under `modules/rtc-tcp-client/src/` together with your 
 | Threads | `xTaskCreate` / `vTaskDelete` |
 | Mutexes | `xSemaphoreCreateRecursiveMutex` |
 | Time | `time_ms`: FreeRTOS ticks; `wal_clock_time`: libc `gettimeofday()` |
-| Memory | `pvPortMalloc` / `vPortFree` |
+| Memory | `heap_caps_malloc_prefer` / `heap_caps_free` |
 
 Reference implementations: `pal/pal_freertos.c` and `examples/esp-idf/components/agentic_kit/`
+
+The ESP-IDF PAL prefers byte-addressable PSRAM, then falls back to byte-addressable
+internal RAM when PSRAM is unavailable or exhausted. Both preferences require
+`MALLOC_CAP_8BIT` so strings, JSON and cryptographic buffers cannot land in IRAM
+that only supports 32-bit accesses. Other FreeRTOS ports still use
+`pvPortMalloc` / `vPortFree`.
 
 ### Linux / macOS (POSIX) {#linux--macos-posix}
 

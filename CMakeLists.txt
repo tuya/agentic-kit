@@ -369,6 +369,21 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
         add_test(NAME ${clock_target} COMMAND ${clock_target})
     endforeach()
 
+    # Compile the ESP_PLATFORM allocation branch in the real FreeRTOS PAL.
+    # The capability backend models ESP32 byte-addressable and IRAM pools;
+    # these test-only ESP-IDF declarations never enter the component AK_SRCS.
+    add_executable(pal_esp_idf_memory_test
+        "${PAL_DIR}/pal_freertos.c" "${PAL_DIR}/test/test_esp_idf_memory.c")
+    target_include_directories(pal_esp_idf_memory_test PRIVATE
+        "${PAL_DIR}/test/esp_idf" "${PAL_DIR}/test" "${PAL_DIR}" "${COMMON_DIR}")
+    target_compile_definitions(pal_esp_idf_memory_test PRIVATE
+        ESP_PLATFORM=1 TEST_TICK_BITS=32 TEST_TICK_HZ=1000
+        AGENTIC_KIT_ENABLE_LAN=0 AGENTIC_KIT_LOG_LEVEL=0)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(pal_esp_idf_memory_test PRIVATE -Wall -Wextra -Werror)
+    endif()
+    add_test(NAME pal_esp_idf_memory_test COMMAND pal_esp_idf_memory_test)
+
     # Inject clock_gettime only in this target to exercise the production
     # POSIX PAL when UTC is unset, unavailable, or corrected.
     add_executable(pal_posix_time_test

@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- pal — prefer PSRAM for ESP-IDF PAL allocations, with internal RAM fallback (#48).
 - **BREAKING** pal — mandatory `wal_clock_time` provides Unix UTC milliseconds; `time_ms` keeps its monotonic timing contract (#45).
   - Custom PALs must supply `wal_clock_time` and rebuild SDK/PAL consumers.
   - FreeRTOS defaults to libc `gettimeofday()`; platforms using another UTC source can override the callback. POSIX keeps `CLOCK_REALTIME`.
@@ -34,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- pal — require byte-addressable PSRAM and internal fallback memory for ESP-IDF allocations (#48).
 - tuya-lan — close affected Sessions immediately on protocol, callback, resource and report/send errors, including unexpected pre-authentication Frames (#48).
 - tuya-lan — include device identity in query replies (#48).
 - tuya-lan — align discovery Frames, App reply port and handshake payload lengths with TuyaOpen LAN 3.5 (#48).
