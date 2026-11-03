@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - pal — prefer PSRAM for ESP-IDF PAL allocations, with internal RAM fallback (#48).
+- iot-client — increase the default HTTP timeout from 5 to 10 seconds (#48).
 - **BREAKING** pal — mandatory `wal_clock_time` provides Unix UTC milliseconds; `time_ms` keeps its monotonic timing contract (#45).
   - Custom PALs must supply `wal_clock_time` and rebuild SDK/PAL consumers.
   - FreeRTOS defaults to libc `gettimeofday()`; platforms using another UTC source can override the callback. POSIX keeps `CLOCK_REALTIME`.
