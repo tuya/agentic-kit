@@ -4,8 +4,8 @@
  * Targets: any FreeRTOS + lwIP system (ESP-IDF, NuttX, NXP MCUXpresso,
  * STM32CubeMX with FreeRTOS+lwIP middleware, etc.).
  *
- * Provides only raw TCP socket operations -- TLS and crypto are handled
- * internally by the SDK via mbedTLS.
+ * Provides raw TCP socket operations and optional IPv4 server/UDP operations
+ * when AGENTIC_KIT_ENABLE_LAN=1. TLS and crypto are handled by SDK mbedTLS.
  *
  * --------------------------------------------------------------------------
  * Required FreeRTOSConfig.h flags
@@ -68,6 +68,18 @@
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
 
+#ifndef AGENTIC_KIT_ENABLE_LAN
+#define AGENTIC_KIT_ENABLE_LAN 0
+#endif
+#if AGENTIC_KIT_ENABLE_LAN
+#include "lwip/inet.h"
+#endif
+
+#ifdef ESP_PLATFORM
+/* ESP-IDF: heap_caps_* for the PSRAM-preferring pal_malloc below. */
+#include "esp_heap_caps.h"
+#endif
+
 #include "pal.h"
 #include "log.h"
 
@@ -82,13 +94,16 @@
 #endif
 
 /* -------------------------------------------------------------------------
- * TCP socket handle
+ * Shared handle for TCP connections, listeners and UDP sockets
  * ------------------------------------------------------------------------- */
 typedef struct {
     int fd;
     uint32_t last_rcvtimeo_ms;
     uint32_t last_sndtimeo_ms;
-} fr_tcp_t;
+    /* NULL for tcp_connect's legacy FreeRTOS allocation; server/datagram
+     * sockets retain the long-lived PAL whose allocator created them. */
+    const pal_t *pal;
+} fr_socket_t;
 
 static void *pal_tcp_connect(const char *host, uint16_t port, uint32_t timeout_ms)
 {
@@ -170,7 +185,7 @@ static void *pal_tcp_connect(const char *host, uint16_t port, uint32_t timeout_m
     int flag = 1;
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
-    fr_tcp_t *h = (fr_tcp_t *)pvPortMalloc(sizeof(fr_tcp_t));
+    fr_socket_t *h = (fr_socket_t *)pvPortMalloc(sizeof(fr_socket_t));
     if (!h) {
         log_tag_error("pal", "tcp handle alloc failed");
         close(fd);
@@ -179,13 +194,15 @@ static void *pal_tcp_connect(const char *host, uint16_t port, uint32_t timeout_m
     h->fd = fd;
     h->last_rcvtimeo_ms = UINT32_MAX;
     h->last_sndtimeo_ms = UINT32_MAX;
+    h->pal = NULL;
     return h;
 }
 
 static int pal_tcp_send(void *handle, const uint8_t *buf, size_t len,
                          uint32_t timeout_ms)
 {
-    fr_tcp_t *h = (fr_tcp_t *)handle;
+    fr_socket_t *h = (fr_socket_t *)handle;
+    if (!h || !buf || !len || len > INT_MAX) return PAL_ERR_INVALID;
     int flags = MSG_NOSIGNAL;
 
     if (timeout_ms == 0) {
@@ -202,11 +219,11 @@ static int pal_tcp_send(void *handle, const uint8_t *buf, size_t len,
     int n;
     do {
         n = send(h->fd, buf, len, flags);
-    } while (n < 0 && errno == EINTR);
+    } while (n < 0 && errno == EINTR && timeout_ms != 0);
 
     if (n > 0) return n;
     if (n == 0) return 0;
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
+    if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
         return PAL_ERR_AGAIN;
     log_tag_error("pal", "tcp_send failed: errno=%d", errno);
     return PAL_ERR_NET;
@@ -215,7 +232,8 @@ static int pal_tcp_send(void *handle, const uint8_t *buf, size_t len,
 static int pal_tcp_recv(void *handle, uint8_t *buf, size_t buf_len,
                          uint32_t timeout_ms)
 {
-    fr_tcp_t *h = (fr_tcp_t *)handle;
+    fr_socket_t *h = (fr_socket_t *)handle;
+    if (!h || !buf || !buf_len || buf_len > INT_MAX) return PAL_ERR_INVALID;
     int flags = 0;
 
     if (timeout_ms == 0) {
@@ -232,11 +250,11 @@ static int pal_tcp_recv(void *handle, uint8_t *buf, size_t buf_len,
     int n;
     do {
         n = recv(h->fd, buf, buf_len, flags);
-    } while (n < 0 && errno == EINTR);
+    } while (n < 0 && errno == EINTR && timeout_ms != 0);
 
     if (n > 0) return n;
     if (n == 0) return 0; /* EOF */
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
+    if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
         return PAL_ERR_AGAIN;
     log_tag_error("pal", "tcp_recv failed: errno=%d", errno);
     return PAL_ERR_NET;
@@ -244,7 +262,8 @@ static int pal_tcp_recv(void *handle, uint8_t *buf, size_t buf_len,
 
 static int pal_tcp_poll(void *handle, int events, uint32_t timeout_ms)
 {
-    fr_tcp_t *h = (fr_tcp_t *)handle;
+    fr_socket_t *h = (fr_socket_t *)handle;
+    if (!h || !(events & 3) || (events & ~3)) return PAL_ERR_INVALID;
     fd_set rfds, wfds;
     FD_ZERO(&rfds);
     FD_ZERO(&wfds);
@@ -259,7 +278,7 @@ static int pal_tcp_poll(void *handle, int events, uint32_t timeout_ms)
                      (events & 1) ? &rfds : NULL,
                      (events & 2) ? &wfds : NULL,
                      NULL, &tv);
-    if (sel < 0) return -3;
+    if (sel < 0) return errno == EINTR ? PAL_ERR_AGAIN : PAL_ERR_NET;
     if (sel == 0) return 0;
 
     int result = 0;
@@ -271,10 +290,221 @@ static int pal_tcp_poll(void *handle, int events, uint32_t timeout_ms)
 static void pal_tcp_close(void *handle)
 {
     if (!handle) return;
-    fr_tcp_t *h = (fr_tcp_t *)handle;
+    fr_socket_t *h = (fr_socket_t *)handle;
     close(h->fd);
-    vPortFree(h);
+    if (h->pal) h->pal->free(h);
+    else vPortFree(h);
 }
+
+#if AGENTIC_KIT_ENABLE_LAN
+/* -------------------------------------------------------------------------
+ * Optional IPv4 server and datagram operations
+ * ------------------------------------------------------------------------- */
+static int pal_socket_error(const char *operation)
+{
+    int error = errno;
+    (void)operation;
+    if (error == EAGAIN || error == EWOULDBLOCK || error == EINTR)
+        return PAL_ERR_AGAIN;
+    log_tag_error("pal", "%s failed: errno=%d", operation, error);
+    return PAL_ERR_NET;
+}
+
+static int pal_socket_address(const char *ip, uint16_t port,
+                              struct sockaddr_in *address)
+{
+    memset(address, 0, sizeof(*address));
+    address->sin_family = AF_INET;
+    address->sin_port = htons(port);
+    if (!ip || !*ip) address->sin_addr.s_addr = htonl(INADDR_ANY);
+    else if (inet_pton(AF_INET, ip, &address->sin_addr) != 1)
+        return PAL_ERR_INVALID;
+    return 0;
+}
+
+static int pal_socket_mode(int fd, bool nonblocking)
+{
+    int flags = lwip_fcntl(fd, F_GETFL, 0);
+    if (flags < 0 || lwip_fcntl(fd, F_SETFL,
+                               nonblocking ? flags | O_NONBLOCK
+                                           : flags & ~O_NONBLOCK) < 0) {
+        log_tag_error("pal", "socket mode setup failed: errno=%d", errno);
+        return PAL_ERR_NET;
+    }
+    return 0;
+}
+
+static int pal_socket_handle(const pal_t *pal, int fd, void **out)
+{
+    fr_socket_t *h = pal->malloc(sizeof(*h));
+    if (!h) {
+        log_tag_error("pal", "socket handle alloc failed");
+        close(fd);
+        return PAL_ERR_NET;
+    }
+    h->fd = fd;
+    h->last_rcvtimeo_ms = UINT32_MAX;
+    h->last_sndtimeo_ms = UINT32_MAX;
+    h->pal = pal;
+    *out = h;
+    return 0;
+}
+
+static int pal_socket_bind(const pal_t *pal, const char *ip, uint16_t port,
+                           int type, bool broadcast, void **out)
+{
+    struct sockaddr_in address;
+    if (!out) return PAL_ERR_INVALID;
+    *out = NULL;
+    if (!pal || !pal->malloc || !pal->free ||
+        pal_socket_address(ip, port, &address)) return PAL_ERR_INVALID;
+    int fd = socket(AF_INET, type, 0);
+    if (fd < 0) {
+        log_tag_error("pal", "socket create failed: type=%d port=%u errno=%d",
+                      type, (unsigned)port, errno);
+        return PAL_ERR_NET;
+    }
+    int one = 1;
+    if (pal_socket_mode(fd, true)) {
+        close(fd);
+        return PAL_ERR_NET;
+    }
+    if (type == SOCK_STREAM && setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+                                         &one, sizeof(one)) < 0) {
+        log_tag_error("pal", "socket SO_REUSEADDR failed: port=%u errno=%d",
+                      (unsigned)port, errno);
+        close(fd);
+        return PAL_ERR_NET;
+    }
+    if (broadcast && setsockopt(fd, SOL_SOCKET, SO_BROADCAST,
+                               &one, sizeof(one)) < 0) {
+        log_tag_error("pal", "socket SO_BROADCAST failed: port=%u errno=%d",
+                      (unsigned)port, errno);
+        close(fd);
+        return PAL_ERR_NET;
+    }
+    if (bind(fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        log_tag_error("pal", "socket bind failed: type=%d port=%u errno=%d",
+                      type, (unsigned)port, errno);
+        close(fd);
+        return PAL_ERR_NET;
+    }
+    return pal_socket_handle(pal, fd, out);
+}
+
+static int pal_tcp_listen(const pal_t *pal, const char *ip, uint16_t port,
+                          unsigned backlog, void **out)
+{
+    if (!out) return PAL_ERR_INVALID;
+    *out = NULL;
+    if (!backlog || backlog > INT_MAX) return PAL_ERR_INVALID;
+    int rc = pal_socket_bind(pal, ip, port, SOCK_STREAM, false, out);
+    if (rc) return rc;
+    fr_socket_t *h = *out;
+    if (listen(h->fd, (int)backlog) < 0) {
+        log_tag_error("pal", "tcp listen failed: port=%u backlog=%u errno=%d",
+                      (unsigned)port, backlog, errno);
+        pal_tcp_close(h);
+        *out = NULL;
+        return PAL_ERR_NET;
+    }
+    return 0;
+}
+
+static int pal_tcp_accept(void *listener, void **out, pal_addr_t *peer)
+{
+    struct sockaddr_in address;
+    socklen_t len = sizeof(address);
+    if (!out) return PAL_ERR_INVALID;
+    *out = NULL;
+    fr_socket_t *h = listener;
+    if (!h || !h->pal) return PAL_ERR_INVALID;
+    int fd = accept(h->fd, (struct sockaddr *)&address, &len);
+    if (fd < 0) return pal_socket_error("tcp accept");
+    /* The shared TCP send/recv callbacks use MSG_DONTWAIT for timeout 0 and
+     * SO_*TIMEO for positive timeouts, so accepted sockets must be blocking. */
+    if (pal_socket_mode(fd, false)) { close(fd); return PAL_ERR_NET; }
+    int one = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) < 0) {
+        log_tag_error("pal", "accepted TCP_NODELAY failed: errno=%d", errno);
+        close(fd);
+        return PAL_ERR_NET;
+    }
+    if (peer) {
+        memset(peer, 0, sizeof(*peer));
+        if (!inet_ntop(AF_INET, &address.sin_addr, peer->ip, sizeof(peer->ip))) {
+            log_tag_error("pal", "accepted peer address failed: errno=%d", errno);
+            close(fd);
+            return PAL_ERR_NET;
+        }
+        peer->port = ntohs(address.sin_port);
+    }
+    return pal_socket_handle(h->pal, fd, out);
+}
+
+static int pal_udp_bind(const pal_t *pal, const char *ip, uint16_t port,
+                        bool broadcast, void **out)
+{
+    return pal_socket_bind(pal, ip, port, SOCK_DGRAM, broadcast, out);
+}
+
+static int pal_udp_sendto(void *socket_handle, const pal_addr_t *peer,
+                          const uint8_t *data, size_t len)
+{
+    struct sockaddr_in address;
+    if (!socket_handle || !peer || !data || len > INT_MAX ||
+        pal_socket_address(peer->ip, peer->port, &address))
+        return PAL_ERR_INVALID;
+    fr_socket_t *h = socket_handle;
+    int n = (int)sendto(h->fd, data, len, MSG_NOSIGNAL,
+                        (struct sockaddr *)&address, sizeof(address));
+    return n >= 0 ? n : pal_socket_error("udp sendto");
+}
+
+static int pal_udp_recvfrom(void *socket_handle, pal_addr_t *peer,
+                            uint8_t *data, size_t capacity)
+{
+    if (!socket_handle || !peer || !data || !capacity || capacity >= INT_MAX)
+        return PAL_ERR_INVALID;
+    fr_socket_t *h = socket_handle;
+    struct sockaddr_in address;
+    /* lwIP recvmsg reports truncation while consuming the complete datagram. */
+    struct iovec iov = { data, capacity };
+    struct msghdr msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_name = &address;
+    msg.msg_namelen = sizeof(address);
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    int n = (int)recvmsg(h->fd, &msg, 0);
+    if (n < 0) return pal_socket_error("udp recvfrom");
+    if ((msg.msg_flags & MSG_TRUNC) || (size_t)n > capacity) {
+        log_tag_warn("pal", "udp datagram truncated: received=%d capacity=%zu", n, capacity);
+        return PAL_ERR_NET;
+    }
+    memset(peer, 0, sizeof(*peer));
+    if (!inet_ntop(AF_INET, &address.sin_addr, peer->ip, sizeof(peer->ip))) {
+        log_tag_error("pal", "udp source address failed: errno=%d", errno);
+        return PAL_ERR_NET;
+    }
+    peer->port = ntohs(address.sin_port);
+    return n;
+}
+
+static int pal_socket_local_port(void *socket_handle, uint16_t *port)
+{
+    struct sockaddr_in address;
+    socklen_t len = sizeof(address);
+    if (!socket_handle || !port) return PAL_ERR_INVALID;
+    fr_socket_t *h = socket_handle;
+    if (getsockname(h->fd, (struct sockaddr *)&address, &len) < 0) {
+        log_tag_error("pal", "socket local port query failed: errno=%d", errno);
+        return PAL_ERR_NET;
+    }
+    *port = ntohs(address.sin_port);
+    return 0;
+}
+#endif
 
 /* -------------------------------------------------------------------------
  * Time
@@ -352,8 +582,23 @@ static void pal_sleep_ms(uint32_t ms)
 /* -------------------------------------------------------------------------
  * Memory
  * ------------------------------------------------------------------------- */
+#ifdef ESP_PLATFORM
+/* ESP-IDF: prefer PSRAM for SDK buffers (TLS + fragment buffers are the big
+ * ones), falling back to internal RAM when PSRAM is absent or exhausted.
+ * heap_caps_free releases either kind. Other FreeRTOS builds keep the plain
+ * FreeRTOS heap. */
+static void *pal_malloc(size_t sz)
+{
+    /* INTERNAL alone can select 32-bit-only IRAM on ESP32. SDK buffers need
+     * ordinary byte access in both the preferred and fallback heaps. */
+    return heap_caps_malloc_prefer(sz, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                  MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+static void  pal_free(void *p) { heap_caps_free(p); }
+#else
 static void *pal_malloc(size_t sz) { return pvPortMalloc(sz); }
 static void  pal_free(void *p)     { vPortFree(p); }
+#endif
 
 /* -------------------------------------------------------------------------
  * Mutex (FreeRTOS recursive semaphore)
@@ -463,6 +708,15 @@ static const pal_t g_freertos_pal = {
     .thread_create    = pal_thread_create,
     .thread_join      = pal_thread_join,
     .sleep_ms         = pal_sleep_ms,
+#if AGENTIC_KIT_ENABLE_LAN
+    .tcp_listen       = pal_tcp_listen,
+    .tcp_accept       = pal_tcp_accept,
+    .udp_bind         = pal_udp_bind,
+    .udp_sendto       = pal_udp_sendto,
+    .udp_recvfrom     = pal_udp_recvfrom,
+    .socket_local_port = pal_socket_local_port,
+    .udp_close        = pal_tcp_close,
+#endif
 };
 
 const pal_t *tai_pal_freertos(void)

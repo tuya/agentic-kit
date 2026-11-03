@@ -47,7 +47,7 @@
  * cloud; not tunable per product)
  * ========================================================================= */
 
-#define IOT_HTTP_TIMEOUT_MS_DEFAULT 5000
+#define IOT_HTTP_TIMEOUT_MS_DEFAULT 10000
 
 /* Default Tuya cloud server configuration */
 #define IOT_DEFAULT_HOST "a1.tuyacn.com"

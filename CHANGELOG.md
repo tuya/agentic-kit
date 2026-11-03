@@ -9,8 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- tuya-lan — discovery, Session, local DP and network failure diagnostics without logging message bodies (#48).
 - Examples — `workflow_variables_demo` sends sequential `chat`, `generate-img`, and `decide` Events with plain-text, saved-image, and boolean-result JSON responses (PR pending).
+- biz-client — `AGENTIC_KIT_BIZ_LOG_LEVEL` lowers business-service logs below the SDK-wide ceiling (#48).
 - biz-client — typed AI role management, language/timbre queries, POSIX and ESP-IDF examples, and bilingual API documentation (#47).
+- tuya-lan — application-driven LAN 3.5 discovery, authenticated Sessions and local DP control (#48).
+  - Opt in with CMake `AGENTIC_KIT_ENABLE_LAN=ON` or ESP-IDF `CONFIG_AGENTIC_KIT_ENABLE_LAN=y`; both default off.
+  - Server/datagram callbacks are optional members of `pal_t`; custom LAN ports must implement them. Rebuild consumers after the layout change and pass only `config.pal`.
+- iot-client — `iot_client_apply_local_dps()` validates local DP controls, marks changes dirty and invokes existing callbacks (#48).
+
 - iot-client — `iot_get_binding_status()` queries `tuya.device.info.sync` with saved credentials, without an IoT client (#44).
   - `iot_client_get_binding_status()` reuses an existing client's endpoint and TLS settings.
 - Examples — `unbind_demo` checks cloud binding status before client initialization/reconnect and after a removal notice (#44).
@@ -18,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- pal — prefer PSRAM for ESP-IDF PAL allocations, with internal RAM fallback (#48).
+- iot-client — increase the default HTTP timeout from 5 to 10 seconds (#48).
 - **BREAKING** pal — mandatory `wal_clock_time` provides Unix UTC milliseconds; `time_ms` keeps its monotonic timing contract (#45).
   - Custom PALs must supply `wal_clock_time` and rebuild SDK/PAL consumers.
   - FreeRTOS defaults to libc `gettimeofday()`; platforms using another UTC source can override the callback. POSIX keeps `CLOCK_REALTIME`.
@@ -27,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- pal — require byte-addressable PSRAM and internal fallback memory for ESP-IDF allocations (#48).
+- tuya-lan — close affected Sessions immediately on protocol, callback, resource and report/send errors, including unexpected pre-authentication Frames (#48).
+- tuya-lan — include device identity in query replies (#48).
+- tuya-lan — align discovery Frames, App reply port and handshake payload lengths with TuyaOpen LAN 3.5 (#48).
+- pal — socket handle allocation failures emit an explicit allocation diagnostic (#48).
 - pal — FreeRTOS `time_ms` preserves tick wraps and converts non-integral tick periods correctly (#45).
 - biz-client — role request timestamps and the clock gate read PAL UTC instead of libc time, so ports without a synchronized libc clock work (#45).
 

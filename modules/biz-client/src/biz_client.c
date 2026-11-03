@@ -1,21 +1,13 @@
 #include "service_internal.h"
-#include "log.h"
+#include "bounded_string.h"
 #include <string.h>
-
-bool biz_valid_string(const char *text, size_t capacity)
-{
-    if (!text || !text[0]) return false;
-    /* Bounded even for an unterminated public fixed-size field. */
-    for (size_t i = 1; i < capacity; ++i) if (!text[i]) return true;
-    return false;
-}
 
 int tuya_biz_client_create(iot_client_t *iot, const char *lang, tuya_biz_client_t **out)
 {
     if (!out) return OPRT_INVALID_PARAMETER;
     *out = NULL;
     if (!iot || !iot->pal || !iot->pal->malloc || !iot->pal->free ||
-        (lang && !biz_valid_string(lang, 32))) return OPRT_INVALID_PARAMETER;
+        (lang && !bounded_string_nonempty(lang, 32))) return OPRT_INVALID_PARAMETER;
     tuya_biz_client_t *ctx = iot->pal->malloc(sizeof(*ctx));
     if (!ctx) return OPRT_MALLOC_FAILED;
     memset(ctx, 0, sizeof(*ctx));
@@ -56,7 +48,7 @@ int biz_call(tuya_biz_client_t *ctx, const char *api, cJSON *body,
      * time, which ports may not have synchronized. Fail closed below Nov 2023. */
     uint64_t utc_ms = ctx->pal->wal_clock_time();
     if (utc_ms < 1700000000000ULL) {
-        log_tag_warn("biz", "PAL reports UTC unavailable; refusing signed role request");
+        BIZ_LOGW("PAL reports UTC unavailable; refusing signed role request");
         cJSON_Delete(body);
         return OPRT_UNINITIALIZED;
     }
@@ -86,7 +78,7 @@ int biz_call(tuya_biz_client_t *ctx, const char *api, cJSON *body,
         }
     }
     iot_atop_response_free(ctx->iot, &response);
-    if (rc != OPRT_OK) log_tag_warn("biz", "%s failed: %d", api, rc);
+    if (rc != OPRT_OK) BIZ_LOGW("%s failed: %d", api, rc);
     return rc;
 }
 
