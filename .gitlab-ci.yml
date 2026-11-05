@@ -1,21 +1,34 @@
 # GitLab CI for agentic-kit.
 #
-# Conventions follow the iot-sdk pipeline (build / test stages, ${BUILD_IMAGE},
-# manual submodule init, build artifacts handed to downstream jobs).
+# The job set mirrors .github/workflows/ci.yml so both providers gate the same
+# work: build & test, sanitizers (ASan + UBSan) and the POSIX examples build.
+# GitLab adds the valgrind leak stage (no GitHub equivalent) and the pages docs
+# build (GitHub deploys docs only from main via deploy-docs.yml). Conventions
+# follow the iot-sdk pipeline (build / test stages, ${BUILD_IMAGE}, manual
+# submodule init, build artifacts handed to downstream jobs).
 #
 # ${BUILD_IMAGE} is a group-level CI/CD variable pointing at the shared Debian
 # build image (cmake, gcc, python3, valgrind, git). It must be defined in the
 # project/group CI settings, same as iot-sdk.
+#
+# Not mirrored from GitHub: the ubuntu+macOS build-test matrix (the runners
+# here are Linux only) and paths-ignore for docs-only pushes (GitLab
+# rules:changes matches on ANY changed file, so it cannot express "skip only
+# when ALL changes are docs" without skipping mixed commits too).
 
 stages:
   - build
   - test
+  - sanitizers
+  - examples
   - memory-leak
   - pages
 
 variables:
   GIT_SUBMODULE_STRATEGY: none
   CMAKE_BUILD_DIR: build
+  ASAN_BUILD_DIR: build-asan
+  EXAMPLES_BUILD_DIR: build-examples
   # Python deps installed into the venv in every job:
   #   jsonschema, jinja2        -> mbedtls build-time PSA codegen
   #   pycryptodome, cryptography -> iot-client test mock servers
@@ -24,6 +37,9 @@ variables:
 build:
   stage: build
   image: ${BUILD_IMAGE}
+  # Mirror GitHub's concurrency.cancel-in-progress: a newer push cancels this
+  # job (requires the project setting "Auto-cancel redundant pipelines").
+  interruptible: true
   before_script:
     - git submodule sync --recursive
     - git submodule update --init --recursive
@@ -44,6 +60,7 @@ build:
 test:
   stage: test
   image: ${BUILD_IMAGE}
+  interruptible: true
   needs:
     - build
   before_script:
@@ -74,12 +91,80 @@ test:
     - cmake --build ${CMAKE_BUILD_DIR} --target check_freertos_pal
     # cd into the build dir rather than using `--test-dir` (the CI image's
     # ctest does not honour that flag and would silently find no tests).
-    - cd ${CMAKE_BUILD_DIR}
-    - ctest --output-on-failure --timeout 180
+    # GitHub passes --no-tests=error for the same reason the count guard
+    # below exists: an empty test list must fail the job, and this image's
+    # ctest may predate that flag too -- ctest -N works on any version.
+    - |
+      cd ${CMAKE_BUILD_DIR}
+      ctest --output-on-failure --timeout 180
+      rc=$?
+      TOTAL=$(ctest -N | awk '/Total Tests:/ {print $NF}')
+      if [ "${TOTAL:-0}" -eq 0 ]; then
+        echo "ctest reports zero tests: the CTestTestfile list was not regenerated (see the enable_testing() note in CMakeLists.txt)"
+        exit 1
+      fi
+      exit $rc
+
+# Mirrors .github/workflows/ci.yml `sanitizers`: a separate Debug tree with
+# ASan + UBSan, not the RelWithDebInfo artifacts. Leak detection stays off
+# (third-party libs/mocks); memory errors and UB abort the run.
+test:sanitizers:
+  stage: sanitizers
+  image: ${BUILD_IMAGE}
+  interruptible: true
+  # Own configure+build: start immediately, do not wait for the build stage
+  # and do not download its artifacts.
+  needs: []
+  before_script:
+    - git submodule sync --recursive
+    - git submodule update --init --recursive
+    - python3 -m venv venv
+    - . venv/bin/activate
+    - pip install -q ${PIP_DEPS}
+  script:
+    - cmake -S . -B ${ASAN_BUILD_DIR} -DCMAKE_BUILD_TYPE=Debug -DPython3_EXECUTABLE=$(which python3) -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -g -O1" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+    - cmake --build ${ASAN_BUILD_DIR} -j$(nproc)
+    - |
+      cd ${ASAN_BUILD_DIR}
+      ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+        ctest --output-on-failure --timeout 240
+      rc=$?
+      TOTAL=$(ctest -N | awk '/Total Tests:/ {print $NF}')
+      if [ "${TOTAL:-0}" -eq 0 ]; then
+        echo "ctest reports zero tests in the sanitizer tree"
+        exit 1
+      fi
+      exit $rc
+
+# Mirrors .github/workflows/ci.yml `examples`: configure and build the POSIX
+# examples as a separate top-level project.
+examples:
+  stage: examples
+  image: ${BUILD_IMAGE}
+  interruptible: true
+  needs: []
+  before_script:
+    - git submodule sync --recursive
+    - git submodule update --init --recursive
+    - python3 -m venv venv
+    - . venv/bin/activate
+    - pip install -q ${PIP_DEPS}
+    # libopus enables the optional tai_audio_chat_demo; without it that one
+    # demo removes itself on a message(STATUS) and the rest still build.
+    # Best-effort: not every runner image allows apt-get.
+    - |
+      (apt-get update -qq && apt-get install -y -qq libopus-dev) \
+        || echo "libopus unavailable: tai_audio_chat_demo will be skipped"
+  script:
+    # examples/posix fetches qrcodegen / quirc / stb via FetchContent at
+    # configure time, and links the prebuilt rtc-client lib.
+    - cmake -S examples/posix -B ${EXAMPLES_BUILD_DIR} -DPython3_EXECUTABLE=$(which python3)
+    - cmake --build ${EXAMPLES_BUILD_DIR} -j$(nproc)
 
 test:memory-leak:
   stage: memory-leak
   image: ${BUILD_IMAGE}
+  interruptible: true
   needs:
     - build
     - test
@@ -92,7 +177,8 @@ test:memory-leak:
       # Leak-check the pure (no-subprocess) binaries, grouped by module:
       #   pal            : pal_freertos_time_*_test, pal_posix_time_test
       #   rtc-tcp-client : tai_unit_tests, tai_log_level_zero_tests,
-      #                    tai_log_module_zero_tests, tai_integration_tests
+      #                    tai_log_module_zero_tests, tai_integration_tests,
+      #                    workflow_variables_demo_test
       #   iot-client     : iot_cipher_test, iot_ai_ctrl_test
       #   tuya-ble       : tuya_ble_test
       #   biz-client     : biz_ai_role_test (public ATOP boundary faked)
@@ -122,6 +208,7 @@ test:memory-leak:
 pages:
   stage: pages
   image: node:22-alpine
+  interruptible: true
   # Docs deploy is independent of the C build/test — run it without waiting.
   needs: []
   script:
