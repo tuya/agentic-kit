@@ -49,11 +49,14 @@ static int test_workflow_output(void)
     const pal_t pal = {
         .mutex_lock = test_lock, .mutex_unlock = test_lock, .time_ms = test_time
     };
-    demo_ctx_t dc = {.pal = &pal, .active = 1, .deadline = 100};
+    /* action must be set: on_event dereferences it at EventEnd, and "decide"
+     * is the action whose output validation prints the parsed workflow JSON. */
+    demo_ctx_t dc = {.pal = &pal, .active = 1, .deadline = 100, .action = "decide"};
     const char *chunks[] = {
         "{\"bizType\":\"NLG\",\"data\":{\"content\":\"{\\n  \\\"type\\\": \\\"card\\\",\\n\"}}",
         "{\"bizType\":\"NLG\",\"data\":{\"content\":\"  \\\"action\\\": \\\"sing\\\",\\n\"}}",
-        "{\"bizType\":\"NLG\",\"data\":{\"content\":\"  \\\"count\\\": \\\"2\\\"\\n}\\n\"}}",
+        "{\"bizType\":\"NLG\",\"data\":{\"content\":\"  \\\"count\\\": \\\"2\\\",\\n\"}}",
+        "{\"bizType\":\"NLG\",\"data\":{\"content\":\"  \\\"result\\\": true\\n}\\n\"}}",
         "{\"bizType\":\"NLG\",\"eof\":1,\"data\":{\"content\":\"\",\"finish\":true}}"
     };
     for (size_t i = 0; i < sizeof(chunks) / sizeof(chunks[0]); i++) {
@@ -73,10 +76,12 @@ static int test_workflow_output(void)
     on_event(NULL, &end, &dc);
     CHECK(dc.done && !dc.failed && !dc.active);
     CHECK(strcmp(dc.output.buf,
-                 "{\n  \"type\": \"card\",\n  \"action\": \"sing\",\n  \"count\": \"2\"\n}\n") == 0);
+                 "{\n  \"type\": \"card\",\n  \"action\": \"sing\",\n"
+                 "  \"count\": \"2\",\n  \"result\": true\n}\n") == 0);
 
+    /* decide outputs must be one complete JSON object with a boolean result. */
     const char *outputs[] = {
-        "{\"type\":\"card\",\"action\":\"move\",\"count\":3}",
+        "{\"type\":\"card\",\"action\":\"move\",\"count\":3,\"result\":true}",
         "{\"type\":\"card\"", "{\"count\":2}\ndumb output", "[]", "   "
     };
     for (size_t i = 0; i < sizeof(outputs) / sizeof(outputs[0]); i++) {
