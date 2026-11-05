@@ -26,8 +26,8 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
   valgrind the Python mock handshakes time out. Both scripts **ignore the test's exit code**: a
   suite failing every assertion still prints "RESULT: NO MEMORY LEAKS DETECTED" and exits 0.
   GitLab hand-lists the no-subprocess binaries, including PAL clock tests, in
-  `.gitlab-ci.yml`'s valgrind loop; GitHub's sanitizer job sets
-  `detect_leaks=0`, so nothing else checks leaks anywhere.
+  `.gitlab-ci.yml`'s valgrind loop; both providers' sanitizer jobs set
+  `detect_leaks=0`, so that valgrind loop is the only leak check anywhere.
 - **Examples** — a separate top-level project, and `AGENTIC_KIT_BUILD_EXAMPLES` defaults OFF, so
   a plain root `cmake --build build` builds none:
   `cmake -S examples/posix -B build-examples -DPython3_EXECUTABLE=$(which python3) && cmake --build build-examples -j 4`
@@ -145,7 +145,8 @@ ordinary changes.
   warning. PAL clock tests use `-Wall -Wextra -Werror`. Never delete `CMakeLists.txt`'s
   explicit `enable_testing()` (the comment above it says
   why): re-configures would silently stop regenerating the ctest list, `ctest` exits **0** on an
-  empty list, and GitLab's test stage has no `--no-tests=error`.
+  empty list, and GitLab's test stage (its image's ctest predates `--test-dir`, and possibly
+  `--no-tests=error`) guards the empty list only with an explicit `ctest -N` count check.
 
 ### iot-client — DP state and schema
 
