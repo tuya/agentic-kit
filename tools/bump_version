@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# bump_version.sh - transition the SDK version between release/development states.
+# bump_version - transition the SDK version between release/development states.
 #
 # The version lives in the SDK_VERSION macro of the default header (see
 # DEFAULT_HEADER below). Two states exist, analogous to maven's
@@ -10,17 +10,16 @@
 #   "agentic-kit_X.Y.Z-dev"  development state (cycle for the upcoming release)
 #
 # Usage:
-#   bump_version.sh show                              print current version + state
-#   bump_version.sh next [--major|--minor|--patch]    bump component, append -dev
+#   bump_version show                              print current version + state
+#   bump_version next [--major|--minor|--patch]    bump component, append -dev
 #                                                     (default: --patch)
-#   bump_version.sh release                           strip -dev (digits unchanged)
+#   bump_version release                           strip -dev (digits unchanged)
 #
-#   An optional second argument overrides the header file path (used by the
-#   self-test; defaults to this repo's src/iot_internal.h, where SDK_VERSION
-#   lives since the #38 header split).
+#   An optional positional argument overrides the header file path (defaults
+#   to modules/iot-client/src/iot_internal.h in this repository).
 #
 # The script only edits the header. Committing, tagging, pushing and the
-# GitHub release remain manual - the script prints a checklist instead.
+# GitLab Release remain manual - see CONTRIBUTING.md and the printed checklist.
 #
 set -euo pipefail
 
@@ -28,7 +27,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEFAULT_HEADER="$REPO_ROOT/modules/iot-client/src/iot_internal.h"
 
 usage() {
-    sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
+    awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"
     exit 1
 }
 
@@ -147,11 +146,12 @@ do_release() {
     cat <<EOF
 
 Next steps (manual):
-  1. git add <header> && git commit -m "chore: release $V_MAJOR.$V_MINOR.$V_PATCH"
-  2. git tag -a v$V_MAJOR.$V_MINOR.$V_PATCH
-  3. git push <remote> <branch> v$V_MAJOR.$V_MINOR.$V_PATCH
-  4. Create the GitHub release for v$V_MAJOR.$V_MINOR.$V_PATCH (changelog: manual)
-  5. tools/bump_version.sh next        # start the next development cycle
+  1. Review the version-header and CHANGELOG updates in a GitLab MR.
+  2. Merge after required checks pass, then fetch origin.
+  3. git tag -a v$V_MAJOR.$V_MINOR.$V_PATCH <merged-release-commit>
+  4. git push origin v$V_MAJOR.$V_MINOR.$V_PATCH
+  5. Create the GitLab Release for that tag (changelog: manual).
+  6. tools/bump_version next        # start the next development cycle in a new MR
 EOF
 }
 

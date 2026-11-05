@@ -1,5 +1,7 @@
 # Tuya Agentic-kit
 
+[Chinese](README.md) | English
+
 Multimodal device-side SDK for connecting smart hardware to the Tuya AI platform. Supports voice chat, image understanding/generation, and device-side MCP.
 
 ## Features
@@ -68,6 +70,14 @@ Then run:
 # OTA firmware upgrade (cloud protocol)
 ./build-examples/ota_demo
 ```
+
+## Contributing
+
+Mode A accepts both GitHub PRs and GitLab MRs. Final review and merging happen in GitLab;
+maintainers manually sync merged branches and release tags to GitHub. See the
+[development guidelines](CONTRIBUTING.md) and
+[manual sync runbook](docs/development/manual-contribution-sync.md).
+Code and build constraints are documented in [AGENTS.md](AGENTS.md).
 
 ## Project Structure
 
