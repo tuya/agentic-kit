@@ -1,5 +1,7 @@
 # Tuya Agentic-kit
 
+[English](README_en.md)
+
 智能硬件接入 Tuya AI 平台的多模态端侧 SDK，支持语音对话、图片理解/生成、设备侧 MCP。
 
 ## 特性
@@ -73,28 +75,34 @@ cmake --build build-examples
 
 ## 版本与发布
 
-SDK 版本定义在 `modules/iot-client/include/iot_client_config_defaults.h` 的 `SDK_VERSION` 宏中，有两种状态（类似 maven 的 release / `-SNAPSHOT`）：
+SDK 版本定义在 `modules/iot-client/src/iot_internal.h` 的 `SDK_VERSION` 宏中，有两种状态（类似 maven 的 release / `-SNAPSHOT`）：
 
 - `agentic-kit_X.Y.Z` — 已发布状态（该值对应 `vX.Y.Z` 标签）
 - `agentic-kit_X.Y.Z-dev` — 开发周期状态
 
-使用 `tools/bump_version.sh` 在两种状态间切换：
+使用 `tools/bump_version` 在两种状态间切换：
 
 ```sh
-tools/bump_version.sh show                              # 查看当前版本与状态
-tools/bump_version.sh next [--major|--minor|--patch]    # 开始下一开发周期（默认 --patch）
-tools/bump_version.sh release                           # 发布：去掉 -dev 后缀
+tools/bump_version show                              # 查看当前版本与状态
+tools/bump_version next [--major|--minor|--patch]    # 开始下一开发周期（默认 --patch）
+tools/bump_version release                           # 发布：去掉 -dev 后缀
 ```
 
 发布流程（脚本只改版本号，其余步骤手动完成）：
 
-1. 运行 `tools/bump_version.sh release`（发布前版本应为 `X.Y.Z-dev`）
-2. 提交头文件改动
-3. `git tag -a vX.Y.Z` 并推送分支与标签
-4. 在 GitHub 上创建 Release（`CHANGELOG.md` 手动维护）
-5. 运行 `tools/bump_version.sh next` 开始下一开发周期
+1. 运行 `tools/bump_version release`（发布前版本应为 `X.Y.Z-dev`）
+2. 通过 GitLab MR 评审合并头文件和 `CHANGELOG.md` 改动
+3. 从已验证的发布提交创建 `git tag -a vX.Y.Z`，并推送标签到 `origin`
+4. 在 GitLab 上创建 Release，并手工同步指定发布标签到 GitHub
+5. 通过新 MR 运行 `tools/bump_version next` 开始下一开发周期
 
-脚本自测：`tools/bump_version_test.sh`。
+完整流程见[开发规范（英文）](CONTRIBUTING.md#changelog-and-releases)。
+
+## 参与开发
+
+采用模式 A：GitHub PR 与 GitLab MR 均可贡献，统一在 GitLab 评审合并，再手工同步到 GitHub。
+详见[开发规范（英文）](CONTRIBUTING.md)与[同步操作手册（英文）](docs/development/manual-contribution-sync.md)。
+代码与构建约束见 [AGENTS.md](AGENTS.md)。
 
 ## 项目结构
 
@@ -118,5 +126,3 @@ docs-site/            # 文档站点
 本项目整体基于 [Apache License 2.0](LICENSE) 开源。
 
 **例外**：`modules/rtc-client/` 模块**不开源**，其中的预编译静态库（`libstm.a`）及配套头文件为 Tuya Inc. 专有资产。客户可自由使用、复制、修改、合并、发布、分发该模块，包括嵌入到硬件产品中（无论是否结合 agentic-kit 使用），唯一限制是**不得对预编译库进行逆向工程、反编译或反汇编**。详见 [modules/rtc-client/LICENSE](modules/rtc-client/LICENSE)。
-
-

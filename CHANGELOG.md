@@ -5,10 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Historical bare `(#N)` references identify [GitHub PRs](https://github.com/tuya/agentic-kit/pulls).
+New entries use explicit platform-qualified PR/MR links; see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## [Unreleased]
 
 ### Added
 
+- docs — manual contribution workflow for GitLab 17.8.7: contribution guidelines, PR/MR templates and a GitLab-to-GitHub sync runbook ([GitLab MR !5](https://registry.code.tuya-inc.top/TuyaAI/agentic-kit/-/merge_requests/5)).
+- ci — GitLab pipeline mirrors the GitHub checks (sanitizers, POSIX examples) and adds the valgrind leak and CodeScan security gates ([GitLab MR !5](https://registry.code.tuya-inc.top/TuyaAI/agentic-kit/-/merge_requests/5)).
+  - External contributions must pass the CodeScan gate; `BLOCK_ON_VULN=false` switches it to report-only.
 - Examples — `workflow_variables_demo` sends sequential `chat`, `generate-img`, and `decide` Events with plain-text, saved-image, and boolean-result JSON responses (PR pending).
 - biz-client — typed AI role management, language/timbre queries, POSIX and ESP-IDF examples, and bilingual API documentation (#47).
 - iot-client — `iot_get_binding_status()` queries `tuya.device.info.sync` with saved credentials, without an IoT client (#44).
