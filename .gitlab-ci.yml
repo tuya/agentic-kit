@@ -1,37 +1,93 @@
 # GitLab CI for agentic-kit.
 #
-# Conventions follow the iot-sdk pipeline (build / test stages, ${BUILD_IMAGE},
-# manual submodule init, build artifacts handed to downstream jobs).
+# The job set mirrors .github/workflows/ci.yml so both providers gate the same
+# work: build & test, sanitizers (ASan + UBSan) and the POSIX examples build.
+# GitLab adds the valgrind leak stage, the pages docs build (GitHub deploys
+# docs only from main via deploy-docs.yml) and the CodeScan security scan
+# (internal platform behind a group token; no GitHub equivalent). Conventions
+# follow the iot-sdk pipeline (build / test stages, ${BUILD_IMAGE}, manual
+# submodule init, build artifacts handed to downstream jobs).
 #
 # ${BUILD_IMAGE} is a group-level CI/CD variable pointing at the shared Debian
 # build image (cmake, gcc, python3, valgrind, git). It must be defined in the
 # project/group CI settings, same as iot-sdk.
+#
+# Not mirrored from GitHub: the ubuntu+macOS build-test matrix (the runners
+# here are Linux only) and paths-ignore for docs-only pushes (GitLab
+# rules:changes matches on ANY changed file, so it cannot express "skip only
+# when ALL changes are docs" without skipping mixed commits too).
 
+# Stage layout mirrors the real DAG (see each job's `needs`): `build` is the
+# parallel wave -- build, codescan, test:sanitizers and examples all carry
+# needs: [] (build by being first) and start together; `test` needs only the
+# build job; `memory-leak` needs build+test; `pages` is unattached (needs: [],
+# master/main only). Keeping every parallel job in the first stage makes the
+# default stage view show the same grouping as the DAG view instead of six
+# columns that read as a serial pipeline.
+#
+# The parallel wave relies on docker-executor isolation: `test` and
+# `test:sanitizers` both run the mock-driven suites that bind compile-time
+# ports (8443/8198/11885), and their overlap is only safe because each job
+# gets its own container network namespace (the `image:` entries below imply
+# docker). On a shell-executor runner with concurrent > 1 two jobs would
+# fight for those ports -- keep this pipeline off shell runners (see
+# CONTRIBUTING.md, "Validation before you submit").
 stages:
   - build
   - test
   - memory-leak
   - pages
 
+# Every runner serving this repo is tagged, and a tagged runner ignores
+# untagged jobs by default -- without a tag here all jobs pile onto whichever
+# single runner has "Run untagged jobs" enabled, serializing the pipeline no
+# matter what the needs DAG allows. amd64 is the generic tag both shared
+# build runners carry; change it here in one place if the org convention
+# differs.
+default:
+  tags: [amd64]
+
 variables:
   GIT_SUBMODULE_STRATEGY: none
   CMAKE_BUILD_DIR: build
+  ASAN_BUILD_DIR: build-asan
+  EXAMPLES_BUILD_DIR: build-examples
   # Python deps installed into the venv in every job:
   #   jsonschema, jinja2        -> mbedtls build-time PSA codegen
   #   pycryptodome, cryptography -> iot-client test mock servers
   PIP_DEPS: "jsonschema jinja2 pycryptodome cryptography"
 
-build:
-  stage: build
-  image: ${BUILD_IMAGE}
-  before_script:
-    - git submodule sync --recursive
-    - git submodule update --init --recursive
-    # Activate the venv before configure so Python3_EXECUTABLE is baked to the
-    # venv interpreter (mbedtls codegen + the test job both reuse it).
+# Shared job prep (hidden dot-prefixed jobs are never scheduled; jobs alias
+# their steps in). &venv_steps creates the venv at the path the build job
+# baked into the test binaries (Python3_EXECUTABLE -- mbedtls codegen and the
+# mock servers both run from it); &deps_steps additionally syncs the
+# submodules the configure+build jobs need. The venv lines are spelled out
+# again in &deps_steps instead of aliased, so no job ends up with a
+# doubly-nested before_script sequence -- GitLab flattening one nesting level
+# is the documented pattern; deeper nesting is not worth betting the pipeline
+# on. Plain YAML anchors rather than !reference so any YAML parser can
+# validate the file offline.
+.venv:
+  before_script: &venv_steps
     - python3 -m venv venv
     - . venv/bin/activate
     - pip install -q ${PIP_DEPS}
+
+.deps:
+  before_script: &deps_steps
+    - git submodule sync --recursive
+    - git submodule update --init --recursive
+    - python3 -m venv venv
+    - . venv/bin/activate
+    - pip install -q ${PIP_DEPS}
+
+build:
+  stage: build
+  image: ${BUILD_IMAGE}
+  # Mirror GitHub's concurrency.cancel-in-progress: a newer push cancels this
+  # job (requires the project setting "Auto-cancel redundant pipelines").
+  interruptible: true
+  before_script: *deps_steps
   script:
     - cmake --version
     - cmake -B ${CMAKE_BUILD_DIR} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPython3_EXECUTABLE=$(which python3)
@@ -44,14 +100,12 @@ build:
 test:
   stage: test
   image: ${BUILD_IMAGE}
+  interruptible: true
   needs:
     - build
-  before_script:
-    # Recreate the venv at the same path the build job baked into the test
-    # binaries (Python3_EXECUTABLE), with the mock dependencies installed.
-    - python3 -m venv venv
-    - . venv/bin/activate
-    - pip install -q ${PIP_DEPS}
+  # Recreate the venv at the same path the build job baked into the test
+  # binaries (Python3_EXECUTABLE), with the mock dependencies installed.
+  before_script: *venv_steps
   script:
     # Static guard: SDK code must log through the facade (common/log.h
     # log_tag_*), never call log_emit/printf directly -- a raw call site
@@ -72,14 +126,118 @@ test:
     # Reproduce the pinned upstream-header checks; the host CTest matrix below
     # separately exercises PAL behavior against test shims.
     - cmake --build ${CMAKE_BUILD_DIR} --target check_freertos_pal
-    # cd into the build dir rather than using `--test-dir` (the CI image's
-    # ctest does not honour that flag and would silently find no tests).
-    - cd ${CMAKE_BUILD_DIR}
-    - ctest --output-on-failure --timeout 180
+    # Serial ctest with the empty-list count guard lives in tools/ci_ctest.sh
+    # (the CI image's ctest does not honour --test-dir and may predate
+    # --no-tests=error; the script header documents both).
+    - tools/ci_ctest.sh ${CMAKE_BUILD_DIR} 180 "the CTestTestfile list was not regenerated (see the enable_testing() note in CMakeLists.txt)"
+
+# CodeScan security scan (tools/codescan_ci.py): trigger -> poll -> blocking
+# decision against the CodeScan CI API. The CI side never uploads source --
+# the backend clones the repo itself -- so the job needs no build artifacts:
+# it rides in the parallel build wave (needs: []) instead of gating on
+# build/test.
+#
+# Required project/group CI/CD variables:
+#   CODESCAN_API_BASE  platform base URL, e.g. https://codescan.example.com
+#   CODESCAN_TOKEN     API token, Masked. Do NOT mark it Protected: the feat/*
+#                      branches here are unprotected, and a Protected token
+#                      would strip the security gate from exactly the branches
+#                      that carry the changes being reviewed.
+# Optional per-pipeline variables (see the script header for the full list):
+#   SCAN_TYPE          quick / codeql / agent; unset = platform default
+#   BLOCK_SEVERITIES   blocking set; unset = platform block_severities, so the
+#                      platform can retune every repo from one place
+#   BLOCK_ON_VULN      false = report-only (still exits non-zero on scan errors)
+#   SCAN_TIMEOUT_SEC   default 3600; agent scans need >= 7200 AND a raised job
+#                      timeout below (keep the job timeout above this value)
+codescan:
+  stage: build
+  image: python:3.12-alpine
+  interruptible: true
+  needs: []
+  # Scan errors, timeouts AND blocking-severity findings all exit non-zero;
+  # the job must fail the pipeline (and so the MR merge check) -- never let a
+  # later edit soften this to allow_failure.
+  allow_failure: false
+  timeout: 2h
+  script:
+    - python3 tools/codescan_ci.py
+  artifacts:
+    when: always
+    paths:
+      - codescan-report.json
+    expire_in: 1 week
+
+# Mirrors .github/workflows/ci.yml `sanitizers`: a separate Debug tree with
+# ASan + UBSan, not the RelWithDebInfo artifacts. Leak detection stays off
+# (third-party libs/mocks); memory errors and UB abort the run.
+test:sanitizers:
+  stage: build
+  image: ${BUILD_IMAGE}
+  interruptible: true
+  # Own configure+build inside the parallel wave: needs: [] -- no waiting on
+  # the `build` job and no download of its artifacts.
+  needs: []
+  before_script: *deps_steps
+  script:
+    - cmake -S . -B ${ASAN_BUILD_DIR} -DCMAKE_BUILD_TYPE=Debug -DPython3_EXECUTABLE=$(which python3) -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -g -O1" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+    - cmake --build ${ASAN_BUILD_DIR} -j$(nproc)
+    - ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 tools/ci_ctest.sh ${ASAN_BUILD_DIR} 240 "the sanitizer tree's CTestTestfile list was not regenerated"
+
+# Mirrors .github/workflows/ci.yml `examples`: configure and build the POSIX
+# examples as a separate top-level project. Rides in the parallel wave
+# (needs: []).
+examples:
+  stage: build
+  image: ${BUILD_IMAGE}
+  interruptible: true
+  needs: []
+  before_script:
+    - *deps_steps
+    # libopus enables the optional audio_chat_demo; without it that one
+    # demo removes itself on a message(STATUS) and the rest still build.
+    # Best-effort: not every runner image allows apt-get.
+    - |
+      (apt-get update -qq && apt-get install -y -qq libopus-dev) \
+        || echo "libopus unavailable: audio_chat_demo will be skipped"
+  script:
+    # examples/posix fetches qrcodegen / quirc / stb via FetchContent at
+    # configure time, and links the prebuilt rtc-client lib.
+    - cmake -S examples/posix -B ${EXAMPLES_BUILD_DIR} -DPython3_EXECUTABLE=$(which python3)
+    - cmake --build ${EXAMPLES_BUILD_DIR} -j$(nproc)
+    # AGENTS.md: demos whose prerequisite is missing remove themselves on a
+    # plain message(STATUS), so a green build can quietly produce fewer
+    # targets -- assert the full expected set for this platform instead.
+    # Every target in examples/posix/CMakeLists.txt must appear, including
+    # the udp_* pair (modules/rtc-client/libs/linux-gnu-amd64/libstm.a is
+    # in-tree, so tuya_steam_client exists on the amd64 runners). Only
+    # audio_chat_demo is legitimately optional: it depends on the best-effort
+    # libopus install above, so require it only when opus is present.
+    - |
+      MISSING=""
+      for t in activate_demo scan_by_app_pair_demo scan_by_device_pair_demo \
+               unbind_demo dp_management_demo ota_demo ota_confirm_demo \
+               ai/role-management/role_management_demo \
+               udp_chat_demo udp_edu_camera_demo \
+               text_chat_demo workflow_variables_demo edu_camera_demo \
+               music_play_demo mcp_demo agent_trigger_demo mqtt_interrupt_demo; do
+        [ -x "${EXAMPLES_BUILD_DIR}/${t}" ] || MISSING="${MISSING} ${t}"
+      done
+      if pkg-config --exists opus 2>/dev/null || ldconfig -p 2>/dev/null | grep -q libopus; then
+        [ -x "${EXAMPLES_BUILD_DIR}/audio_chat_demo" ] || MISSING="${MISSING} audio_chat_demo"
+      else
+        echo "libopus not present on this runner: audio_chat_demo may be absent (accepted)"
+      fi
+      if [ -n "$MISSING" ]; then
+        echo "examples job: demo targets missing from the build:${MISSING}"
+        exit 1
+      fi
+      echo "examples job: all expected demo targets present"
 
 test:memory-leak:
   stage: memory-leak
   image: ${BUILD_IMAGE}
+  interruptible: true
   needs:
     - build
     - test
@@ -92,7 +250,8 @@ test:memory-leak:
       # Leak-check the pure (no-subprocess) binaries, grouped by module:
       #   pal            : pal_freertos_time_*_test, pal_posix_time_test
       #   rtc-tcp-client : tai_unit_tests, tai_log_level_zero_tests,
-      #                    tai_log_module_zero_tests, tai_integration_tests
+      #                    tai_log_module_zero_tests, tai_integration_tests,
+      #                    workflow_variables_demo_test
       #   iot-client     : iot_cipher_test, iot_ai_ctrl_test
       #   tuya-ble       : tuya_ble_test
       #   biz-client     : biz_ai_role_test (public ATOP boundary faked)
@@ -122,6 +281,7 @@ test:memory-leak:
 pages:
   stage: pages
   image: node:22-alpine
+  interruptible: true
   # Docs deploy is independent of the C build/test — run it without waiting.
   needs: []
   script:
