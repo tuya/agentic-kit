@@ -1,0 +1,61 @@
+# gitleaks configuration for the CI secret_detection job (.gitlab-ci.yml).
+# Extends the default ruleset and allowlists the deliberately-committed test
+# fixtures the blocking gate cannot tell from real secrets. Every entry here
+# is a reviewed exception: add entries only with a comment saying why, and
+# prefer exact-value regexes over whole paths so a NEW secret pasted into an
+# already-allowed file still fails the pipeline.
+
+[extend]
+useDefault = true
+
+# Whole files that exist only as fixtures: the self-signed PKI the TLS mock
+# servers present to the SDK under test, and the mock ATOP config with its
+# placeholder keys.
+[[allowlists]]
+description = "Test PKI and fixture configs under modules/*/test"
+paths = [
+    '''modules/iot-client/test/config/key\.pem''',
+    '''modules/iot-client/test/config/root_key\.pem''',
+    '''modules/iot-client/test/config/atop\.conf''',
+]
+
+# Upstream sources pinned as submodules (mbedtls, cJSON, coreMQTT,
+# coreHTTP). The gate covers this repository's own content: mbedtls's PSA
+# test vectors and framework test keys are an upstream false-positive farm
+# (900+ findings in one scan). CI never populates them (submodule strategy
+# none + fresh clone); this entry keeps a dev-local `gitleaks dir .` on a
+# fully initialized checkout equally quiet.
+[[allowlists]]
+description = "Vendored upstream submodules"
+paths = [
+    '''third_party/''',
+]
+
+# History-only fixtures: sequence/boundary test values in code that no
+# longer exists in the tree (the deleted tuya-lan module, the old
+# tuya-ble test_control.c) and one older atop_mock.py line. Kept so the
+# git-history scan stays green; nothing here is a credential.
+[[allowlists]]
+description = "Deleted-test fixture values, git history only"
+regexes = [
+    '''0123456789abcdef''',           # tuya-lan test_service.c parser input
+    '''0123456789abcde''',            # tuya-lan test_service.c 15-char boundary case
+    '''0123456789abcdef0''',          # tuya-ble test_control.c 17-char boundary case
+    '''0123456789abcdefg''',          # tuya-lan test_service.c 17-char boundary case
+    '''fedcba9876543210''',           # tuya-lan test_peer.py
+    '''AAECAwQFBgcICQoLDA0ODw==''',   # old atop_mock.py line (base64 of bytes 0x00..0x0f)
+]
+
+# Exact values: fake or canned credentials in test mocks, and real console
+# output pasted into a tutorial (a Tuya product key is an identifier, not a
+# secret, and appears in the tutorial's sample log in both language copies).
+# Suppressed by value, not by path, so anything new next to them still trips.
+[[allowlists]]
+description = "Reviewed fixture values and pasted tutorial output"
+regexes = [
+    '''0123456789abcdef0123456789abcdef''',               # test_prov.c mock auth_key
+    '''1234567890abcdef''',                                # atop_mock.py mock localKey
+    '''abcdef1234567890''',                                # iot_ipc_transport_test.c fake client secret_key
+    '''rhgyGhf2qv2KyEe0Yfo/7rjgQSWPsQ2pzbXW\+mDIqs8=''',  # mqtt_mock.py canned ATOP session credential
+    '''p891xbkosae0dgda''',                                # product key in scan-by-device tutorial output
+]

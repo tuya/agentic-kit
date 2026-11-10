@@ -13,7 +13,7 @@ New entries use explicit platform-qualified PR/MR links; see [CONTRIBUTING.md](C
 ### Added
 
 - docs — manual contribution workflow for GitLab 17.8.7: contribution guidelines, PR/MR templates and a GitLab-to-GitHub sync runbook ([GitLab MR !5](https://registry.code.tuya-inc.top/TuyaAI/agentic-kit/-/merge_requests/5)).
-- ci — GitLab pipeline mirrors the GitHub checks (sanitizers, POSIX examples) and adds the valgrind leak and CodeScan security gates ([GitLab MR !5](https://registry.code.tuya-inc.top/TuyaAI/agentic-kit/-/merge_requests/5)).
+- ci — GitLab pipeline mirrors the GitHub checks (sanitizers, POSIX examples) and adds the valgrind leak, CodeScan and gitleaks secret-detection gates ([GitLab MR !5](https://registry.code.tuya-inc.top/TuyaAI/agentic-kit/-/merge_requests/5)).
   - External contributions must pass the CodeScan gate; `BLOCK_ON_VULN=false` switches it to report-only.
 - Examples — `workflow_variables_demo` sends sequential `chat`, `generate-img`, and `decide` Events with plain-text, saved-image, and boolean-result JSON responses (PR pending).
 - biz-client — typed AI role management, language/timbre queries, POSIX and ESP-IDF examples, and bilingual API documentation (#47).

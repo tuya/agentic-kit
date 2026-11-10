@@ -3,8 +3,9 @@
 # The job set mirrors .github/workflows/ci.yml so both providers gate the same
 # work: build & test, sanitizers (ASan + UBSan) and the POSIX examples build.
 # GitLab adds the valgrind leak stage, the pages docs build (GitHub deploys
-# docs only from main via deploy-docs.yml) and the CodeScan security scan
-# (internal platform behind a group token; no GitHub equivalent). Conventions
+# docs only from main via deploy-docs.yml), the CodeScan security scan
+# (internal platform behind a group token; no GitHub equivalent) and a
+# blocking gitleaks secret-detection gate. Conventions
 # follow the iot-sdk pipeline (build / test stages, ${BUILD_IMAGE}, manual
 # submodule init, build artifacts handed to downstream jobs).
 #
@@ -17,8 +18,9 @@
 # rules:changes matches on ANY changed file, so it cannot express "skip only
 # when ALL changes are docs" without skipping mixed commits too).
 
-# Stage layout mirrors the real DAG (see each job's `needs`): `build` is the
-# parallel wave -- build, codescan, test:sanitizers and examples all carry
+# Stage layout mirrors the real DAG (see each job's `needs`): `pre-build`
+# holds only secret detection (it gates repo content, not the build); `build`
+# is the parallel wave -- build, codescan, test:sanitizers and examples carry
 # needs: [] (build by being first) and start together; `test` needs only the
 # build job; `memory-leak` needs build+test; `pages` is unattached (needs: [],
 # master/main only). Keeping every parallel job in the first stage makes the
@@ -33,6 +35,7 @@
 # fight for those ports -- keep this pipeline off shell runners (see
 # CONTRIBUTING.md, "Validation before you submit").
 stages:
+  - pre-build
   - build
   - test
   - memory-leak
@@ -52,10 +55,22 @@ variables:
   CMAKE_BUILD_DIR: build
   ASAN_BUILD_DIR: build-asan
   EXAMPLES_BUILD_DIR: build-examples
-  # Python deps installed into the venv in every job:
-  #   jsonschema, jinja2        -> mbedtls build-time PSA codegen
-  #   pycryptodome, cryptography -> iot-client test mock servers
-  PIP_DEPS: "jsonschema jinja2 pycryptodome cryptography"
+  # Python deps for the venv, split by consumer so build-side jobs depend
+  # only on the codegen stack, never on the test-runtime crypto stack
+  # (which the internal build image's package index may not serve):
+  #   PIP_BUILD_DEPS  jsonschema, jinja2         -> mbedtls build-time PSA codegen
+  #   PIP_MOCK_DEPS   pycryptodome, cryptography -> iot-client test mock servers
+  PIP_BUILD_DEPS: "jsonschema jinja2"
+  PIP_MOCK_DEPS: "pycryptodome cryptography"
+  # The build image's pip pulls from the public PyPI (files.pythonhosted.org
+  # in the traceback), and that link flakes: 2026-11-10 run died on a read
+  # timeout mid-download at pip's 15 s default. The earlier "pycryptodome
+  # (from versions: none)" was the same flaky link failing at the index-fetch
+  # phase (the retry WARNINGs are hidden by -q) -- not a missing package and
+  # not the Python version (image is 3.12). 60 s read timeout absorbs the
+  # slow-but-alive path; the root fix is a reachable index (group-level
+  # PIP_INDEX_URL variable, or a pip.conf baked into the build image).
+  PIP_DEFAULT_TIMEOUT: "60"
 
 # Shared job prep (hidden dot-prefixed jobs are never scheduled; jobs alias
 # their steps in). &venv_steps creates the venv at the path the build job
@@ -67,11 +82,27 @@ variables:
 # is the documented pattern; deeper nesting is not worth betting the pipeline
 # on. Plain YAML anchors rather than !reference so any YAML parser can
 # validate the file offline.
+#
+# The pip installs run as a 3-attempt retry loop: the runner pool's egress
+# to the public PyPI (files.pythonhosted.org) flakes mid-download -- read
+# timeouts measured on two different runners on 2026-11-10 -- and pip's
+# own --retries does not cover a read timeout mid-stream. Files that
+# finished downloading stay in pip's HTTP cache inside the same container,
+# so each attempt re-fetches only what died.
 .venv:
   before_script: &venv_steps
     - python3 -m venv venv
     - . venv/bin/activate
-    - pip install -q ${PIP_DEPS}
+    # break (not exit) on success: jobs that append steps after this anchor
+    # (examples' apt line, test:sanitizers' mock-deps install) must still run.
+    - |
+      ok=0
+      for i in 1 2 3; do
+        pip install -q ${PIP_BUILD_DEPS} ${PIP_MOCK_DEPS} && { ok=1; break; }
+        echo "pip install attempt ${i}/3 failed; retrying in 15s" >&2
+        sleep 15
+      done
+      [ "$ok" = 1 ] || exit 1
 
 .deps:
   before_script: &deps_steps
@@ -79,7 +110,14 @@ variables:
     - git submodule update --init --recursive
     - python3 -m venv venv
     - . venv/bin/activate
-    - pip install -q ${PIP_DEPS}
+    - |
+      ok=0
+      for i in 1 2 3; do
+        pip install -q ${PIP_BUILD_DEPS} && { ok=1; break; }
+        echo "pip install attempt ${i}/3 failed; retrying in 15s" >&2
+        sleep 15
+      done
+      [ "$ok" = 1 ] || exit 1
 
 build:
   stage: build
@@ -168,6 +206,62 @@ codescan:
       - codescan-report.json
     expire_in: 1 week
 
+# Secret detection (gitleaks) on the official Docker Hub image. This
+# deliberately does NOT use the GitLab-managed Security/Secret-Detection
+# template: its analyzer image lives on registry.gitlab.com, which these
+# runners cannot reach (connection reset, measured 2026-11-10; Docker Hub
+# is fine -- the codescan and pages jobs already pull from it), and its
+# analyzer REPORTS-AND-SUCCEEDS: findings go into the report artifact while
+# the job stays green, so allow_failure: false there gates only operational
+# failures, not findings. Running gitleaks directly makes a finding fail
+# the job (allow_failure: false -- never soften this to let a leaked key
+# through). gitleaks scans the git history reachable from the built ref
+# (git mode, every commit diff; --log-opts=HEAD is REQUIRED: by default
+# gitleaks scans every ref in the clone, and a runner clone carries all
+# branches on the server -- without it a colleague's unmerged branch
+# fixture would fail this pipeline), so GIT_DEPTH: 0 below fetches the
+# complete history -- the default depth of 20 would silently scan only
+# the last 20 commits. The global GIT_SUBMODULE_STRATEGY: none plus
+# GIT_STRATEGY: clone keep the third_party submodules empty: runner
+# workspaces persist between jobs on the same slot and `git clean` does
+# not remove gitlink paths, so third_party/ left populated by build
+# jobs' submodule init leaked into the first real run (35 MB scanned,
+# 905 upstream-test findings; the gate's scope is this repo's own
+# content). --redact keeps any found secret out of the job log;
+# findings land in gitleaks-report.json. Deliberately-committed
+# fixtures -- current-tree ones and history-only values from deleted
+# modules -- are reviewed exceptions in .gitleaks.toml, exact values
+# where possible, so a NEW secret next to an allowed one still fails
+# (verified with an injected canary key); the config also scopes out
+# third_party/. Skipped only when a release pipeline sets
+# IS_RELEASE=true. Keep the version pin: `latest` would silently change
+# the ruleset under a green pipeline.
+secret_detection:
+  stage: pre-build
+  image:
+    name: zricethezav/gitleaks:v8.30.1
+    # The image's ENTRYPOINT is `gitleaks`; reset it so script gets a shell.
+    entrypoint: [""]
+  cache: {}
+  # Fresh clone every run -- see the comment above for why the reused
+  # workspace cannot be trusted to hold only this repo's content. Full
+  # depth: the git-mode scan must see every commit, not the latest 20.
+  variables:
+    GIT_STRATEGY: clone
+    GIT_DEPTH: "0"
+  allow_failure: false
+  interruptible: true
+  rules:
+    - if: '$IS_RELEASE != "true"'
+  script:
+    - gitleaks version
+    - gitleaks git . --redact --no-banner --exit-code 1 --config .gitleaks.toml --log-opts="HEAD" --report-format json --report-path gitleaks-report.json
+  artifacts:
+    when: always
+    paths:
+      - gitleaks-report.json
+    expire_in: 1 week
+
 # Mirrors .github/workflows/ci.yml `sanitizers`: a separate Debug tree with
 # ASan + UBSan, not the RelWithDebInfo artifacts. Leak detection stays off
 # (third-party libs/mocks); memory errors and UB abort the run.
@@ -178,7 +272,19 @@ test:sanitizers:
   # Own configure+build inside the parallel wave: needs: [] -- no waiting on
   # the `build` job and no download of its artifacts.
   needs: []
-  before_script: *deps_steps
+  # &deps_steps carries the codegen stack; this job also RUNS the
+  # mock-driven suites against its own tree, so the mock-server crypto
+  # stack goes on top (one nesting level, like the examples job's apt line).
+  before_script:
+    - *deps_steps
+    - |
+      ok=0
+      for i in 1 2 3; do
+        venv/bin/pip install -q ${PIP_MOCK_DEPS} && { ok=1; break; }
+        echo "pip install attempt ${i}/3 failed; retrying in 15s" >&2
+        sleep 15
+      done
+      [ "$ok" = 1 ] || exit 1
   script:
     - cmake -S . -B ${ASAN_BUILD_DIR} -DCMAKE_BUILD_TYPE=Debug -DPython3_EXECUTABLE=$(which python3) -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -g -O1" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
     - cmake --build ${ASAN_BUILD_DIR} -j$(nproc)
