@@ -29,8 +29,9 @@ typedef struct {
     /* Single-mode binding scenario state. */
     unsigned activations, unbound_called;
     int activation_rc;
-    uint8_t activation_data[128];
-    size_t activation_len;
+    char activation_json[TUYA_BLE_RX_BUF_SIZE + 1];
+    char activation_dev_id[32], activation_schema[64];
+    char activation_local[17], activation_secret[17];
 } control_peer_t;
 
 static void put32(uint8_t *p, uint32_t value)
@@ -124,17 +125,20 @@ static int query_dps(const uint8_t *ids, size_t count, void *ctx)
     peer->queried_count = count;
     return peer->query_rc;
 }
-static int activation_reply(const uint8_t *data, size_t len,
-                            char local_key_out[17], char secret_key_out[17], void *ctx)
+static int activation_reply(const tuya_ble_activation_info_t *info, void *ctx)
 {
     control_peer_t *peer = ctx;
     peer->activations++;
     if (peer->activation_rc) return peer->activation_rc;
-    if (len > sizeof(peer->activation_data)) return -1;
-    memcpy(peer->activation_data, data, len);
-    peer->activation_len = len;
-    memcpy(local_key_out, local_key, 17);
-    memcpy(secret_key_out, secret_key, 17);
+    snprintf(peer->activation_json, sizeof(peer->activation_json), "%s", info->json);
+    snprintf(peer->activation_dev_id, sizeof(peer->activation_dev_id), "%s",
+             info->dev_id ? info->dev_id : "");
+    snprintf(peer->activation_schema, sizeof(peer->activation_schema), "%s",
+             info->schema ? info->schema : "");
+    memcpy(peer->activation_local, info->local_key, 16);
+    peer->activation_local[16] = '\0';
+    memcpy(peer->activation_secret, info->secret_key, 16);
+    peer->activation_secret[16] = '\0';
     return 0;
 }
 static void unbound_notification(void *ctx)
@@ -643,13 +647,23 @@ static int report_capacity_and_size_boundaries(void)
     return 0;
 }
 
-static const uint8_t activation_payload[] = "synthetic-activation-blob";
+/* 发送设备激活信息 (0x001B): the wire payload is a JSON object with devID,
+ * secKey, localKey and schema fields. */
+static const char activation_payload[] =
+    "{\"devID\":\"dev1234567890abcdefq\",\"secKey\":\"secret_key_12345\","
+    "\"localKey\":\"local_key_123456\",\"schema\":\"schema001\"}";
+/* Gate probes only need bytes the parser will refuse before any callback. */
+static const uint8_t activation_garbage[] = "synthetic-activation-blob";
+static const char activation_no_secret[] =
+    "{\"devID\":\"dev1234567890abcdefq\",\"localKey\":\"local_key_123456\"}";
+static const char activation_short_local[] =
+    "{\"secKey\":\"secret_key_12345\",\"localKey\":\"short\"}";
 
-/* Single-mode binding: 0x001B in the unbound KEY_12 session hands the
- * payload to the app; its out-buffer credentials pass validation, the KEY_12
- * ACK reports success and only then does the SDK flip to the bound form --
- * after which a full bound session (device-info, pair, DP write) completes
- * on the same state. */
+/* Single-mode binding: 0x001B in the unbound KEY_12 session parses the
+ * activation JSON, hands the typed fields to the app, the KEY_12 ACK reports
+ * success and only then does the SDK flip to the bound form -- after which a
+ * full bound session (device-info, pair, DP write) completes on the same
+ * state. */
 static int activation_delivery_binds_device(void)
 {
     tuya_ble_prov_state_t state;
@@ -659,10 +673,13 @@ static int activation_delivery_binds_device(void)
     size_t len, n;
     CHECK(unbound_handshake(&state, &peer, key12, pair_rand) == 0);
     CHECK(receive(&state, 12, key12, 0x1B, 3,
-                  activation_payload, sizeof(activation_payload) - 1) == 0);
+                  (const uint8_t *)activation_payload, strlen(activation_payload)) == 0);
     CHECK(peer.activations == 1 && peer.complete == 1);
-    CHECK(peer.activation_len == sizeof(activation_payload) - 1);
-    CHECK(memcmp(peer.activation_data, activation_payload, peer.activation_len) == 0);
+    CHECK(strcmp(peer.activation_local, local_key) == 0);
+    CHECK(strcmp(peer.activation_secret, secret_key) == 0);
+    CHECK(strcmp(peer.activation_dev_id, "dev1234567890abcdefq") == 0);
+    CHECK(strcmp(peer.activation_schema, "schema001") == 0);
+    CHECK(strstr(peer.activation_json, "\"schema\":\"schema001\"") != NULL);
     CHECK(response(&peer, 0, key12, 12, 0x1B, 3, reply, &len) == 0);
     CHECK(len == 1 && reply[0] == 0);
     CHECK(state.cfg.local_key == state.bound_local_key &&
@@ -712,13 +729,43 @@ static int activation_delivery_rejected_stays_unbound(void)
     CHECK(unbound_handshake(&state, &peer, key12, NULL) == 0);
     peer.activation_rc = 7;
     CHECK(receive(&state, 12, key12, 0x1B, 3,
-                  activation_payload, sizeof(activation_payload) - 1) == 0);
-    CHECK(peer.activations == 1 && peer.activation_len == 0 && peer.complete == 1);
+                  (const uint8_t *)activation_payload, strlen(activation_payload)) == 0);
+    CHECK(peer.activations == 1 && peer.complete == 1);
     CHECK(response(&peer, 0, key12, 12, 0x1B, 3, reply, &len) == 0);
     CHECK(len == 1 && reply[0] == 1);
     CHECK(state.cfg.local_key == NULL && state.cfg.secret_key == NULL);
     CHECK(state.handshake_ready && state.paired && state.authenticated);
     CHECK(!(state.rsp_data[7] & 128) && memcmp(state.adv_data + 15, product, 16) == 0);
+    return 0;
+}
+
+/* Malformed activation payloads never reach the application: a non-JSON
+ * body, a missing secKey and a short localKey each ACK failure without a
+ * callback and leave the unbound session usable for a corrected retry. */
+static int activation_delivery_rejects_malformed_payloads(void)
+{
+    tuya_ble_prov_state_t state;
+    control_peer_t peer;
+    uint8_t key12[16], reply[512];
+    size_t len;
+    CHECK(unbound_handshake(&state, &peer, key12, NULL) == 0);
+    CHECK(receive(&state, 12, key12, 0x1B, 3,
+                  activation_garbage, sizeof(activation_garbage) - 1) == 0);
+    CHECK(peer.activations == 0 && peer.complete == 1);
+    CHECK(response(&peer, 0, key12, 12, 0x1B, 3, reply, &len) == 0);
+    CHECK(len == 1 && reply[0] == 1);
+    CHECK(receive(&state, 12, key12, 0x1B, 4,
+                  (const uint8_t *)activation_no_secret, strlen(activation_no_secret)) == 0);
+    CHECK(peer.activations == 0 && peer.complete == 2);
+    CHECK(response(&peer, 1, key12, 12, 0x1B, 4, reply, &len) == 0);
+    CHECK(len == 1 && reply[0] == 1);
+    CHECK(receive(&state, 12, key12, 0x1B, 5,
+                  (const uint8_t *)activation_short_local, strlen(activation_short_local)) == 0);
+    CHECK(peer.activations == 0 && peer.complete == 3);
+    CHECK(response(&peer, 2, key12, 12, 0x1B, 5, reply, &len) == 0);
+    CHECK(len == 1 && reply[0] == 1);
+    CHECK(state.cfg.local_key == NULL && state.cfg.secret_key == NULL);
+    CHECK(state.handshake_ready && state.paired && state.authenticated);
     return 0;
 }
 
@@ -732,15 +779,15 @@ static int activation_delivery_is_gated(void)
     CHECK(setup(&state, &peer, 0) == 0);
     CHECK(key11(key11v) == 0);
     CHECK(receive(&state, 11, key11v, 0x1B, 1,
-                  activation_payload, sizeof(activation_payload) - 1) == 0);
+                  activation_garbage, sizeof(activation_garbage) - 1) == 0);
     CHECK(peer.activations == 0 && peer.complete == 0);
     CHECK(receive(&state, 12, key12, 0x1B, 2,
-                  activation_payload, sizeof(activation_payload) - 1) == 0);
+                  activation_garbage, sizeof(activation_garbage) - 1) == 0);
     CHECK(peer.activations == 0 && peer.complete == 0);
     /* Bound device: a KEY_15 activation frame decrypts but is refused. */
     CHECK(handshake(&state, &peer, key15) == 0);
     CHECK(receive(&state, 15, key15, 0x1B, 3,
-                  activation_payload, sizeof(activation_payload) - 1) == 0);
+                  activation_garbage, sizeof(activation_garbage) - 1) == 0);
     CHECK(peer.activations == 0 && peer.complete == 0);
     return 0;
 }
@@ -819,6 +866,7 @@ int test_control(void)
     RUN(report_capacity_and_size_boundaries);
     RUN(activation_delivery_binds_device);
     RUN(activation_delivery_rejected_stays_unbound);
+    RUN(activation_delivery_rejects_malformed_payloads);
     RUN(activation_delivery_is_gated);
     RUN(unbind_restores_unbound_form);
     RUN(bind_api_validation);

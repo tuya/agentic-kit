@@ -114,10 +114,14 @@ _Avoid_: auth_key, provisioning Token, session key.
 **Activation delivery** (`activation_info`, cmd `0x001B`):
 The single-mode (BLE-only) path into Bound control: after the app activates the
 device with the cloud out of band, it sends the activation information over the
-unbound `key_12` session. The module hands the reassembled payload to the
-application callback — no open Tuya source specifies the payload layout, so it is
-application-defined — validates the returned credential pair and copies them in.
-The ACK rides `key_12` and reports success only for an accepted copy, installed
+unbound `key_12` session. The payload is a protocol-defined JSON object string —
+`{"devID":…, "secKey":…, "localKey":…, "schema":…}` with further app-defined
+fields allowed. The SDK parses it and validates that `secKey`/`localKey` are
+exactly 16 characters; a malformed payload is failure-ACKed without a callback.
+The application callback receives the parsed, borrowed fields (devID, schema,
+the full JSON) to persist and may veto by returning nonzero — the credentials
+themselves are validated, ACKed and installed by the SDK.
+The ACK rides `key_12` and reports success only for an accepted delivery, installed
 after the ACK is queued.
 _Avoid_: Provisioning (WiFi credential delivery), Pairing, cloud activation
 (the app-side prerequisite that happens off-BLE).

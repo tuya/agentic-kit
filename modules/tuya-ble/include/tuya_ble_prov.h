@@ -48,7 +48,11 @@ extern "C" {
 
 /* Radio capability advertised in the scan response and device-info response.
  * Advertise only bands the port can actually scan and join: claiming 5 GHz on
- * a 2.4-GHz-only radio makes the app offer networks the device cannot use. */
+ * a 2.4-GHz-only radio makes the app offer networks the device cannot use.
+ * TUYA_BLE_COMM_ABILITY_BLE alone (no band bits) makes the app classify the
+ * device as single-mode BLE (ThingSmartBLETypeBLESecurity): pairing binds over
+ * BLE and the app never sends WiFi credentials. */
+#define TUYA_BLE_COMM_ABILITY_BLE     0x0001
 #define TUYA_BLE_COMM_ABILITY_2_4_GHZ 0x0004
 #define TUYA_BLE_COMM_ABILITY_5_GHZ   0x0008
 
@@ -93,6 +97,19 @@ typedef struct {
 
 typedef void (*tuya_ble_prov_cb_t)(const tuya_ble_wifi_creds_t *creds);
 
+/* Activation delivery (0x001B, 发送设备激活信息) payload, parsed by the SDK.
+ * The wire payload is a JSON object string whose known fields are devID,
+ * secKey, localKey and schema; secKey/localKey are validated to exactly 16
+ * characters before this structure reaches the application. All pointers are
+ * borrowed and only valid inside the callback. */
+typedef struct {
+    const char *dev_id;     /* "devID", borrowed; NULL when absent */
+    const char *schema;     /* "schema", borrowed; NULL when absent */
+    const char *local_key;  /* "localKey", borrowed; 16 characters */
+    const char *secret_key; /* "secKey", borrowed; 16 characters */
+    const char *json;       /* full payload text, NUL-terminated, borrowed */
+} tuya_ble_activation_info_t;
+
 typedef struct {
     const char *device_name;
     const char *product_key;
@@ -135,18 +152,20 @@ typedef struct {
     int (*dp_query)(const uint8_t *ids, size_t count, void *ctx);
     void *dp_ctx;
     /* Optional single-mode (BLE-only) activation delivery, wire command 0x001B
-     * (the V6 doc names it 发送设备激活信息). Called on the BLE owner context
-     * in the unbound KEY_12 session after Pairing, with the borrowed,
-     * reassembled payload (a slice into the receive buffer: not
-     * NUL-terminated, invalid after the call). No open Tuya source defines
-     * the payload layout. Parse it, persist what must survive a reboot, and
-     * on acceptance copy the 16-byte NUL-terminated Activation credentials
-     * into local_key_out/secret_key_out: the SDK validates them, ACKs
-     * success and installs them itself (the bound form flips only after the
-     * ACK is queued). Return 0 to accept; any other value, or malformed out
-     * buffers, is logged and ACKed as failure. */
-    int (*activation_info)(const uint8_t *data, size_t len,
-                           char local_key_out[17], char secret_key_out[17], void *ctx);
+     * (the protocol doc names it 发送设备激活信息). The payload is a JSON
+     * object string — {"devID":..., "secKey":..., "localKey":..., "schema":...}
+     * with further app-defined fields allowed. The SDK parses it and validates
+     * that localKey/secKey are exactly 16 characters before calling back; a
+     * malformed payload is answered with a failure ACK without a callback.
+     *
+     * Called on the BLE owner context in the unbound KEY_12 session after
+     * Pairing. Every pointer in @p info is borrowed and only valid during the
+     * call: copy what must survive (devID, schema, the full JSON) — the
+     * Activation credentials themselves are validated, ACKed and installed by
+     * the SDK after this callback returns 0. Return 0 to accept the delivery;
+     * any other value ACKs failure and leaves the device unbound so the app
+     * can retry. */
+    int (*activation_info)(const tuya_ble_activation_info_t *info, void *ctx);
     void *activation_ctx;
     /* Called on the BLE owner context after an Unbind (0x0005) or Device
      * reset (0x0006) request dropped the bound form and restored the
@@ -169,6 +188,14 @@ typedef struct {
      * Config-injected credentials never use them. */
     char bound_local_key[17];
     char bound_secret_key[17];
+
+    /* Zero-padded copy of the config's product_key. Tuya issues 8-char
+     * productIds while the advertisement's id field is a fixed 16 bytes;
+     * init() copies the borrowed key here (NUL/garbage-padded to 16) and
+     * points cfg.product_key at it, so build_adv_data's fixed read cannot
+     * overread a short caller string. close() must carry it across the
+     * state wipe like the bound keys. */
+    char product_key_pad[17];
 
     uint8_t ble_id[TUYA_BLE_ID_LEN + 1];
     bool is_id_comp;
@@ -219,7 +246,9 @@ typedef struct {
 } tuya_ble_prov_state_t;
 
 /* Config strings are borrowed and must outlive state: NUL-terminated product_key
- * (16 bytes), auth_key (32 bytes), uuid (16 bytes or 20 alphanumeric bytes).
+ * (8 or 16 bytes -- 8-char Tuya productIds are zero-padded into the 16-byte
+ * advertisement id field via an internal copy), auth_key (32 bytes),
+ * uuid (16 bytes or 20 alphanumeric bytes).
  * Initialize the process PAL/cJSON hooks via iot_init() before delivering JSON.
  * State layout is not ABI-stable: recompile callers after upgrading this header. */
 int tuya_ble_prov_init(tuya_ble_prov_state_t *state, const tuya_ble_prov_cfg_ext_t *cfg);

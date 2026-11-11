@@ -222,9 +222,24 @@ static int report(tuya_ble_prov_state_t *state, const uint8_t *tlv, size_t len,
     uint8_t payload[TUYA_BLE_TX_BUF_SIZE];
     size_t prefix = DP_REPORT_PREFIX + (with_time ? DP_TIME_PREFIX : 0);
     size_t plaintext_cap = ((TUYA_BLE_TX_BUF_SIZE - DP_PACKET_OVERHEAD) / 16) * 16;
-    if (!authorized(state) || state->dp_report_sn == UINT32_MAX ||
-        len > plaintext_cap - DP_FRAME_OVERHEAD - prefix ||
-        tuya_ble_dp_validate(tlv, len)) return -1;
+    if (!authorized(state)) {
+        TUYA_BLE_HAL_LOGW("[DP] report dropped: not authorized (paired=%d authed=%d)",
+                          state ? state->paired : 0, state ? state->authenticated : 0);
+        return -1;
+    }
+    if (state->dp_report_sn == UINT32_MAX) {
+        TUYA_BLE_HAL_LOGW("[DP] report dropped: report SN exhausted");
+        return -1;
+    }
+    if (len > plaintext_cap - DP_FRAME_OVERHEAD - prefix) {
+        TUYA_BLE_HAL_LOGW("[DP] report dropped: %u-byte TLV over %u cap", (unsigned)len,
+                          (unsigned)(plaintext_cap - DP_FRAME_OVERHEAD - prefix));
+        return -1;
+    }
+    if (tuya_ble_dp_validate(tlv, len)) {
+        TUYA_BLE_HAL_LOGW("[DP] report dropped: TLV invalid");
+        return -1;
+    }
 
     uint32_t report_sn = state->dp_report_sn + 1;
     payload[0] = 0; /* DP protocol version. */
@@ -239,7 +254,13 @@ static int report(tuya_ble_prov_state_t *state, const uint8_t *tlv, size_t len,
     int rc = tuya_ble_prov_send_report_frame(state,
                                             with_time ? DP_CMD_REPORT_TIME : DP_CMD_REPORT,
                                             payload, (uint16_t)(prefix + len));
-    if (!rc) state->dp_report_sn = report_sn;
+    if (!rc) {
+        state->dp_report_sn = report_sn;
+        TUYA_BLE_HAL_LOGI("[DP] report sent: cmd=0x%04X sn=%lu tlv=%u bytes%s",
+                          with_time ? DP_CMD_REPORT_TIME : DP_CMD_REPORT,
+                          (unsigned long)report_sn, (unsigned)len,
+                          query_response ? " (query response)" : "");
+    }
     return rc == 0 ? 0 : -1;
 }
 
@@ -271,13 +292,30 @@ static int query_ids_valid(const uint8_t *ids, size_t count)
 int tuya_ble_dp_on_frame(tuya_ble_prov_state_t *state, uint16_t cmd,
                          const uint8_t *data, uint16_t len)
 {
-    if (!authorized(state) || (len && !data)) return -1;
+    if (!authorized(state) || (len && !data)) {
+        TUYA_BLE_HAL_LOGW("[DP] cmd=0x%04X len=%u dropped: %s", cmd, (unsigned)len,
+                          state == NULL ? "null state"
+                          : !state->authenticated || !state->paired ? "not authorized"
+                          : "null data");
+        return -1;
+    }
     if (cmd == DP_CMD_REPORT || cmd == DP_CMD_REPORT_TIME) return 0;
     /* Do not admit application work if its immediate ACK has no queue slot. */
     if (state->tx_count >= TUYA_BLE_TX_QUEUE_DEPTH || state->sn == UINT32_MAX ||
-        !state->cfg.send_fn) return -1;
+        !state->cfg.send_fn) {
+        TUYA_BLE_HAL_LOGW("[DP] cmd=0x%04X dropped: tx queue full (%u/%d) or SN exhausted",
+                          cmd, (unsigned)state->tx_count, TUYA_BLE_TX_QUEUE_DEPTH);
+        return -1;
+    }
     if (cmd == DP_CMD_WRITE) {
-        if (len < 5) return -1;
+        if (len < 5) {
+            TUYA_BLE_HAL_LOGW("[DP] write too short: %u bytes", (unsigned)len);
+            return -1;
+        }
+        TUYA_BLE_HAL_LOGI("[DP] write: pkt_ver=%u sn=%lu, %u-byte TLV",
+                          data[0], (unsigned long)read_unsigned(data + 1, 4),
+                          (unsigned)(len - 5));
+        TUYA_BLE_HAL_HEXDUMP(data + 5, len - 5 > 32 ? 32 : len - 5);
         uint8_t response[6];
         memcpy(response, data, 5);
         response[5] = 1;
@@ -285,16 +323,33 @@ int tuya_ble_dp_on_frame(tuya_ble_prov_state_t *state, uint16_t cmd,
             state->cfg.dp_write &&
             state->cfg.dp_write(data + 5, len - 5, state->cfg.dp_ctx) == 0) {
             response[5] = 0;
+        } else if (data[0] != 0) {
+            TUYA_BLE_HAL_LOGW("[DP] write rejected: pkt_ver=%u unsupported", data[0]);
+        } else if (tuya_ble_dp_validate(data + 5, len - 5)) {
+            TUYA_BLE_HAL_LOGW("[DP] write rejected: TLV invalid");
+        } else if (!state->cfg.dp_write) {
+            TUYA_BLE_HAL_LOGW("[DP] write rejected: no dp_write callback configured");
+        } else {
+            TUYA_BLE_HAL_LOGW("[DP] write rejected: dp_write callback declined");
         }
+        TUYA_BLE_HAL_LOGI("[DP] write ACK: ret=%u (0 = accepted)", response[5]);
         return tuya_ble_prov_send_frame(state, cmd, response, sizeof(response),
                                          TUYA_BLE_ENCRYPTION_MODE_KEY_15);
     }
     if (cmd == DP_CMD_QUERY) {
+        TUYA_BLE_HAL_LOGI("[DP] query: %u id(s) (0 bytes = all)", (unsigned)len);
+        if (len) TUYA_BLE_HAL_HEXDUMP(data, len > 32 ? 32 : len);
         uint8_t response = 1;
         if (!query_ids_valid(data, len) && state->cfg.dp_query &&
             state->cfg.dp_query(data, len, state->cfg.dp_ctx) == 0) response = 0;
+        else if (query_ids_valid(data, len))
+            TUYA_BLE_HAL_LOGW("[DP] query rejected: invalid/duplicate id list");
+        else if (!state->cfg.dp_query)
+            TUYA_BLE_HAL_LOGW("[DP] query rejected: no dp_query callback configured");
+        TUYA_BLE_HAL_LOGI("[DP] query ACK: ret=%u (0 = accepted)", response);
         return tuya_ble_prov_send_frame(state, cmd, &response, 1,
                                          TUYA_BLE_ENCRYPTION_MODE_KEY_15);
     }
+    TUYA_BLE_HAL_LOGW("[DP] unhandled cmd=0x%04X len=%u", cmd, (unsigned)len);
     return -1;
 }

@@ -571,17 +571,54 @@ static void handle_activation_info(tuya_ble_prov_state_t *state, const uint8_t *
     }
     TUYA_BLE_HAL_HEXDUMP(data, data_len > 32 ? 32 : data_len);
 
+    /* 发送设备激活信息 (0x001B): the payload is a JSON object string
+     * {"devID":..., "secKey":..., "localKey":..., "schema":...}. The SDK owns
+     * the layout so every port sees the same parse; the application decides
+     * what to persist and may veto the install. */
+    char json_copy[TUYA_BLE_RX_BUF_SIZE + 1];
     char local_out[17] = {0}, secret_out[17] = {0};
-    int rc = state->cfg.activation_info(data, data_len, local_out, secret_out,
-                                        state->cfg.activation_ctx);
+    tuya_ble_activation_info_t info = {0};
     uint8_t result = 0x01;
+
+    if (data_len > TUYA_BLE_RX_BUF_SIZE) {
+        TUYA_BLE_HAL_LOGW("[PROTO] Activation JSON exceeds %u bytes", TUYA_BLE_RX_BUF_SIZE);
+        goto ack;
+    }
+    memcpy(json_copy, data, data_len);
+    json_copy[data_len] = '\0';
+    info.json = json_copy;
+
+    cJSON *root = cJSON_ParseWithLength(json_copy, data_len);
+    if (root == NULL) {
+        TUYA_BLE_HAL_LOGW("[PROTO] Activation payload is not JSON");
+        goto ack;
+    }
+    const cJSON *lk = cJSON_GetObjectItemCaseSensitive(root, "localKey");
+    const cJSON *sk = cJSON_GetObjectItemCaseSensitive(root, "secKey");
+    const cJSON *dv = cJSON_GetObjectItemCaseSensitive(root, "devID");
+    const cJSON *sc = cJSON_GetObjectItemCaseSensitive(root, "schema");
+    if (!cJSON_IsString(lk) || strlen(lk->valuestring) != 16 ||
+        !cJSON_IsString(sk) || strlen(sk->valuestring) != 16) {
+        TUYA_BLE_HAL_LOGW("[PROTO] Activation JSON rejected: secKey/localKey must be 16-character strings");
+        cJSON_Delete(root);
+        goto ack;
+    }
+    memcpy(local_out, lk->valuestring, 16);
+    memcpy(secret_out, sk->valuestring, 16);
+    info.local_key = local_out;
+    info.secret_key = secret_out;
+    info.dev_id = cJSON_IsString(dv) ? dv->valuestring : NULL;
+    info.schema = cJSON_IsString(sc) ? sc->valuestring : NULL;
+
+    int rc = state->cfg.activation_info(&info, state->cfg.activation_ctx);
     if (rc != 0) {
         TUYA_BLE_HAL_LOGW("[PROTO] Activation delivery callback rc=%d", rc);
-    } else if (strlen(local_out) != 16 || strlen(secret_out) != 16) {
-        TUYA_BLE_HAL_LOGW("[PROTO] Activation credentials malformed");
     } else {
         result = 0x00;
     }
+    cJSON_Delete(root);
+
+ack:
     /* The ACK still rides the unbound KEY_12 session: send it before the
      * form flips, or the mode-segregation gate refuses the send. */
     if (tuya_ble_send(state, FRM_ACTIVATION_INFO_REQ, &result, 1,
@@ -840,7 +877,16 @@ static int build_adv_data(tuya_ble_prov_state_t *state)
     state->adv_data[state->adv_len++] = TUYA_SVC_UUID_LO;
     state->adv_data[state->adv_len++] = TUYA_SVC_UUID_HI;
 
-    state->adv_data[state->adv_len++] = 3 + 2 + 2 + TUYA_BLE_ID_LEN;
+    /* Bound devices advertise an AES-encrypted fixed 16-byte id block; an
+     * unbound device writes the product key at its true length (Tuya
+     * productIds are 8 chars, productKeys 16) — no zero padding. */
+    size_t id_len = TUYA_BLE_ID_LEN;
+    if (!is_bound(state)) {
+        id_len = strnlen(state->cfg.product_key, TUYA_BLE_ID_LEN);
+        if (id_len < 8) return -1;
+    }
+
+    state->adv_data[state->adv_len++] = 3 + 2 + 2 + id_len;
     state->adv_data[state->adv_len++] = 0x16;
     state->adv_data[state->adv_len++] = TUYA_SVC_UUID_LO;
     state->adv_data[state->adv_len++] = TUYA_SVC_UUID_HI;
@@ -857,7 +903,7 @@ static int build_adv_data(tuya_ble_prov_state_t *state)
     state->adv_data[state->adv_len++] = (frame_ctrl >> 8) & 0xFF;
     state->adv_data[state->adv_len++] = frame_ctrl & 0xFF;
     state->adv_data[state->adv_len++] = 0x00;
-    state->adv_data[state->adv_len++] = TUYA_BLE_ID_LEN;
+    state->adv_data[state->adv_len++] = id_len;
 
     if (is_bound(state)) {
         static const char hex[] = "0123456789ABCDEF";
@@ -875,9 +921,9 @@ static int build_adv_data(tuya_ble_prov_state_t *state)
         mbedtls_aes_free(&aes);
         if (rc != 0) return -1;
     } else {
-        memcpy(&state->adv_data[state->adv_len], state->cfg.product_key, TUYA_BLE_ID_LEN);
+        memcpy(&state->adv_data[state->adv_len], state->cfg.product_key, id_len);
     }
-    state->adv_len += TUYA_BLE_ID_LEN;
+    state->adv_len += id_len;
 
     state->rsp_data[state->rsp_len++] = 0x17;
     state->rsp_data[state->rsp_len++] = 0xFF;
@@ -893,7 +939,7 @@ static int build_adv_data(tuya_ble_prov_state_t *state)
     if (state->is_id_comp) *flag |= ADV_FLAG_UUID_COMP;
     if (is_bound(state)) *flag |= ADV_FLAG_BOUND;
 
-    if (rsp_id_encrypt(key_in, TUYA_BLE_ID_LEN + 4, state->ble_id, TUYA_BLE_ID_LEN,
+    if (rsp_id_encrypt(key_in, id_len + 4, state->ble_id, TUYA_BLE_ID_LEN,
                        &state->rsp_data[state->rsp_len]) != 0) return -1;
     state->rsp_len += TUYA_BLE_ID_LEN;
 
@@ -923,7 +969,9 @@ int tuya_ble_prov_init(tuya_ble_prov_state_t *state, const tuya_ble_prov_cfg_ext
         return -1;
 
     size_t supplied_uuid_len = strlen(cfg->uuid);
-    if (strlen(cfg->product_key) != 16 || strlen(cfg->auth_key) != 32 ||
+    size_t supplied_pk_len = strlen(cfg->product_key);
+    if (supplied_pk_len < 8 || supplied_pk_len > 16 ||
+        strlen(cfg->auth_key) != 32 ||
         (supplied_uuid_len != 16 && supplied_uuid_len != 20)) return -1;
     if (supplied_uuid_len == 20) {
         for (size_t i = 0; i < supplied_uuid_len; i++) {
@@ -934,6 +982,13 @@ int tuya_ble_prov_init(tuya_ble_prov_state_t *state, const tuya_ble_prov_cfg_ext
     }
     memset(state, 0, sizeof(*state));
     state->cfg = *cfg;
+    /* Tuya productIds are 8 chars, productKeys 16. Copy zero-padded into the
+     * state and re-point the config, so the bound-format fixed read never
+     * overreads a short caller string and close() can carry the key across
+     * its state wipe; the unbound advertisement writes the true length
+     * (see build_adv_data). */
+    memcpy(state->product_key_pad, cfg->product_key, supplied_pk_len);
+    state->cfg.product_key = state->product_key_pad;
     state->gatt_payload = 20;
     state->peer_pkt_len = 20;
     if (state->cfg.comm_ability == 0) {
@@ -974,8 +1029,11 @@ void tuya_ble_prov_close(tuya_ble_prov_state_t *state)
     tuya_ble_prov_cfg_ext_t cfg = state->cfg;
     /* Credentials installed in-session live inside the state that is about
      * to be wiped: carry them across the re-init instead of the dangling
-     * self-pointers, then re-point the config at the restored arrays. */
+     * self-pointers, then re-point the config at the restored arrays.
+     * product_key always points into the state (init() pads it there), so
+     * it is carried unconditionally. */
     char local_copy[17] = {0}, secret_copy[17] = {0};
+    char product_key_copy[17] = {0};
     int carried = cfg.local_key == state->bound_local_key &&
                   cfg.secret_key == state->bound_secret_key;
     if (carried) {
@@ -984,6 +1042,8 @@ void tuya_ble_prov_close(tuya_ble_prov_state_t *state)
         cfg.local_key = NULL;
         cfg.secret_key = NULL;
     }
+    memcpy(product_key_copy, state->product_key_pad, sizeof(product_key_copy));
+    cfg.product_key = product_key_copy;
     uint64_t now_ms = state->now_ms;
     uint32_t generation = state->connection_generation + 1;
     uint32_t wifi_scan_token = tuya_ble_next_scan_token(state->wifi_scan_token);
