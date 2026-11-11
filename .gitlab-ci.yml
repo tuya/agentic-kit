@@ -344,7 +344,7 @@ examples:
     # libopus install above, so require it only when opus is present.
     - |
       MISSING=""
-      for t in activate_demo ble_only_activate scan_by_app_pair_demo scan_by_device_pair_demo \
+      for t in activate_demo scan_by_app_pair_demo scan_by_device_pair_demo \
                unbind_demo dp_management_demo ota_demo ota_confirm_demo \
                ai/role-management/role_management_demo \
                udp_chat_demo udp_edu_camera_demo \
