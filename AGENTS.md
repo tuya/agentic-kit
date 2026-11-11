@@ -328,7 +328,11 @@ ordinary changes.
   `=== Results: N passed, M failed ===` line, or the exit code.
 - **GitHub push CI matches only `master`, `main` and `feature/**`.** Other branch names such as
   `feat/...` do not trigger it; PRs against master/main can trigger it, subject to paths-ignore.
-  New development relies on the actual GitLab pipeline for the latest commit SHA, per
+  GitLab CI runs the same job set at exactly three moments (see `workflow:` in `.gitlab-ci.yml`):
+  merge-request events (one detached pipeline per push to an MR's source branch — with no MR
+  open, a bare branch push runs nothing on GitLab), `master`/`main` pushes (the merge itself,
+  plus the `pages` deploy), and manually started pipelines (releases set `IS_RELEASE=true`).
+  New development relies on the GitLab MR pipeline for the latest commit SHA, per
   `CONTRIBUTING.md`. An absent pipeline is not evidence of successful checks.
 - **Docs changes are checked in only one place.** `docs-site` is `onBrokenLinks: 'throw'`, so
   renaming or deleting a page breaks `npm run build` for every page linking to it — but

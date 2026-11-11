@@ -24,6 +24,7 @@ New entries use explicit platform-qualified PR/MR links; see [CONTRIBUTING.md](C
 
 ### Changed
 
+- ci — GitLab pipelines run the same job set at three moments: merge-request events (a detached pipeline on the MR head, satisfying the project's "Pipelines must succeed" gate), `master`/`main` pushes (the merge itself, plus `pages`), and manual pipelines (`IS_RELEASE=true` releases skip the history gitleaks scan); bare branch and tag pushes no longer run GitLab CI — open the MR (GitHub's push CI still covers `feature/**` directly) (PR pending).
 - **BREAKING** pal — mandatory `wal_clock_time` provides Unix UTC milliseconds; `time_ms` keeps its monotonic timing contract (#45).
   - Custom PALs must supply `wal_clock_time` and rebuild SDK/PAL consumers.
   - FreeRTOS defaults to libc `gettimeofday()`; platforms using another UTC source can override the callback. POSIX keeps `CLOCK_REALTIME`.

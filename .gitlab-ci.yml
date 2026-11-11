@@ -41,6 +41,29 @@ stages:
   - memory-leak
   - pages
 
+# When pipelines run. GitLab CE 17.8.7 (this server), so merge_request_event
+# pipelines are detached pipelines on the MR head -- the "Pipelines must
+# succeed" project setting accepts them as the merge gate. Three moments:
+#   1. merge_request_event -- an MR is created, reopened, retargeted or gets
+#      new commits on its source branch: one pipeline per push, running the
+#      full suite on the MR head SHA. Branch pushes without an open MR run
+#      nothing here (GitHub's push CI still covers feature/** directly).
+#   2. master/main push -- merges land on master (protected against direct
+#      push, so this is the merge commit) and any allowed direct commit.
+#      This is also the only pipeline that carries the pages job.
+#   3. Manually started pipelines (web UI Run pipeline / API) -- the release
+#      flow runs one with IS_RELEASE=true to skip the history gitleaks scan.
+# Tag pushes create no pipeline: the merge pipeline already validated the
+# commit, and a second full scan (codescan runs up to 2h) would double the
+# release cost; run the release pipeline manually if a tag needs its own CI.
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "master"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api" || $CI_PIPELINE_SOURCE == "trigger"'
+    - when: never
+
 # Every runner serving this repo is tagged, and a tagged runner ignores
 # untagged jobs by default -- without a tag here all jobs pile onto whichever
 # single runner has "Run untagged jobs" enabled, serializing the pipeline no
@@ -321,7 +344,7 @@ examples:
     # libopus install above, so require it only when opus is present.
     - |
       MISSING=""
-      for t in activate_demo scan_by_app_pair_demo scan_by_device_pair_demo \
+      for t in activate_demo ble_only_activate scan_by_app_pair_demo scan_by_device_pair_demo \
                unbind_demo dp_management_demo ota_demo ota_confirm_demo \
                ai/role-management/role_management_demo \
                udp_chat_demo udp_edu_camera_demo \
