@@ -96,6 +96,14 @@ variables:
   # slow-but-alive path; the root fix is a reachable index (group-level
   # PIP_INDEX_URL variable, or a pip.conf baked into the build image).
   PIP_DEFAULT_TIMEOUT: "60"
+  # Reuse pip's download cache across jobs/pipelines. The dir must sit under
+  # $CI_PROJECT_DIR for GitLab to cache it; pip reads PIP_CACHE_DIR. Only the
+  # download cache is reused -- the venv is recreated per job (it bakes an
+  # absolute path, unsafe to cache). GitLab cache is per-runner unless a
+  # distributed cache (S3/MinIO) is configured at the runner level; the real
+  # fix for the flaky public-PyPI link is still a reachable internal index
+  # (group PIP_INDEX_URL / a pip.conf in the build image).
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
 
 # Shared job prep (hidden dot-prefixed jobs are never scheduled; jobs alias
 # their steps in). &venv_steps creates the venv at the path the build job
@@ -114,6 +122,14 @@ variables:
 # own --retries does not cover a read timeout mid-stream. Files that
 # finished downloading stay in pip's HTTP cache inside the same container,
 # so each attempt re-fetches only what died.
+# Pip download cache (see PIP_CACHE_DIR above), aliased into the jobs that run
+# pip. The venv itself is never cached.
+.pip_cache:
+  cache: &pip_cache
+    key: pip-cache
+    paths:
+      - .cache/pip
+
 .venv:
   before_script: &venv_steps
     - python3 -m venv venv
@@ -150,6 +166,7 @@ build:
   # Mirror GitHub's concurrency.cancel-in-progress: a newer push cancels this
   # job (requires the project setting "Auto-cancel redundant pipelines").
   interruptible: true
+  cache: *pip_cache
   before_script: *deps_steps
   script:
     - cmake --version
@@ -166,6 +183,7 @@ test:
   interruptible: true
   needs:
     - build
+  cache: *pip_cache
   # Recreate the venv at the same path the build job baked into the test
   # binaries (Python3_EXECUTABLE), with the mock dependencies installed.
   before_script: *venv_steps
@@ -297,6 +315,7 @@ test:sanitizers:
   # Own configure+build inside the parallel wave: needs: [] -- no waiting on
   # the `build` job and no download of its artifacts.
   needs: []
+  cache: *pip_cache
   # &deps_steps carries the codegen stack; this job also RUNS the
   # mock-driven suites against its own tree, so the mock-server crypto
   # stack goes on top (one nesting level, like the examples job's apt line).
@@ -323,6 +342,7 @@ examples:
   image: ${BUILD_IMAGE}
   interruptible: true
   needs: []
+  cache: *pip_cache
   before_script:
     - *deps_steps
     # libopus enables the optional audio_chat_demo; without it that one
