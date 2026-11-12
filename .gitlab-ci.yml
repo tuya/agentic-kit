@@ -41,27 +41,29 @@ stages:
   - memory-leak
   - pages
 
-# When pipelines run. GitLab CE 17.8.7 (this server), so merge_request_event
-# pipelines are detached pipelines on the MR head -- the "Pipelines must
-# succeed" project setting accepts them as the merge gate. Three moments:
-#   1. merge_request_event -- an MR is created, reopened, retargeted or gets
-#      new commits on its source branch: one pipeline per push, running the
-#      full suite on the MR head SHA. Branch pushes without an open MR run
-#      nothing here (GitHub's push CI still covers feature/** directly).
-#   2. master/main push -- merges land on master (protected against direct
-#      push, so this is the merge commit) and any allowed direct commit.
-#      This is also the only pipeline that carries the pages job.
-#   3. Manually started pipelines (web UI Run pipeline / API) -- the release
-#      flow runs one with IS_RELEASE=true to skip the history gitleaks scan.
-# Tag pushes create no pipeline: the merge pipeline already validated the
-# commit, and a second full scan (codescan runs up to 2h) would double the
-# release cost; run the release pipeline manually if a tag needs its own CI.
+# When pipelines run -- exactly one pipeline per commit: an MR pipeline when
+# the branch has an open MR, otherwise a branch pipeline. GitLab CE 17.8.7:
+# merge_request_event pipelines are detached pipelines on the MR head, which
+# the "Pipelines must succeed" setting accepts as the merge gate. Rule order
+# matters (first match wins):
+#   1. merge_request_event -- MR created/reopened/retargeted or new commits on
+#      its source branch: the full suite on the MR head SHA (the merge gate).
+#   2. web / api / trigger -- manually started (e.g. the release flow with
+#      IS_RELEASE=true to skip the history gitleaks scan); always allowed,
+#      regardless of MR state, so it is listed before the dedup rule below.
+#   3. branch push WITH an open MR -- skip: rule 1 already validates this exact
+#      commit on the MR head, so a branch pipeline would only duplicate it.
+#   4. branch push WITHOUT an open MR (master/main or a feature branch) -- run
+#      a branch pipeline (master/main also carries the pages job).
+#   5. anything else (e.g. tag pushes) -- no pipeline; run one manually if a
+#      tag needs its own CI (a second full codescan runs up to 2h).
 workflow:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "master"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api" || $CI_PIPELINE_SOURCE == "trigger"'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
     - when: never
 
 # Every runner serving this repo is tagged, and a tagged runner ignores
