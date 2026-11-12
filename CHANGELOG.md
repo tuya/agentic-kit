@@ -34,6 +34,7 @@ New entries use explicit platform-qualified PR/MR links; see [CONTRIBUTING.md](C
 
 ### Fixed
 
+- rtc-tcp-client — `tai_frame_verify` rejects a declared frame length smaller than the signature before deriving the payload size, preventing a size_t underflow that swept out of bounds inside the HMAC computation (CodeScan high; not reachable through the SDK's own receive path, where the frame-length guard rejects the frame first) (PR pending).
 - pal — FreeRTOS `time_ms` preserves tick wraps and converts non-integral tick periods correctly (#45).
 - biz-client — role request timestamps and the clock gate read PAL UTC instead of libc time, so ports without a synchronized libc clock work (#45).
 

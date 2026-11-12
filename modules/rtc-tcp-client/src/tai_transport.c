@@ -205,6 +205,10 @@ int tai_frame_verify(const uint8_t *raw_frame, size_t frame_len,
     if (!raw_frame || frame_len < (size_t)(5 + sig_len)) return TAI_ERR_PROTO;
 
     uint16_t length     = tai_r16(raw_frame + 3);
+    /* Same guard as tai_frame_decode: a declared length that undercounts the
+     * signature would underflow payload_len below and sweep far out of
+     * bounds inside the HMAC. */
+    if (length < sig_len) return TAI_ERR_PROTO;
     size_t   payload_len = (size_t)(length - sig_len);
     const uint8_t *sig   = raw_frame + 5 + payload_len;
 
