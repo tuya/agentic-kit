@@ -829,6 +829,213 @@ static int unbind_restores_unbound_form(void)
     return 0;
 }
 
+/* Real single-mode apps bind in the pair request rather than sending 0x001B.
+ * Without a beacon key the v4.4 payload is 82 bytes; with one it is 98. */
+static int single_mode_device_info(tuya_ble_prov_state_t *state, control_peer_t *peer,
+                                   uint8_t key12[16])
+{
+    uint8_t first[16], reply[512], material[22], request[] = {0, 244};
+    size_t len;
+    CHECK(setup(state, peer, 0) == 0);
+    state->cfg.comm_ability = TUYA_BLE_COMM_ABILITY_BLE;
+    tuya_ble_prov_close(state);
+    CHECK(key11(first) == 0);
+    CHECK(receive(state, 11, first, 0, 1, request, sizeof(request)) == 0);
+    CHECK(response(peer, 0, first, 11, 0, 1, reply, &len) == 0 && reply[5] == 0);
+    memcpy(material, first, 16); memcpy(material + 16, reply + 6, 6);
+    CHECK(mbedtls_md5(material, sizeof(material), key12) == 0);
+    clear_packets(peer);
+    return 0;
+}
+
+static int make_pair_binding(uint8_t data[98], unsigned beacon_len)
+{
+    uint8_t material[64], digest[16];
+    memset(data, 0, 98);
+    memcpy(data, identity, 16);
+    memcpy(data + 16, "legacy", 6);
+    memcpy(data + 22, "dev1234567890abcdef012", 22);
+    data[44] = beacon_len;
+    memset(data + 45, 0xa5, beacon_len);
+    data[45 + beacon_len] = 0; /* App source. */
+    memcpy(data + 46 + beacon_len, local_key, 16);
+    memcpy(data + 62 + beacon_len, secret_key, 16);
+    memcpy(material, local_key, 16); memcpy(material + 16, secret_key, 16);
+    memcpy(material + 32, auth, 32);
+    CHECK(mbedtls_md5(material, sizeof(material), digest) == 0);
+    memcpy(data + 78 + beacon_len, digest, 4);
+    return 0;
+}
+
+static int single_mode_pair_binds_and_reconnects(void)
+{
+    for (unsigned beacon_len = 0; beacon_len <= 16; beacon_len += 16) {
+        tuya_ble_prov_state_t state;
+        control_peer_t peer;
+        uint8_t key12[16], key15[16], first[16], binding[98], reply[512];
+        uint8_t wire[512], frame[512], material[38], request[] = {0, 244}, command[512];
+        size_t len, binding_len = 82 + beacon_len;
+        CHECK(single_mode_device_info(&state, &peer, key12) == 0);
+        CHECK(make_pair_binding(binding, beacon_len) == 0);
+        size_t n = make_packet(wire, 12, key12, 1, 2, binding, binding_len);
+        /* Match the phone trace: 96-byte Frame plus a full CBC padding block. */
+        CHECK(crypt(0, key12, wire + 1, wire + 17, n - 17, frame) == 0);
+        memset(frame + n - 17, 16, 16);
+        CHECK(crypt(1, key12, wire + 1, frame, n - 1, wire + 17) == 0);
+        peer.busy = beacon_len != 0;
+        CHECK(deliver(&state, wire, n + 16) == 0);
+        CHECK(peer.activations == 1);
+        CHECK(!strcmp(peer.activation_dev_id, "dev1234567890abcdef012"));
+        CHECK(!strcmp(peer.activation_local, local_key) && !strcmp(peer.activation_secret, secret_key));
+        CHECK(state.cfg.local_key == state.bound_local_key && (state.rsp_data[7] & 128));
+        if (peer.busy) {
+            CHECK(peer.complete == 0 && state.tx_count == 1);
+            peer.busy = 0;
+            CHECK(tuya_ble_prov_tx_ready(&state) == 0);
+        }
+        CHECK(peer.complete == 1); /* No WiFi network-status frame on single-mode BLE. */
+        CHECK(response(&peer, 0, key12, 12, 1, 2, reply, &len) == 0 && len == 1 && reply[0] == 0);
+        tuya_ble_prov_close(&state);
+        CHECK((state.rsp_data[7] & 128) && !strcmp(state.cfg.local_key, local_key));
+        clear_packets(&peer);
+        CHECK(key14(first) == 0);
+        CHECK(receive(&state, 14, first, 0, 1, request, sizeof(request)) == 0);
+        CHECK(response(&peer, 0, first, 14, 0, 1, reply, &len) == 0 && reply[5] == 1);
+        memcpy(material, local_key, 16); memcpy(material + 16, secret_key, 16);
+        memcpy(material + 32, reply + 6, 6);
+        CHECK(mbedtls_md5(material, sizeof(material), key15) == 0);
+        if (beacon_len) {
+            /* Bound reauthentication must never replace saved credentials
+             * using fields carried in the new pair request. */
+            binding[46 + beacon_len] ^= 1;
+            CHECK(receive(&state, 15, key15, 1, 2, binding, binding_len) == 0);
+        } else {
+            CHECK(receive(&state, 15, key15, 1, 2, identity, 16) == 0);
+        }
+        CHECK(!strcmp(state.cfg.local_key, local_key));
+        CHECK(response(&peer, 1, key15, 15, 1, 2, reply, &len) == 0 && reply[0] == 2);
+        CHECK(peer.complete == 2 && peer.activations == 1);
+        clear_packets(&peer);
+        n = dp_command(command, all_types, sizeof(all_types));
+        CHECK(receive(&state, 15, key15, 0x27, 3, command, n) == 0);
+        CHECK(peer.writes == 1);
+        CHECK(response(&peer, 0, key15, 15, 0x27, 3, reply, &len) == 0 && reply[5] == 0);
+        CHECK(tuya_ble_dp_report(&state, all_types, sizeof(all_types), false) == 0);
+    }
+    return 0;
+}
+
+static int single_mode_pair_accepts_padded_virtual_id(void)
+{
+    tuya_ble_prov_state_t state;
+    control_peer_t peer;
+    uint8_t key12[16], binding[98], reply[512];
+    size_t len;
+    CHECK(single_mode_device_info(&state, &peer, key12) == 0);
+    CHECK(make_pair_binding(binding, 0) == 0);
+    /* Real App trace: a 16-byte virtual ID in the fixed 22-byte field,
+     * followed by six zero-padding bytes. */
+    memset(binding + 22, 0, 22);
+    memcpy(binding + 22, identity, 16);
+    CHECK(receive(&state, 12, key12, 1, 2, binding, 82) == 0);
+    CHECK(peer.activations == 1 && !strcmp(peer.activation_dev_id, identity));
+    CHECK(response(&peer, 0, key12, 12, 1, 2, reply, &len) == 0 && reply[0] == 0);
+    CHECK(state.cfg.local_key == state.bound_local_key && (state.rsp_data[7] & 128));
+    return 0;
+}
+
+static int single_mode_pair_allows_immediate_bound_control(void)
+{
+    tuya_ble_prov_state_t state;
+    control_peer_t peer;
+    uint8_t key12[16], key15[16], binding[98], material[38], command[512], reply[512];
+    size_t len;
+    CHECK(single_mode_device_info(&state, &peer, key12) == 0);
+    CHECK(make_pair_binding(binding, 0) == 0);
+    memset(binding + 22, 0, 22);
+    memcpy(binding + 22, identity, 16);
+    CHECK(receive(&state, 12, key12, 1, 2, binding, 82) == 0);
+    CHECK(peer.activations == 1);
+    CHECK(response(&peer, 0, key12, 12, 1, 2, reply, &len) == 0 && reply[0] == 0);
+    memcpy(material, local_key, 16);
+    memcpy(material + 16, secret_key, 16);
+    memcpy(material + 32, state.pair_rand, 6);
+    CHECK(mbedtls_md5(material, sizeof(material), key15) == 0);
+    /* The real App keeps the original GATT connection and sends KEY_15
+     * directly after the first pair ACK, without a KEY_14 device-info exchange. */
+    CHECK(receive(&state, 15, key15, 3, 3, NULL, 0) == 0);
+    CHECK(peer.queries == 1 && peer.complete == 2);
+    CHECK(response(&peer, 1, key15, 15, 3, 3, reply, &len) == 0 && reply[0] == 0);
+    size_t n = dp_command(command, all_types, sizeof(all_types));
+    CHECK(receive(&state, 15, key15, 0x27, 4, command, n) == 0);
+    CHECK(peer.writes == 1 && peer.complete == 3);
+    CHECK(tuya_ble_dp_report(&state, all_types, sizeof(all_types), false) == 0);
+    return 0;
+}
+
+static int single_mode_pair_rejects_bad_binding(void)
+{
+    for (unsigned bad = 0; bad < 10; bad++) {
+        tuya_ble_prov_state_t state;
+        control_peer_t peer;
+        uint8_t key12[16], binding[98], reply[512];
+        size_t len, binding_len = 82;
+        CHECK(single_mode_device_info(&state, &peer, key12) == 0);
+        CHECK(make_pair_binding(binding, 0) == 0);
+        switch (bad) {
+        case 0: binding[81] ^= 1; break; /* Invalid cloud proof. */
+        case 1: binding_len--; break;
+        case 2: binding[44] = 1; break; /* Invalid beacon length. */
+        case 3: binding[46] = 0; break;
+        case 4: binding[62] = 0; break;
+        case 5: binding[22] = 0; break;
+        case 6: state.cfg.activation_info = NULL; break;
+        case 7: peer.activation_rc = 7; break;
+        case 8: binding[0] ^= 1; break;
+        case 9: binding[38] = 0; break; /* Nonzero garbage after a padded ID. */
+        }
+        CHECK(receive(&state, 12, key12, 1, 2, binding, binding_len) == 0);
+        CHECK(peer.activations == (bad == 7 ? 1u : 0u) && peer.complete == 1);
+        CHECK(response(&peer, 0, key12, 12, 1, 2, reply, &len) == 0 && len == 1 && reply[0] == 1);
+        CHECK(!state.cfg.local_key && !(state.rsp_data[7] & 128) && !state.authenticated);
+    }
+    return 0;
+}
+
+static int single_mode_uuid_pair_keeps_activation_delivery(void)
+{
+    tuya_ble_prov_state_t state;
+    control_peer_t peer;
+    uint8_t key12[16], reply[512];
+    size_t len;
+    CHECK(single_mode_device_info(&state, &peer, key12) == 0);
+    CHECK(receive(&state, 12, key12, 1, 2, identity, 16) == 0);
+    CHECK(state.authenticated && !state.cfg.local_key && peer.complete == 1 && !peer.activations);
+    CHECK(response(&peer, 0, key12, 12, 1, 2, reply, &len) == 0 && reply[0] == 0);
+    CHECK(receive(&state, 12, key12, 0x1b, 3, activation_payload, strlen(activation_payload)) == 0);
+    CHECK(peer.activations == 1 && peer.complete == 2 && (state.rsp_data[7] & 128));
+    CHECK(response(&peer, 1, key12, 12, 0x1b, 3, reply, &len) == 0 && reply[0] == 0);
+    return 0;
+}
+
+static int wifi_pair_does_not_install_ble_binding(void)
+{
+    tuya_ble_prov_state_t state;
+    control_peer_t peer;
+    uint8_t first[16], key12[16], reply[512], material[22], binding[98], request[] = {0, 244};
+    size_t len;
+    CHECK(setup(&state, &peer, 0) == 0 && key11(first) == 0);
+    CHECK(receive(&state, 11, first, 0, 1, request, sizeof(request)) == 0);
+    CHECK(response(&peer, 0, first, 11, 0, 1, reply, &len) == 0);
+    memcpy(material, first, 16); memcpy(material + 16, reply + 6, 6);
+    CHECK(mbedtls_md5(material, sizeof(material), key12) == 0);
+    CHECK(make_pair_binding(binding, 0) == 0);
+    clear_packets(&peer);
+    CHECK(receive(&state, 12, key12, 1, 2, binding, 82) == 0);
+    CHECK(state.authenticated && !state.cfg.local_key && !peer.activations && peer.complete == 2);
+    return 0;
+}
+
 static int bind_api_validation(void)
 {
     tuya_ble_prov_state_t state;
@@ -868,6 +1075,12 @@ int test_control(void)
     RUN(activation_delivery_rejected_stays_unbound);
     RUN(activation_delivery_rejects_malformed_payloads);
     RUN(activation_delivery_is_gated);
+    RUN(single_mode_pair_binds_and_reconnects);
+    RUN(single_mode_pair_accepts_padded_virtual_id);
+    RUN(single_mode_pair_allows_immediate_bound_control);
+    RUN(single_mode_pair_rejects_bad_binding);
+    RUN(single_mode_uuid_pair_keeps_activation_delivery);
+    RUN(wifi_pair_does_not_install_ble_binding);
     RUN(unbind_restores_unbound_form);
     RUN(bind_api_validation);
 #undef RUN

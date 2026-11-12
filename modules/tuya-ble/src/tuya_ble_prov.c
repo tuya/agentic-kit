@@ -443,6 +443,63 @@ static void handle_dev_info_req(tuya_ble_prov_state_t *state, const uint8_t *dat
     TUYA_BLE_HAL_LOGI("[PROTO] handshake_ready=%d", state->handshake_ready);
 }
 
+/* v4.4 single-mode binding: UUID[16], legacy login[6], virtual ID[22],
+ * beacon length[1], optional beacon[16], source[1], login[16], secret[16],
+ * verify[4]. The beacon length moves the trailing fields (82 or 98 bytes). */
+static int accept_pair_binding(tuya_ble_prov_state_t *state, const uint8_t *data,
+                               uint16_t data_len, char local[17], char secret[17])
+{
+    if (!state->cfg.activation_info || data_len < 82) return -1;
+    size_t beacon_len = data[44];
+    if ((beacon_len != 0 && beacon_len != 16) || data_len < 82 + beacon_len)
+        return -1;
+    size_t key_offset = 46 + beacon_len;
+    /* The field is fixed-width, but BLE-only Apps also send a shorter virtual
+     * ID padded with zeros (observed: 16-byte ID plus six zero bytes). */
+    size_t dev_id_len = 0;
+    while (dev_id_len < 22 && data[22 + dev_id_len]) ++dev_id_len;
+    if (!dev_id_len || memchr(data + key_offset, 0, 32)) return -1;
+    for (size_t i = dev_id_len; i < 22; ++i) if (data[22 + i]) return -1;
+
+    uint8_t material[64], digest[16];
+    memcpy(material, data + key_offset, 32);
+    memcpy(material + 32, state->cfg.auth_key, AUTH_KEY_LEN);
+    int rc = md5_hash(material, sizeof(material), digest);
+    volatile uint8_t *wipe = material;
+    for (size_t i = 0; i < sizeof(material); ++i) wipe[i] = 0;
+    if (rc != 0) return -1;
+    uint8_t mismatch = 0;
+    for (size_t i = 0; i < 4; ++i) mismatch |= digest[i] ^ data[key_offset + 32 + i];
+    if (mismatch) {
+        TUYA_BLE_HAL_LOGW("[PROTO] Pair binding verification failed");
+        return -1;
+    }
+
+    char dev_id[23] = {0};
+    memcpy(dev_id, data + 22, dev_id_len);
+    memcpy(local, data + key_offset, 16);
+    memcpy(secret, data + key_offset + 16, 16);
+    /* Reuse the activation persistence boundary. Binary pair requests carry no
+     * schema; expose equivalent JSON for consumers that also save info.json. */
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return -1;
+    if (!cJSON_AddStringToObject(root, "devID", dev_id) ||
+        !cJSON_AddStringToObject(root, "localKey", local) ||
+        !cJSON_AddStringToObject(root, "secKey", secret)) {
+        cJSON_Delete(root);
+        return -1;
+    }
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!json) return -1;
+    tuya_ble_activation_info_t info = {
+        .dev_id = dev_id, .local_key = local, .secret_key = secret, .json = json,
+    };
+    rc = state->cfg.activation_info(&info, state->cfg.activation_ctx);
+    cJSON_free(json);
+    return rc;
+}
+
 static void handle_pair_req(tuya_ble_prov_state_t *state, const uint8_t *data, uint16_t data_len)
 {
     TUYA_BLE_HAL_LOGI("[PROTO] FRM_PAIR_REQ, data_len=%d", data_len);
@@ -454,6 +511,15 @@ static void handle_pair_req(tuya_ble_prov_state_t *state, const uint8_t *data, u
 
             result = 0x01;
         }
+    }
+
+    char local[17] = {0}, secret[17] = {0};
+    bool install_binding = result == 0 && !is_bound(state) &&
+        state->cfg.comm_ability == TUYA_BLE_COMM_ABILITY_BLE && data_len > TUYA_BLE_ID_LEN;
+    if (install_binding && accept_pair_binding(state, data, data_len, local, secret) != 0) {
+        TUYA_BLE_HAL_LOGW("[PROTO] Pair binding rejected (len=%u)", data_len);
+        result = 0x01;
+        install_binding = false;
     }
 
     if (result == 0x00) {
@@ -469,7 +535,23 @@ static void handle_pair_req(tuya_ble_prov_state_t *state, const uint8_t *data, u
         return;
     }
 
-    if (state->paired) {
+    if (install_binding) {
+        /* The first pair ACK belongs to KEY_12. Install only after it has been
+         * encrypted and queued; close() then retains the bound credentials. */
+        if (tuya_ble_prov_bind(state, local, secret) == 0) {
+            /* A verified pair request authenticated both the current handshake
+             * and the delivered credentials. The real App continues this same
+             * connection with KEY_15 derived using the existing pair_rand.
+             * Generic bind()/0x001B installs still require a fresh handshake. */
+            state->handshake_bound = true;
+            state->paired = true;
+            state->authenticated = true;
+            TUYA_BLE_HAL_LOGI("[PROTO] Pair binding installed; bound session ready");
+        }
+    }
+
+    if (state->paired &&
+        (state->cfg.comm_ability & (TUYA_BLE_COMM_ABILITY_2_4_GHZ | TUYA_BLE_COMM_ABILITY_5_GHZ))) {
         uint8_t net_stat = 0x00;
         tuya_ble_send(state, FRM_RPT_NET_STAT_REQ, &net_stat, 1, session_mode(state));
     }

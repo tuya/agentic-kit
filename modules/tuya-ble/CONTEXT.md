@@ -112,7 +112,7 @@ Activation artefact used by the IoT Client, not new BLE-only secrets.
 _Avoid_: auth_key, provisioning Token, session key.
 
 **Activation delivery** (`activation_info`, cmd `0x001B`):
-The single-mode (BLE-only) path into Bound control: after the app activates the
+One single-mode (BLE-only) path into Bound control: after the app activates the
 device with the cloud out of band, it sends the activation information over the
 unbound `key_12` session. The payload is a protocol-defined JSON object string —
 `{"devID":…, "secKey":…, "localKey":…, "schema":…}` with further app-defined
@@ -125,6 +125,23 @@ The ACK rides `key_12` and reports success only for an accepted delivery, instal
 after the ACK is queued.
 _Avoid_: Provisioning (WiFi credential delivery), Pairing, cloud activation
 (the app-side prerequisite that happens off-BLE).
+
+**Pair binding** (extended cmd `0x0001`):
+The v4.4 single-mode app can deliver Activation credentials in Pairing itself,
+without a later `0x001B`. The payload is 82 bytes without a beacon key or 98
+with one: BLE ID, legacy login key, 22-byte virtual device ID, beacon length
+and optional key, source, 16-byte login key, 16-byte secret key, and a four-byte
+verification prefix of `MD5(login_key || secret_key || auth_key)`. The virtual ID
+is a nonempty string with optional zero padding (the real App also sends a
+16-byte ID plus six zero bytes). BLE validates the fields and proof before
+calling `activation_info` with equivalent JSON and
+no schema. Acceptance queues the KEY_12 pair ACK, then installs the bound form
+and authorizes the current connection's KEY_15 session using the existing
+`pair_rand`. The App can query/control immediately without reconnecting.
+`close()` preserves credentials but requires a fresh bound-form handshake. WiFi Pairing and
+UUID-only Pairing retain their existing behavior. Single-mode BLE does not
+send the WiFi-only network-status frame `0x001E`.
+_Avoid_: WiFi credentials, BLE bonding, Activation delivery (the separate JSON command).
 
 **Unbind** (`0x0005`) and **Device reset** (`0x0006`):
 The app-initiated requests that drop installed Activation credentials and restore
@@ -277,6 +294,14 @@ _Avoid_: net-status (`0x001E`, the separate legacy notification), activation res
   survive `close()`'s wipe; config-injected borrowed credentials pass through
   unchanged. `tuya_ble_prov_bind()` shares the copy semantics and refuses an
   already-bound state.
+- Pair binding requires single-mode BLE capability, the unbound KEY_12 handshake,
+  a matching BLE ID and a verified credential pair. Invalid or truncated fields,
+  an invalid proof, or a missing/rejecting persistence callback produce a failure
+  pair ACK without installing the credentials. Bound Pairing never replaces keys
+  from the request. The first successful pair ACK remains encrypted with KEY_12,
+  including when notification backpressure delays its delivery past the form flip.
+  This verified Pairing, unlike a generic bind or `0x001B` delivery, authorizes
+  KEY_15 traffic on the existing handshake. Session close still clears authorization.
 - Unbind and Device reset require the current session mode and cryptographic Pairing.
   They acknowledge `0x01` first, then drop the credentials, wipe the internal copies,
   restore the unbound advertising and fire the `unbound` callback. An ACK send

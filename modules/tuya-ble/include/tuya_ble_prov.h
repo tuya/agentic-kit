@@ -97,9 +97,9 @@ typedef struct {
 
 typedef void (*tuya_ble_prov_cb_t)(const tuya_ble_wifi_creds_t *creds);
 
-/* Activation delivery (0x001B, 发送设备激活信息) payload, parsed by the SDK.
- * The wire payload is a JSON object string whose known fields are devID,
- * secKey, localKey and schema; secKey/localKey are validated to exactly 16
+/* Activation credentials parsed from delivery (0x001B) or an extended
+ * single-mode pair request (0x0001). JSON fields are devID, secKey, localKey
+ * and optional schema; secKey/localKey are validated to exactly 16
  * characters before this structure reaches the application. All pointers are
  * borrowed and only valid inside the callback. */
 typedef struct {
@@ -107,7 +107,7 @@ typedef struct {
     const char *schema;     /* "schema", borrowed; NULL when absent */
     const char *local_key;  /* "localKey", borrowed; 16 characters */
     const char *secret_key; /* "secKey", borrowed; 16 characters */
-    const char *json;       /* full payload text, NUL-terminated, borrowed */
+    const char *json;       /* delivery text or synthesized pair JSON, borrowed */
 } tuya_ble_activation_info_t;
 
 typedef struct {
@@ -151,16 +151,24 @@ typedef struct {
     int (*dp_write)(const uint8_t *tlv, size_t len, void *ctx);
     int (*dp_query)(const uint8_t *ids, size_t count, void *ctx);
     void *dp_ctx;
-    /* Optional single-mode (BLE-only) activation delivery, wire command 0x001B
-     * (the protocol doc names it 发送设备激活信息). The payload is a JSON
+    /* Optional single-mode (BLE-only) binding persistence callback. Extended
+     * v4.4 pair requests (0x0001, 82 bytes without a beacon key or 98 with one)
+     * carry the virtual device ID and credential pair. The SDK verifies the
+     * first four bytes of MD5(login_key || secret_key || auth_key), then calls
+     * this hook with parsed fields and synthesized JSON (schema is NULL).
+     * Failure rejects Pairing; success installs the credentials after the
+     * KEY_12 pair ACK is queued. WiFi devices retain their provisioning flow.
+     *
+     * Activation delivery (0x001B) instead carries a JSON
      * object string — {"devID":..., "secKey":..., "localKey":..., "schema":...}
      * with further app-defined fields allowed. The SDK parses it and validates
      * that localKey/secKey are exactly 16 characters before calling back; a
      * malformed payload is answered with a failure ACK without a callback.
      *
-     * Called on the BLE owner context in the unbound KEY_12 session after
-     * Pairing. Every pointer in @p info is borrowed and only valid during the
-     * call: copy what must survive (devID, schema, the full JSON) — the
+     * Called on the BLE owner context in the unbound KEY_12 session during
+     * extended Pairing or after Pairing for 0x001B. Every pointer in @p info
+     * is borrowed and only valid during the call: copy what must survive
+     * (devID, schema, the full JSON) — the
      * Activation credentials themselves are validated, ACKed and installed by
      * the SDK after this callback returns 0. Return 0 to accept the delivery;
      * any other value ACKs failure and leaves the device unbound so the app
@@ -182,8 +190,8 @@ typedef struct {
     tuya_ble_prov_cfg_ext_t cfg;
     tuya_ble_wifi_creds_t creds;
 
-    /* Activation credentials installed in-session (activation delivery,
-     * cmd 0x001B): the module copies them here and points
+    /* Activation credentials installed in-session (extended Pairing or
+     * activation delivery): the module copies them here and points
      * cfg.local_key/secret_key at them, so they survive close()'s re-init.
      * Config-injected credentials never use them. */
     char bound_local_key[17];

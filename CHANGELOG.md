@@ -12,6 +12,7 @@ New entries use explicit platform-qualified PR/MR links; see [CONTRIBUTING.md](C
 
 ### Added
 
+- iot-client — apply authenticated local DP batches atomically through `iot_client_apply_local_dps()`, with persistence callbacks and explicit cloud reporting (PR pending).
 - docs — manual contribution workflow for GitLab 17.8.7: contribution guidelines, PR/MR templates and a GitLab-to-GitHub sync runbook ([GitLab MR !5](https://registry.code.tuya-inc.top/TuyaAI/agentic-kit/-/merge_requests/5)).
 - ci — GitLab pipeline mirrors the GitHub checks (sanitizers, POSIX examples) and adds the valgrind leak, CodeScan and gitleaks secret-detection gates ([GitLab MR !5](https://registry.code.tuya-inc.top/TuyaAI/agentic-kit/-/merge_requests/5)).
   - External contributions must pass the CodeScan gate; `BLOCK_ON_VULN=false` switches it to report-only.
@@ -39,6 +40,7 @@ New entries use explicit platform-qualified PR/MR links; see [CONTRIBUTING.md](C
 ### Fixed
 
 - rtc-tcp-client — `tai_frame_verify` rejects a declared frame length smaller than the signature before deriving the payload size, preventing a size_t underflow that swept out of bounds inside the HMAC computation (CodeScan high; not reachable through the SDK's own receive path, where the frame-length guard rejects the frame first) (PR pending).
+- tuya-ble — persist verified credentials from extended single-mode pair requests, retain bound advertising on reconnect, and omit WiFi status frames for BLE-only devices (PR pending).
 - pal — FreeRTOS `time_ms` preserves tick wraps and converts non-integral tick periods correctly (#45).
 - biz-client — role request timestamps and the clock gate read PAL UTC instead of libc time, so ports without a synchronized libc clock work (#45).
 
