@@ -320,6 +320,18 @@ static void test_transport(void)
     CHECK(rc == TAI_ERR_HMAC);
     PASS();
 
+    TEST("verify rejects length < sig_len (underflow guard)");
+    /* A frame whose declared length undercounts the signature: without the
+     * guard, payload_len = length - sig_len underflows to a huge size_t and
+     * the HMAC sweep reads far out of bounds. The buffer is deliberately
+     * large enough to pass the frame_len guard, so only the length check
+     * can reject it. */
+    frame[3] = 0x00;
+    frame[4] = 0x00; /* length = 0 < sig_len = 32 */
+    rc = tai_frame_verify(frame, (size_t)flen, 32, sign_key, &g_stub_pal);
+    CHECK(rc == TAI_ERR_PROTO);
+    PASS();
+
     TEST("encode frame (sig_len=0, ClientHello style)");
     flen = tai_frame_encode(TAI_FRAG_NONE, 1,
                              app, sizeof(app),

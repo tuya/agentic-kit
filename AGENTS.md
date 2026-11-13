@@ -26,8 +26,8 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
   valgrind the Python mock handshakes time out. Both scripts **ignore the test's exit code**: a
   suite failing every assertion still prints "RESULT: NO MEMORY LEAKS DETECTED" and exits 0.
   GitLab hand-lists the no-subprocess binaries, including PAL clock tests, in
-  `.gitlab-ci.yml`'s valgrind loop; GitHub's sanitizer job sets
-  `detect_leaks=0`, so nothing else checks leaks anywhere.
+  `.gitlab-ci.yml`'s valgrind loop; both providers' sanitizer jobs set
+  `detect_leaks=0`, so that valgrind loop is the only leak check anywhere.
 - **Examples** — a separate top-level project, and `AGENTIC_KIT_BUILD_EXAMPLES` defaults OFF, so
   a plain root `cmake --build build` builds none:
   `cmake -S examples/posix -B build-examples -DPython3_EXECUTABLE=$(which python3) && cmake --build build-examples -j 4`
@@ -35,9 +35,8 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
   `edu_camera_demo` without a matching prebuilt `libstm.a`, `tai_audio_chat_demo` without
   libopus — so confirm the specific target actually got built.
 - **Docs site**: `cd docs-site && npm ci && npm run build` (node ≥ 20).
-- **Version**: `tools/bump_version show | next [--major|--minor|--patch] | release` — README's
-  `tools/bump_version.sh` and `tools/bump_version_test.sh` do not exist; the script has no
-  extension and no separate self-test.
+- **Version**: `tools/bump_version show | next [--major|--minor|--patch] | release` — the script
+  has no extension and no separate self-test. Versioning and release follow `CONTRIBUTING.md`.
 
 ## Architecture
 
@@ -69,6 +68,30 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
   thread-safety hooks are still unset.
 
 ## Conventions
+
+Follow [CONTRIBUTING.md](CONTRIBUTING.md) for the manual contribution workflow on GitLab 17.8.7: accept GitHub PRs
+and GitLab MRs, but review and merge every contribution through one canonical GitLab MR.
+GitHub PRs remain the contributor communication entry point. Preserve source commit SHAs;
+only designated maintainers sync merged official branches/tags from GitLab to GitHub.
+See [the manual runbook](docs/development/manual-contribution-sync.md). Import external PRs
+into a controlled fork with CI disabled until isolated CI is validated; do not run them on
+privileged parent-project runners. Free approvals are a manual policy, not an enforced merge gate.
+This policy does not imply repository settings, CI isolation or metadata migration are complete.
+
+**Language:** Author all repository content in English, including identifiers, code comments
+(inline, block, Doxygen/API, TODO/FIXME), docstrings, documentation, examples, scripts,
+build/CI instructions, diagnostics, tests, commit messages and PR/MR review text.
+`docs-site/` supports multilingual content. Root `README.md` uses Chinese prose, while
+`README_en.md` uses English; module/example documentation remains English. The Chinese root
+README may use Chinese explanatory comments in documentation examples and directory listings.
+Comments in actual source, test, build and script files outside `docs-site/` remain English.
+This is not an ASCII-only rule and must not alter Unicode/protocol data semantics.
+Review changed files for compliance; ask external authors to correct source text before import.
+See [the language and comment rules](CONTRIBUTING.md#language-and-code-comments).
+
+**Contribution titles and commits:** PR/MR titles and every new commit subject and body,
+including merge commit messages, must be English, even for changes limited to `docs-site/`
+or the Chinese `README.md`. File-content language exceptions never apply to these records.
 
 1. **Domain language is not optional.** `CONTEXT-MAP.md` points at one `CONTEXT.md` per context;
    each defines the terms *and* the words to avoid. Use those exact words in code, commit
@@ -110,14 +133,18 @@ ctest --test-dir build --output-on-failure --no-tests=error --timeout 180   # ne
    initialization, and share that PAL across IoT and TAI. The app owns UTC
    synchronization. When TLS certificate-time checks are enabled, the port must
    also expose that UTC source to libc/mbedTLS.
-6. **CHANGELOG entries are terse, and carry a PR number.** One line per change —
-   `- <module> — <what changed>(#<PR>).` — with indented sub-bullets only for specifics a reader
-   acts on (a new symbol, a changed default, a migration step). `## [0.3.0]` is the reference for
+6. **CHANGELOG entries are terse, and carry a platform-qualified PR/MR link.** One line per change —
+   `- <module> — <what changed> ([GitLab MR !N](full-MR-URL)).` — with indented sub-bullets only
+   for specifics a reader acts on (a new symbol, a changed default, a migration step).
+   `## [0.3.0]` is the reference for
    length and shape; put the entry under the right `Added` / `Changed` / `Fixed` heading, since
    release notes are generated from those. Motivation, rejected alternatives, verification detail
    and anything else answering *why* belong in the commit body — that is where a reader who wants
-   them will look, and repeating them here produces release notes nobody finishes reading. The PR
-   number is what links the one line back to all of it, so an entry without one is incomplete.
+   them will look, and repeating them here produces release notes nobody finishes reading. Historical
+   entries link to their original `GitHub PR #N`; existing bare `(#N)` references refer to GitHub.
+   New GitHub-origin contributions link both the canonical GitLab MR and the original GitHub PR.
+   Never infer an MR number from a PR number. New entries must use an actual full URL; replace
+   this change's pending references before merge and all references in the release scope before release.
 
 ## Invariants
 
@@ -145,7 +172,8 @@ ordinary changes.
   warning. PAL clock tests use `-Wall -Wextra -Werror`. Never delete `CMakeLists.txt`'s
   explicit `enable_testing()` (the comment above it says
   why): re-configures would silently stop regenerating the ctest list, `ctest` exits **0** on an
-  empty list, and GitLab's test stage has no `--no-tests=error`.
+  empty list, and GitLab's test stage (its image's ctest predates `--test-dir`, and possibly
+  `--no-tests=error`) guards the empty list only with an explicit `ctest -N` count check.
 
 ### iot-client — DP state and schema
 
@@ -298,9 +326,14 @@ ordinary changes.
   the checks, and `CHECK` prints FAIL and bumps a counter without returning, so execution
   continues into code that assumed the condition. Read the final
   `=== Results: N passed, M failed ===` line, or the exit code.
-- **Pushing to a `feat/...` branch runs zero GitHub CI.** The push trigger matches `feature/**`,
-  and every branch here is named `feat/...`; the first run happens when you open the PR against
-  master. "No red X" on a feature branch means nothing was checked.
+- **GitHub push CI matches only `master`, `main` and `feature/**`.** Other branch names such as
+  `feat/...` do not trigger it; PRs against master/main can trigger it, subject to paths-ignore.
+  GitLab CI runs the same job set at exactly three moments (see `workflow:` in `.gitlab-ci.yml`):
+  merge-request events (one detached pipeline per push to an MR's source branch — with no MR
+  open, a bare branch push runs nothing on GitLab), `master`/`main` pushes (the merge itself,
+  plus the `pages` deploy), and manually started pipelines (releases set `IS_RELEASE=true`).
+  New development relies on the GitLab MR pipeline for the latest commit SHA, per
+  `CONTRIBUTING.md`. An absent pipeline is not evidence of successful checks.
 - **Docs changes are checked in only one place.** `docs-site` is `onBrokenLinks: 'throw'`, so
   renaming or deleting a page breaks `npm run build` for every page linking to it — but
   `paths-ignore` excludes docs-only pushes from all C jobs, and `deploy-docs.yml` triggers on

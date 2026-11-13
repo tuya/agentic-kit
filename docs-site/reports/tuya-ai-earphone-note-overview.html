@@ -1,0 +1,890 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="涂鸦 AI 耳机 &amp; Note 研发 wiki 空间全目录总览：173 篇方案文档，按版本主线 v1.0→v3.4.0、六大技术域与专题重新组织，每篇附内网链接。">
+  <title>AI 耳机 &amp; Note · 研发方案总览</title>
+  <style>
+    :root { --ink:#172b43; --muted:#52657b; --blue:#165ba9; --line:#d4dde8; --soft:#f3f7fc; --paper:#fff; --mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; scroll-padding-top:24px; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif; font-size:16px; line-height:1.8; }
+    a { color:var(--blue); text-underline-offset:3px; }
+    a:hover { text-decoration-thickness:2px; }
+    :focus-visible { outline:3px solid #397ecd; outline-offset:4px; }
+    .skip-link { position:absolute; left:16px; top:-100px; padding:8px 16px; background:#fff; z-index:5; }
+    .skip-link:focus { top:12px; }
+    .page { width:min(1180px,calc(100% - 80px)); margin:auto; }
+    .masthead { display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid var(--line); padding:24px 0 19px; font-size:13px; letter-spacing:.05em; }
+    .masthead strong { font-weight:650; }
+    .masthead span { color:var(--muted); }
+    header { padding:54px 0 38px; }
+    .eyebrow { margin:0 0 12px; color:var(--blue); font-size:13px; font-weight:700; letter-spacing:.14em; }
+    h1 { font-size:clamp(30px,4.2vw,48px); line-height:1.32; letter-spacing:-.04em; max-width:880px; margin:0 0 22px; font-weight:750; }
+    .lead { font-size:20px; line-height:1.75; max-width:850px; margin:0; color:var(--muted); }
+    .scope { font-size:13px; margin:20px 0 0; color:var(--muted); }
+    .layout { display:grid; grid-template-columns:180px minmax(0,1fr); gap:48px; padding-bottom:64px; }
+    .toc { align-self:start; position:sticky; top:28px; font-size:14px; border-top:2px solid var(--ink); padding-top:14px; }
+    .toc p { font-size:12px; font-weight:700; letter-spacing:.09em; margin:0 0 10px; color:var(--muted); }
+    .toc a { display:block; padding:6px 0; color:var(--muted); text-decoration:none; }
+    .toc a:hover { color:var(--blue); }
+    .toc a.sub { padding-left:14px; font-size:13px; }
+    main { min-width:0; }
+    section { border-top:1px solid var(--line); padding-top:25px; margin-bottom:44px; }
+    section:first-child { border-top:2px solid var(--ink); }
+    h2 { font-size:25px; line-height:1.45; letter-spacing:-.025em; margin:0 0 16px; }
+    .section-number { display:inline-block; color:var(--blue); font-size:13px; letter-spacing:.05em; vertical-align:middle; margin-right:12px; }
+    h3 { font-size:19px; line-height:1.5; margin:26px 0 10px; }
+    h4 { font-size:16px; margin:20px 0 8px; }
+    p { margin:0 0 14px; }
+    .muted, .note { color:var(--muted); }
+    .note { font-size:14px; }
+    code { font-family:var(--mono); font-size:.89em; overflow-wrap:anywhere; }
+    .callout { border-left:3px solid var(--blue); padding:12px 18px; background:var(--soft); margin:20px 0; }
+    .callout p:last-child { margin-bottom:0; }
+    .callout strong { color:var(--blue); }
+    .table-scroll { max-width:100%; overflow-x:auto; margin:15px 0; }
+    table { border-collapse:collapse; width:100%; font-size:14px; line-height:1.7; text-align:left; }
+    caption { caption-side:top; text-align:left; font-size:13px; color:var(--muted); padding-bottom:9px; }
+    th, td { padding:12px 13px; border-bottom:1px solid var(--line); vertical-align:top; }
+    th { background:var(--soft); font-weight:650; }
+    thead { border-top:1px solid var(--line); }
+    .stat-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:25px; margin:20px 0 18px; }
+    .stat-grid div { padding-top:11px; border-top:2px solid var(--line); }
+    .stat-grid dt { margin-bottom:8px; font-weight:700; }
+    .stat-grid dd { margin:0 0 6px; font-size:14px; color:var(--muted); }
+    .ver-title { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin:30px 0 8px; }
+    .ver-title h3 { margin:0; font-size:20px; }
+    .ver-title span { font-family:var(--mono); color:var(--muted); font-size:12px; letter-spacing:.05em; }
+    .ver-block p { margin:0 0 12px; }
+    .steps { margin:18px 0 0; padding-left:24px; }
+    .steps li { padding:0 0 13px 5px; }
+    .steps li::marker { color:var(--blue); font-weight:700; }
+    .steps strong { font-weight:650; }
+    .check-list { padding-left:21px; margin:15px 0; }
+    .check-list li { margin-bottom:12px; padding-left:4px; }
+    .check-list li::marker { color:var(--blue); }
+    .map-table td:first-child { min-width:220px; }
+    .map-table td a { overflow-wrap:anywhere; }
+    .map-table td:nth-child(2), .map-table td:nth-child(3), .map-table td:nth-child(4) { white-space:nowrap; }
+    .map-intro + .table-scroll { margin-top:8px; }
+    footer { border-top:1px solid var(--line); padding:20px 0 30px; font-size:12px; color:var(--muted); }
+    @media (max-width:1000px) {
+      .page { width:calc(100% - 48px); }
+      .layout { grid-template-columns:145px minmax(0,1fr); gap:28px; }
+      .stat-grid { gap:15px; }
+    }
+    @media (max-width:760px) {
+      .page { width:calc(100% - 36px); }
+      .masthead { padding-top:18px; font-size:11px; }
+      .masthead span { text-align:right; }
+      header { padding:34px 0 28px; }
+      .lead { font-size:18px; }
+      .layout { display:block; }
+      .toc { position:static; display:flex; flex-wrap:wrap; gap:3px 18px; padding:12px 0 20px; border-top:1px solid var(--line); }
+      .toc p { width:100%; margin-bottom:1px; }
+      .toc a { font-size:13px; padding:3px 0; }
+      h2 { font-size:23px; }
+      .stat-grid { grid-template-columns:1fr; gap:15px; }
+      th, td { padding:10px; }
+      section { margin-bottom:34px; }
+      .callout { padding:12px 14px; }
+    }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+    @media print {
+      @page { size:A4; margin:15mm; }
+      html { scroll-behavior:auto; }
+      body { color:#172b43; font-size:10pt; line-height:1.6; }
+      .page { width:auto; max-width:none; }
+      .masthead { padding:0 0 10px; font-size:8pt; }
+      header { padding:20px 0; }
+      h1 { font-size:27pt; max-width:none; margin-bottom:12px; }
+      .lead { font-size:12pt; }
+      .scope, .note { font-size:8pt; }
+      .layout { display:block; padding-bottom:0; }
+      .toc, .skip-link { display:none!important; }
+      section { padding-top:15px; margin-bottom:24px; }
+      h2 { font-size:17pt; break-after:avoid; }
+      h3, .ver-title { break-after:avoid; }
+      h3 { font-size:13pt; }
+      .stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:15px; }
+      .stat-grid dd, table { font-size:8.5pt; }
+      .table-scroll { overflow:visible; }
+      th, td { padding:7px 8px; }
+      tr { break-inside:avoid; }
+      thead { display:table-header-group; }
+      .callout { break-inside:avoid; }
+      .steps li, .check-list li { break-inside:avoid; }
+      a { color:inherit; }
+      footer { padding:12px 0 0; }
+      * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+  <div class="page">
+    <div class="masthead"><strong>TUYA AI EARPHONE &amp; NOTE</strong><span>全目录阅读摘要 · iOS / Android / 小程序 / 云端 / PC</span></div>
+    <header>
+      <p class="eyebrow">WIKI SPACE OVERVIEW · 173 DOCS · 2024-06 → 2026-08</p>
+      <h1>从一副耳机的录音协议起步，<br>长成覆盖五端的 AI 转写产品线</h1>
+      <p class="lead">「AI 耳机&amp;Note-研发」空间的全部 173 篇方案文档，按版本主线、六大技术域与专题重新组织：每个能力属于哪个版本、由哪篇方案定义、现状如何，都可以从这里一步定位到原文。</p>
+      <p class="scope">依据内网 wiki 抓取整理（2026-11-05 快照，173/173 篇）。本页是导航与摘要，不替代原文；所有链接需内网访问权限。<a href="#sources">查看整理口径</a></p>
+    </header>
+    <div class="layout">
+      <nav class="toc" aria-label="文档目录">
+        <p>阅读导航</p>
+        <a href="#overview">01 · 空间总览</a>
+        <a href="#timeline">02 · 版本演进主线</a>
+        <a href="#domains">03 · 核心技术域</a>
+        <a href="#domains-audio" class="sub">　音频链路与编解码</a>
+        <a href="#domains-ttt" class="sub">　转写 · 翻译 · 总结</a>
+        <a href="#domains-files" class="sub">　文件管理与云同步</a>
+        <a href="#domains-dp" class="sub">　设备交互与 DP 协议</a>
+        <a href="#domains-platform" class="sub">　平台与入口</a>
+        <a href="#domains-quality" class="sub">　质量与效能</a>
+        <a href="#topics">04 · 专题与调研</a>
+        <a href="#dead">05 · 废弃与空壳</a>
+        <a href="#map">06 · 文档地图</a>
+        <a href="#sources">07 · 来源与口径</a>
+      </nav>
+      <main id="main">
+
+        <section id="overview" aria-labelledby="overview-title">
+          <h2 id="overview-title"><span class="section-number">01</span>空间总览</h2>
+          <p>这是涂鸦 AI 空间音频产品线的研发方案库，覆盖三条硬件线——<strong>入门版耳机</strong>（普通 BT 耳机不换硬件，靠 App + 云端获得 AI 能力）、<strong>Pro 耳机</strong>（涂鸦蓝牙模组，BLE 传 Opus 流）、<strong>AI Note 录音卡片</strong>——以及 AI Note / AI Translate 两个小程序、PC 桌面端与云端接口。方案主体是客户端（iOS / Android / 小程序），同时涉及固件、硬件与协议定义。</p>
+          <dl class="stat-grid">
+            <div>
+              <dt>文档构成（173 篇）</dt>
+              <dd>功能子方案 86 · 空壳目录页 23</dd>
+              <dd>业务文档 19 · 调研分析 16 · 版本总方案 12</dd>
+              <dd>工具使用 6 · 规范流程 5 · 上架审核 3 · 废弃 3</dd>
+              <dd>状态：现行 148 · 未知 22 · 已废弃 3</dd>
+            </div>
+            <div>
+              <dt>涉及端（一篇常跨多端）</dt>
+              <dd>iOS 135 · Android 130 · 小程序 65</dd>
+              <dd>云端 59 · 固件 21 · 硬件 17</dd>
+              <dd>PC 端 12 · 协议 11</dd>
+              <dd>PC 端方案集中在 v2.9（2026-03）一次性补齐</dd>
+            </div>
+            <div>
+              <dt>主要建档人（前八位）</dt>
+              <dd>王春蕾 43 · 张伟 31 · 林鑫 22 · 乔建峰 22</dd>
+              <dd>郑灿鹏 16 · 徐程程 11 · 吴时鹏 11 · 李航 8</dd>
+              <dd>郑灿鹏集中在 v1.x（2024），v2.x 起由王春蕾、张伟等接续</dd>
+              <dd>另有凌晨、陈晓菁、赵元超、郭龙文等 6 人</dd>
+            </div>
+          </dl>
+          <p>版本主线共 <strong>24 个版本锚点</strong>：2024-06 的 v1.0 到 2026-08 的 v3.4.0，跨度约 27 个月。v1.x 时代（2024-06 → 2025-05）是整页总方案；从 v2.0（2025-06）起改为「版本目录页 + 子方案页」结构，单版本的方案粒度明显变细——v2.9 一版就有 20 篇文档。</p>
+          <div class="callout"><p><strong>目录页大多是空壳，这是刻意设计。</strong>v2.0 起的 15 个版本锚点页正文只有 123 字节，真正的方案内容全部在子页里。直接打开版本页会以为「没写」，要看子页；第 <a href="#map">06 节文档地图</a>已把每个版本的子方案展开列全。</p></div>
+        </section>
+
+        <section id="timeline" aria-labelledby="timeline-title">
+          <h2 id="timeline-title"><span class="section-number">02</span>版本演进主线</h2>
+          <p>按建档时间排列。每版给一句话主题与关键方案链接；「N 篇」含版本页自身。</p>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1797949504045977629">v1.0</a></h3><span>2024-06 · 1 篇 · 80KB 总方案</span></div>
+            <p>产品起点，一篇全链路总方案：文件管理（虚拟目录 + sqlite）、耳机收音 <code>record_control</code> DP 协议（cmd 0~8）、蓝牙大数据通道同步（断点续传、不并发）、波形图、转写、播放与付费。入门版「不换硬件、App + 云端获得 AI 能力」的产品定位在此时已定。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1811649261931073603">v1.1</a>（<a href="https://wiki.tuya-inc.com:7799/page/1812795791048179773">对外协议篇</a>）</h3><span>2024-07 · 各 1 篇</span></div>
+            <p>总结导出多格式（txt / docx / pdf / 思维导图）、TTT 支付接入；新增 <code>record_interrupt</code> 来电中断 DP，录音状态同步小程序。对外篇把中断与录音控制的交互时序规格化，是给设备侧的协议基准。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1814182128854761485">v1.2</a></h3><span>2024-07 · 1 篇</span></div>
+            <p>灌流超时 / 暂停 / 结束流程调整，支持<strong>设备侧发起录音</strong>（cmd 5/6）与来电中断恢复；设备收不到心跳进停止态。同期的 <a href="https://wiki.tuya-inc.com:7799/page/1818595554507096153">「临时」流程稿</a>把设备侧 / 手机侧各发起的开始-暂停-恢复-结束 8 组指令应答时序画全了。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1808375406798045227">v1.3</a></h3><span>2024-07 建档 · 更新至 2024-11 · 1 篇</span></div>
+            <p><strong>实时转写与翻译上线</strong>：按通道拆分音频做 VAD，同通道多 ASR 任务排队；每次录音一个 <code>recordId</code>、一次语音起止一个 <code>requestId</code>——这套标识体系沿用至今；数据库新增转写 / 总结 / 实时转写三张结果表。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1854706614209085473">v1.4</a></h3><span>2024-11 · 2 篇（含一版废弃稿）</span></div>
+            <p><strong>同声传译</strong>（<code>recordType=2</code>，左右耳各传一种语言）与 <code>buds_mode_switch</code> TWS / 1v1 模式切换 DP。初版方案（<a href="https://wiki.tuya-inc.com:7799/page/1854070215680196696">已废弃稿</a>，需求评审 2024-11-06）被现行版整体重写，旧稿保留作过程记录。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1876519647528882179">v1.5+</a></h3><span>2025-01 · 1 篇 · 147KB</span></div>
+            <p>三方音频算法集成（独立组件可裁剪、不上公版）、sbc 编解码、人声分离、蓝牙大数据 + 透传通道传文件；文内同时排了 1.6 / 1.7 的多选删除、文件夹管理、AI 助手计划。<code>encrypted_interaction</code> 明文下发密文上报的透传协议也在此定义。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1902964268895043616">1.6</a></h3><span>2025-03 · 2 篇</span></div>
+            <p>入门版落地：音频数据源从 Opus 改 <strong>PCM</strong>，全面切换到 <code>thingsmart-audio-engine-sdk</code>（mic / BT 通道、VAD 任务、ASR WebSocket）。附一篇 <a href="https://wiki.tuya-inc.com:7799/page/1905078782138519565">iOS 工程解析</a>，从 RecordManager 到 Asr 的调用链逐层拆解——新人间读首选。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1922469259573723187">1.8</a></h3><span>2025-05 · 7 篇</span></div>
+            <p><strong>从项目代码走向公版</strong>：快捷卡片 <code>quickWidgets</code> 定稿；双端合入公版的影响面评估（Android 14 个组件变更点、iOS 首页卡片接口升 v5 与 ThingAudioEngineSDK 拆分）；双端性能优化（发包 20ms→100ms 合包、回调限流、会话并行防卡死）；<a href="https://wiki.tuya-inc.com:7799/page/1927173658002849795">App 埋点</a>与 <a href="https://wiki.tuya-inc.com:7799/page/1922469877935771722">AI 基座 2.0 接入点</a>梳理。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1934417967257227277">v2.0</a></h3><span>2025-06 · 6 篇 · 结构改为目录页+子方案</span></div>
+            <p>振幅串改存文件路径（治 16 万字符插入失败 / ANR）、TTS 改 <code>TTS_FINISH</code> 后按队列播放、<a href="https://wiki.tuya-inc.com:7799/page/1934524930204897314">文件上传交互</a>（后台续传 + 失败重试）、卡片强绑定梳理、<a href="https://wiki.tuya-inc.com:7799/page/1934866806514651207">卡片离线录音 DP</a>（none/meeting/call）、<a href="https://wiki.tuya-inc.com:7799/page/1940024390443864069">VAD 动态阈值</a>（治会议快语速切片失败）。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1942025272748408856">v2.1</a></h3><span>2025-07 · 7 篇</span></div>
+            <p><strong>手机通道</strong>（否决虚拟设备 ID，选定 uid 链路，入门版耳机全部能力落到手机拾音）、<a href="https://wiki.tuya-inc.com:7799/page/1942155983388147728">面对面翻译</a>（requestID 后缀 _0/_1 区分左右语言）、<a href="https://wiki.tuya-inc.com:7799/page/1942402266245890079">文件转写总结</a>（ogg 精转上云 + record_recognize 表）、首页快捷卡片改版；另含 AI 手表 Health Connect 适配（Google Fit 2025-06 停用替代）。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1945437543893831717">v2.2</a></h3><span>2025-07 · 6 篇</span></div>
+            <p><a href="https://wiki.tuya-inc.com:7799/page/1945437693282357251">音频业务代码重构</a>：按原子职责拆出 <code>IAudioInput / IAudioTransformer / IRecordTask / IRecordExecutor / ITtsPlayer</code> 接口族，能力积木化；TTT 开启录音接口换血（删 4 字段、新增 <code>audioSource</code> / <code>needAsr</code> / <code>updateParams</code>）；<a href="https://wiki.tuya-inc.com:7799/page/1950854552009834499">自动化测试方案</a>一期（WER / 首字时延 / 端到端时延）。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1959815981870092356">v2.3</a> · <a href="https://wiki.tuya-inc.com:7799/page/1970001552433221709">2.3.5</a></h3><span>2025-08 / 09 · 9 篇</span></div>
+            <p><strong>AI Note 与 AI Translate 拆成两个小程序</strong>（translate_files 表隔离、卡片拆分为 14 / 18 两张大卡）、<a href="https://wiki.tuya-inc.com:7799/page/1959908059996229655">文本翻译</a>（每次翻译虚拟成独立录音任务）、朗读译文 <code>ITtsPlayer</code>、<a href="https://wiki.tuya-inc.com:7799/page/1964876207006679044">Silero VAD 接入</a>（webrtc 降级策略）。2.3.5 是出货专项：Note 与 Pro 耳机月底出货问题清单、电话录音双通道、DTLN 回声消除、Opus 编码调优（compression_level 4→6、lowdelay→voip）。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1969939723145187339">v2.4</a></h3><span>2025-09 · 6 篇</span></div>
+            <p><a href="https://wiki.tuya-inc.com:7799/page/1970315659845832781">云同步总案</a>（双端五表、账号级开关经 MQ 广播、每用户独立密钥 AES-CBC-256、错误码 10200-10212）、<a href="https://wiki.tuya-inc.com:7799/page/1969940054511976532">小程序静默监听硬件 DP</a>（设备侧发起录音的状态同步）、<a href="https://wiki.tuya-inc.com:7799/page/1985164123985412191">流式翻译 2.0</a>——把翻译结果合并进 ASR 事件下发，治 Native-JS 通信瓶颈（实测美区 ASR 39 次、翻译仅 8 次）。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1987705631980654620">v2.5</a></h3><span>2025-11 · 9 篇</span></div>
+            <p><strong>手机-耳机模式</strong>（入门版按钮切源、Pro 双路收音 + dp63 Type=3）、<a href="https://wiki.tuya-inc.com:7799/page/1987705861631381557">电话翻译预研</a>（主副耳音频拦截路径）、<a href="https://wiki.tuya-inc.com:7799/page/1988057460161646641">文件导入</a>（临时表 + 串行转码灌流，错误码 20101-20113）、直播与 Token 预申请、MP3 96K→64K 等多项优化；<a href="https://wiki.tuya-inc.com:7799/page/1995327056568647711">Pro 耳机 DP 协议</a>定稿（record_control 四段十六进制 + 模式切换随机数校验）。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1998590554698416161">v2.6</a></h3><span>2025-12 · 7 篇</span></div>
+            <p><a href="https://wiki.tuya-inc.com:7799/page/1998706834344509465">TTS 提前播放</a>（首块合成即播的流水线，压端到端时延）、录音来电打断推送与 5 小时超限自动重录、Atop ownerId 统一改当前家庭 ID（计费关联）、Note 传输的 AP 引导与 10094 提示、振幅双端算法对齐（iOS 峰值 / Android 均值）。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/2008456431375749170">v2.7</a></h3><span>2026-01 · 10 篇</span></div>
+            <p>Note 传输效果大修（AP 切换重试、按 modifyTime 倒序、传完即删、iOS 错误码 10300-10305）、<a href="https://wiki.tuya-inc.com:7799/page/2008788616695775300">Opus 多包合并上行</a>（设备每秒 50 包致 RAM 跑满死机，改 N×40/N×80 合并，业务层无感）、<a href="https://wiki.tuya-inc.com:7799/page/2010604595541180462">audio-engine-sdk 重构接入</a>（输入输出源动态切换）、上传分片与断点续传、OkHttp 单 host 5 请求限流排查。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/2019652832734486539">v2.8</a></h3><span>2026-02 · 10 篇</span></div>
+            <p><a href="https://wiki.tuya-inc.com:7799/page/2019662029651976250">二级缓存</a>（TTT 接口耗时 DB 占 60%+，高 CPU 下详情查询 10.51ms→0.93ms）、<a href="https://wiki.tuya-inc.com:7799/page/2020675285514453014">文件合并</a>（MP3 掐 ID3 头尾拼帧）、<strong>iOS 灵动岛 / 实时活动</strong>（含主工程配置与描述文件制作两篇规范文档，OEM 可自行配置）、Android 通知样式与悬浮按钮、音频链路线程收敛（4 线程 2 缓冲 → 1+1）。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/2030829696047906911">v2.9</a></h3><span>2026-03 · 20 篇 · 最大的一版</span></div>
+            <p>两条主线：<strong>快速启动</strong>——iOS App Intents / Siri / 聚焦 / 快捷指令、Android 磁贴、桌面快捷方式，把开录从 4 步收敛为 1 步（<a href="https://wiki.tuya-inc.com:7799/page/2031197344157929476">双端总案</a> + <a href="https://wiki.tuya-inc.com:7799/page/2032042792263352358">iOS 篇</a> + <a href="https://wiki.tuya-inc.com:7799/page/2036732110189887534">Siri 词条</a>）；<strong>PC 桌面端一次性补齐</strong>——Electron + Vite 技术栈、<a href="https://wiki.tuya-inc.com:7799/page/2034167338596565062">基座 2.0 WASM 实时 ASR</a>、MIC + 系统内录双路收音、实时字幕悬浮窗、打包签名公证、自动更新，外加 <a href="https://wiki.tuya-inc.com:7799/page/2031541196165218341">Plaud 登录流程调研</a>。同版还有 iOS 26 收音质量、BR/EDR 电话翻译、标签与搜索、Note 转码多线程优化。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/2044974695668781107">v3.0</a></h3><span>2026-04 · 3 篇</span></div>
+            <p>入口补全：iOS 系统分享导入音频（Share Extension + NG 开关裁剪）、Android 12+ Note AP 连接改造（<code>WifiNetworkSpecifier</code> + <code>NetworkRequest</code>，13+ 需附近设备权限）。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/2053735959211540500">v3.1.0</a></h3><span>2026-05 · 6 篇</span></div>
+            <p><a href="https://wiki.tuya-inc.com:7799/page/2052359895600074763">单文件分片并行转码</a>：纯 C++ 核心引擎双端共享，按帧边界切 K 段并行，5 小时 WAV 导入 57s→30s 量级；删除记录与音频清理（去「仅删本地」、一键清空接口）、visit 已读未读四态（云端统一维护）、卡片防丢（苹果 / 高德 / 谷歌地图定位）。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/2067515992279355440">v3.2</a></h3><span>2026-06 · 6 篇</span></div>
+            <p><a href="https://wiki.tuya-inc.com:7799/page/2066757416434794575">Note 无网络提示优化</a>（1500/9006 静默、按页面收口云端调用）、电话录音 / 通话翻译的 DP 收发从 BLE 迁往 SPP（Android）/ EDR（iOS）、<a href="https://wiki.tuya-inc.com:7799/page/2074023528994177106">音频收音异常链路</a>（iOS 四态状态机与打断恢复矩阵）。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/2076935901916692547">v3.3.0</a></h3><span>2026-07 · 2 篇</span></div>
+            <p><a href="https://wiki.tuya-inc.com:7799/page/2076936011169923088">iOS 后台降频</a>专项：转码分片数后台强制为 1（此前按物理核数并发，后台 CPU 峰值 437.7%），保活收紧为仅 AP 传输，新增三态策略协调器。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/2087428682166575108">v3.4.0</a></h3><span>2026-08 · 4 篇 · 快照时最新</span></div>
+            <p><strong>回收站</strong>三篇（云端 + iOS + Android）：RECYCLE_BIN 虚拟夹 30 天软删，既有接口不升版（云端方案）或升 v1.1（Android），本地仅落 <code>recycleExpireAt</code> 列，MQ 复用 move 事件。单篇最大 249KB，是快照时点仍在活跃撰写的大件（更新至 2026-09）。</p>
+          </div>
+        </section>
+
+        <section id="domains" aria-labelledby="domains-title">
+          <h2 id="domains-title"><span class="section-number">03</span>核心技术域</h2>
+          <p>同一条链路的知识散在多个版本里。这里按六个技术域横向归拢：每一域给出主干脉络与关键文档入口。</p>
+
+          <h3 id="domains-audio">音频链路与编解码</h3>
+          <p>整条链路是「采集 → 3A → VAD → 编码 → 上行」，各环节都有独立方案且持续迭代：</p>
+          <ul class="check-list">
+            <li><strong>采集</strong>：入门版手机 mic / BT、Pro 耳机 Opus 流、卡片与 Note 离线录音；<a href="https://wiki.tuya-inc.com:7799/page/2031315586956394569">iOS 26 收音质量</a>启用蓝牙高质量录音与远场输入两项系统新能力（需灰度开关回滚）；<a href="https://wiki.tuya-inc.com:7799/page/2062054900610633766">Android 音频控制分析</a>弄清了并发录音静音仲裁——与 hey tuya 抢麦时被静音的那一路读到的是全零帧。</li>
+            <li><strong>3A 与回声</strong>：AEC / ANS / AGC 全链开启（<a href="https://wiki.tuya-inc.com:7799/page/1927648686880325728">AI 音频解决方案</a>总图）；2.3.5 引入 DTLN 治同传 / 面对面翻译的回声消除丢字与安卓碎片化。</li>
+            <li><strong>VAD</strong>：WebRTC GMM 起步（<a href="https://wiki.tuya-inc.com:7799/page/2008715840211390531">端侧 VAD 方案</a>：四态状态机、句首 1.2s 预缓存、15s 预警 20s 硬切）→ <a href="https://wiki.tuya-inc.com:7799/page/1940024390443864069">动态阈值</a> → <a href="https://wiki.tuya-inc.com:7799/page/1964876207006679044">Silero 模型接入</a>（1.8M 异步加载、失败降级 webrtc、iOS 因准确率暂缓上线）→ v3.1 规划 C++ 统一实现（空壳页）。</li>
+            <li><strong>编码</strong>：msbc 7.5ms 帧双编码器交叉（<a href="https://wiki.tuya-inc.com:7799/page/1815929991720861746">msbc 方案</a>）；Opus 调优（16k 采样 / CBR / voip 模式）；PCM→MP3 从 96K 降 64K 无明显损失；转码从单文件串行 → 按帧边界分片并行（<a href="https://wiki.tuya-inc.com:7799/page/2031195053984055378">Android</a> / <a href="https://wiki.tuya-inc.com:7799/page/2031547123102646306">iOS 批量化读取</a> → <a href="https://wiki.tuya-inc.com:7799/page/2052359895600074763">v3.1 双端共享 C++ 引擎</a>）。</li>
+            <li><strong>上行</strong>：发包 20ms/帧 → 5 帧合包降频（1.8 双端性能）；<a href="https://wiki.tuya-inc.com:7799/page/2008788616695775300">设备侧 N×40/N×80 合并</a>治嵌入式 RAM 跑满死机；弱网大文件改 HTTP 分片 + 断点续传。</li>
+          </ul>
+
+          <h3 id="domains-ttt">转写 · 翻译 · 总结</h3>
+          <p>面向小程序的 <strong>TTT 接口族</strong>是这条产品线的业务 API 中枢，几乎每版都在增改：</p>
+          <ul class="check-list">
+            <li>演进脉络：v1 全套录音控制 + <a href="https://wiki.tuya-inc.com:7799/page/1833831380329431104">转写 API 正式文档</a>（30s 上限、2s 限频、两套错误码）→ v2.2 开启接口换血（<code>audioSource</code> / <code>needAsr</code> / <code>updateParams</code>，<a href="https://wiki.tuya-inc.com:7799/page/1949644555863195746">TTT Api 修改</a>）→ v2.3 转写翻译与说话人分离入参 → v2.5 分页 / 直播 / Token 预申请 → v3.1 标签四接口 → v3.4 回收站分组。</li>
+            <li><a href="https://wiki.tuya-inc.com:7799/page/1985164123985412191">流式翻译 2.0</a>：根因是 Native-JS 通信频率，ASR 事件携带 <code>translateText</code> 合并下发，翻译刷新由尾部追加改覆盖；<a href="https://wiki.tuya-inc.com:7799/page/1959908059996229655">文本翻译</a>把每次翻译虚拟成独立录音任务复用整条链路。</li>
+            <li>播报侧：<a href="https://wiki.tuya-inc.com:7799/page/1959866475976065046">朗读译文</a>设计 <code>TTSConfig</code> + <code>ITtsPlayer</code> 摆脱 1v1 限制；<a href="https://wiki.tuya-inc.com:7799/page/1998706834344509465">TTS 提前播放</a>分块流水线压首响时延；云端 TTS 从 MP3 扩展 ogg（<a href="https://wiki.tuya-inc.com:7799/page/1922469877935771722">AI 基座 2.0</a>）。</li>
+            <li>云端转译用 Whisper 与 Google STT v2（chirp_2），LLM 翻译 65+ 语言（<a href="https://wiki.tuya-inc.com:7799/page/1927648686880325728">AI 音频解决方案</a>）。</li>
+          </ul>
+
+          <h3 id="domains-files">文件管理与云同步</h3>
+          <p>录音文件从设备到云的完整生命周期，每段都有专项：</p>
+          <ul class="check-list">
+            <li><strong>取回</strong>：v1.0 蓝牙大数据通道（串行断点续传）→ v1.5+ 透传协议（TLD 文件列表）→ AP 热点快传（UDP，<a href="https://wiki.tuya-inc.com:7799/page/2008455198711742495">效果优化</a>与 <a href="https://wiki.tuya-inc.com:7799/page/2001896485532205146">iOS 错误码 10300-10305</a>；Android 12+ 连接改造）。</li>
+            <li><strong>转码入库</strong>：Opus→MP3 后写库，v3.1 起分片并行；两篇代码级文档（<a href="https://wiki.tuya-inc.com:7799/page/2037457366290530327">iOS</a> / <a href="https://wiki.tuya-inc.com:7799/page/2042165498979815431">Android</a>，2026-04 新增）与 <a href="https://wiki.tuya-inc.com:7799/page/2042161569911013422">跨端对比分析</a>（20 项功能矩阵、一致性 4/5）把现状风险列全。</li>
+            <li><strong>云同步</strong>（v2.4 总案 + <a href="https://wiki.tuya-inc.com:7799/page/1976101088587153446">上传下载细化</a>）：五表结构、账号级开关经 MQ 广播、每用户独立云空间密钥、音频 AES-CBC-256、md5 校验、<code>extAttribute</code> 64 位位图记录上下行状态、错误码 10200-10212。</li>
+            <li><strong>整理</strong>：<a href="https://wiki.tuya-inc.com:7799/page/2020675285514453014">文件合并</a>（MP3 掐头去尾 + 云端合并转写结果）、<a href="https://wiki.tuya-inc.com:7799/page/2034105265321672719">标签与搜索</a>（云端四接口 + MQTT 回拉）、visit 已读未读四态、<a href="https://wiki.tuya-inc.com:7799/page/2053736293262688342">删除与音频清理</a>、v3.4 回收站 30 天软删。</li>
+          </ul>
+
+          <h3 id="domains-dp">设备交互与 DP 协议</h3>
+          <p>设备侧协议集中在少数几个 DP 上，但语义一直在加厚：</p>
+          <ul class="check-list">
+            <li><code>record_control</code>（dp63）：cmd + format + type + flag 四段十六进制；cmd 从 0~4（app 侧控制）扩到 5/6（设备侧发起）与 3/4（手机耳机 / 电话翻译模式）。</li>
+            <li><code>record_interrupt</code>（dp62）来电中断；<code>buds_mode_switch</code>（dp65/66）TWS / 1v1 切换，随机数校验 + 主从耳 UUID；<code>ai_mode</code>（dp67）meeting / phone 供面板监听；卡片离线录音状态 DP（none/meeting/call）。</li>
+            <li>通道迁移：v3.2 起电话录音 / 通话翻译的 DP 收发从 BLE 迁往 SPP（Android）/ EDR（iOS）；<a href="https://wiki.tuya-inc.com:7799/page/2038916372951470097">iOS BR/EDR 方案</a>为带宽不足重构了电话翻译链路。<code>audioSource</code> 枚举分段：系统 0-19 / 耳机 20-39 / 卡片 40-59 / 导入 60-63。</li>
+            <li>能力判定从 dpcode 改为 <a href="https://wiki.tuya-inc.com:7799/page/1826233088456261666">iot 平台高级能力打标</a>，避免与其他产品 dpcode 冲突；<a href="https://wiki.tuya-inc.com:7799/page/1995672766832967727">AI Voice 通用 DP 协议</a>把这套协议推广到耳机 / 录音板 / 眼镜 / 玩具等音频输入类设备。</li>
+          </ul>
+
+          <h3 id="domains-platform">平台与入口</h3>
+          <ul class="check-list">
+            <li><strong>小程序</strong>：TTT API 是主接口面；<a href="https://wiki.tuya-inc.com:7799/page/1969940054511976532">静默监听硬件 DP</a>、<a href="https://wiki.tuya-inc.com:7799/page/2029391838925819977">预加载与 uniqueCode 路由</a>、<a href="https://wiki.tuya-inc.com:7799/page/2066757416434794575">无网络收口</a>、v2.3 拆分 AI Note / AI Translate。</li>
+            <li><strong>首页卡片</strong>：quickWidgets（1.8/v2.1）→ 大卡片拆分耳机笔记 14 / AI 翻译 18（v2.3）→ 跳转链接改 <code>thingSmart://miniApp?uniqueCode=</code> 并加 utm 埋点（v2.7）。</li>
+            <li><strong>系统外显</strong>：iOS 灵动岛 / 实时活动 + 通知卡片 + 悬浮按钮（v2.8，含两篇打包与描述文件规范）；Android 实时通知（targetSdk31 限制与 Android 16 实时更新）+ FloatingX 悬浮框。</li>
+            <li><strong>快速启动</strong>（v2.9）：iOS App Intents / Siri / 聚焦 / 控制中心（iOS 18+），Android 磁贴，TTT <code>getQuickEntryList</code>；异常分支（已录音 / 未登录 / 设备离线切手机）逐项定义。</li>
+            <li><strong>PC 端</strong>（v2.9，8 篇）：Electron + Vite、Tray 控录音、WASM 基座 2.0 实时 ASR、MIC + Loopback 双路收音（macOS ScreenCaptureKit / Windows WASAPI）、实时字幕悬浮窗、Forge 打包与签名公证、autoUpdater 覆盖安装。</li>
+            <li><strong>其他入口</strong>：iOS 系统分享导入（v3.0）、消息中心 actionURL 跳转（v3.1）。</li>
+          </ul>
+
+          <h3 id="domains-quality">质量与效能</h3>
+          <ul class="check-list">
+            <li><strong>测试</strong>：<a href="https://wiki.tuya-inc.com:7799/page/1976887230475538472">端测工具</a>（多设备录音 / 播放 / 灌流模拟，三类 PCM 分级保存，VAD 双引擎对比）、<a href="https://wiki.tuya-inc.com:7799/page/1950854552009834499">自动化测试方案</a>（WER / 首字 / 端到端时延）、<a href="https://wiki.tuya-inc.com:7799/page/1940219847682035775">ASR 准确率脚本</a>（jiwer + difflib 高亮）、双端 Debug 工具使用文档、CES 展会演示灌流说明。</li>
+            <li><strong>观测</strong>：<a href="https://wiki.tuya-inc.com:7799/page/1927173658002849795">天眼埋点</a>（ASR / 翻译 / TTS 耗时、1v1 连接、欠费断连）与 <a href="https://wiki.tuya-inc.com:7799/page/1980104772350382163">技术指标看板</a>——ASR 首字 / 翻译首字 / 端到端时延，流畅同传目标 <strong>&lt;1.5~2s</strong>。</li>
+            <li><strong>性能</strong>：iOS 发热归因与降频（1.8）→ 线程收敛与二级缓存（v2.8）→ <a href="https://wiki.tuya-inc.com:7799/page/2076936011169923088">后台降频</a>（v3.3）；Android 会话并行防卡死（1.8）、转码并发、慢方法统计。</li>
+            <li><strong>错误码体系</strong>：业务 10001~10101、云同步 10200-10212、传输 10300-10305、导入 20101-20113，<a href="https://wiki.tuya-inc.com:7799/page/1965258056023412825">汇总页</a>已迁腾讯文档维护。</li>
+            <li><strong>工程与上架</strong>：1.8 / 1.6 合入公版影响评估、上架 Checklist、<a href="https://wiki.tuya-inc.com:7799/page/2068873900426526771">GooglePlay 前台服务权限</a>、NG 配置项梳理（后台录音 / Note 传输 / 实时活动，不支持动态下发）。</li>
+          </ul>
+        </section>
+
+        <section id="topics" aria-labelledby="topics-title">
+          <h2 id="topics-title"><span class="section-number">04</span>专题与调研</h2>
+
+          <h3>翻译形态的探索</h3>
+          <p><a href="https://wiki.tuya-inc.com:7799/page/1793458894018711607">同声翻译调研</a>（2024-05，空间最早的文档）对比了双耳各一 / 外放 / 单耳分戴 / 远程通话四种形态，结论是需要耳机主从标识 + 声纹辅助。此后按形态逐个落地：同传（v1.4）、面对面翻译（v2.1）、手机-耳机模式（v2.5）、电话翻译预研（v2.5）→ BR/EDR 方案（v2.9）→ DP 迁 SPP/EDR（v3.2）。<a href="https://wiki.tuya-inc.com:7799/page/1984624654895026186">AirPods 离线翻译调研</a>的结论是技术成本高（单语言模型约 1GB）、短期不建议跟进——为「不做」留下依据。</p>
+
+          <h3>竞品与行业</h3>
+          <p>竞品分析有固定 <a href="https://wiki.tuya-inc.com:7799/page/1965940704739856416">模板</a>（五维度 × 三方对比表）。已完成的专题：<a href="https://wiki.tuya-inc.com:7799/page/1965952473583583289">AI 录音卡片</a>（Plaud Note 开创品类、TicNote 主打内容创作者、钉钉 A1 绑企业生态；涂鸦短板是 Ask AI 与云同步）、<a href="https://wiki.tuya-inc.com:7799/page/1972927161870319627">AI 眼镜</a>（框架稿）、<a href="https://wiki.tuya-inc.com:7799/page/1900462502802620419">豆包耳机</a>（经典蓝牙 + MPI 心跳拉起 App）、<a href="https://wiki.tuya-inc.com:7799/page/1934539727092842585">竞品安全合规</a>（五款竞品普遍缺 GDPR / CCPA / 儿童隐私条款——反衬自研合规优势）、<a href="https://wiki.tuya-inc.com:7799/page/2031541196165218341">Plaud PC 登录</a>（auth_code 三段式，自研 PC 端直接参考）。</p>
+
+          <h3>技术底座</h3>
+          <p><a href="https://wiki.tuya-inc.com:7799/page/1927648686880325728">AI 音频解决方案</a>是唯一的全景架构文档（设备 + App + Cloud 三层、3A/VAD/ASR/翻译/TTS 全链路、业务模式矩阵），新人先读这篇再进版本线；配套 <a href="https://wiki.tuya-inc.com:7799/page/1967478063901970517">ASR 基础知识</a>（AM+LM+解码、采样率计算、麦克风阵列）。<a href="https://wiki.tuya-inc.com:7799/page/1975758380307845122">AI 眼镜技术储备</a>（2025-10）把主控芯片、光波导 / Micro OLED、边缘-中心云协同、跨端框架到安全合规梳理成册，是下一条产品线的预研底稿。</p>
+
+          <h3>产品与商业化</h3>
+          <p><a href="https://wiki.tuya-inc.com:7799/page/1896453051670077484">产品体验汇总</a>记录了客户与供应链事实：入门版客户含新画面 / 砂糖 / 倍思 / SBS，原厂杰理，云端早期仅部署美区；竞品参照讯飞 Nano+、时空壶 W4 Pro、PLAUD Note（交付 30 万台）。<a href="https://wiki.tuya-inc.com:7799/page/1902975588189081644">项目梳理</a>区分两条产品路径——Pro 版换涂鸦蓝牙模组走 BLE Opus 流，入门版零硬件改动扫码激活。<a href="https://wiki.tuya-inc.com:7799/page/1904094721832128522">Tuya Fit 公版</a>权衡后倾向合入公版走 OEM 配置而非独立 App；<a href="https://wiki.tuya-inc.com:7799/page/1860988775002280008">AI 效率小程序</a>与 <a href="https://wiki.tuya-inc.com:7799/page/1880973737054969882">其 Android 优化</a>记录了不依赖耳机的纯手机转写翻译形态。</p>
+        </section>
+
+        <section id="dead" aria-labelledby="dead-title">
+          <h2 id="dead-title"><span class="section-number">05</span>废弃与空壳</h2>
+          <h3>三篇已废弃</h3>
+          <ul class="check-list">
+            <li><a href="https://wiki.tuya-inc.com:7799/page/1828273235431526482">AI 录音转写 SDK（旧）</a>：只支持蓝牙设备作输入的早期通用方案，接口设计被 <a href="https://wiki.tuya-inc.com:7799/page/1833831380329431104">现行转写 API</a>（101KB，V189）整体替代。</li>
+            <li><a href="https://wiki.tuya-inc.com:7799/page/1833667209524678681">实时转写 API（旧）</a>：30s 上限 / 2s 限频的旧实时接口，错误码表仍是现行文档的参照。</li>
+            <li><a href="https://wiki.tuya-inc.com:7799/page/1854070215680196696">v1.4 旧版方案</a>：1v1 模式切换与 ogg 解码的初版设计，被现行 v1.4 整体重写。</li>
+          </ul>
+          <h3>23 篇空壳目录页</h3>
+          <p>其中 15 篇是 v2.0 起的版本锚点页（123 字节、正文为空），属于刻意的「目录页 + 子方案」结构，不缺内容；另外 8 篇是<strong>标题已建、正文缺失</strong>的子页，找方案时别在这里空等——<a href="https://wiki.tuya-inc.com:7799/page/2032264548936843267">Android 系统收音质量优化</a>、<a href="https://wiki.tuya-inc.com:7799/page/2068882062038798412">音频分享优化</a>、<a href="https://wiki.tuya-inc.com:7799/page/2054142344294301769">VAD 统一 C++ 实现</a>、<a href="https://wiki.tuya-inc.com:7799/page/2067525332977582087">笔记无网络优化 iOS 端</a>、<a href="https://wiki.tuya-inc.com:7799/page/2013157109679521839">云同步方案对齐</a>、<a href="https://wiki.tuya-inc.com:7799/page/2020773821832765525">慢方法统计</a>、<a href="https://wiki.tuya-inc.com:7799/page/1978335520350015565">VAD 策略</a>、<a href="https://wiki.tuya-inc.com:7799/page/2064544144050618405">小程序规范</a>（后两篇是链接跳转页，正文在别处）。</p>
+        </section>
+
+        <section id="map" aria-labelledby="map-title">
+          <h2 id="map-title"><span class="section-number">06</span>文档地图</h2>
+          <p class="map-intro">173 篇按真实目录结构列出：A 组按版本时序（含每版子方案与孙页）、B 组为根级独立文档、C 组为专题分组。<code>↳</code> 表示树内子页；「更新」为该页最后修改月份；标题直达内网 wiki。</p>
+          <!-- ==MAP:A== -->
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v1.0 · 1 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v1.0 · 1 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1797949504045977629">AI耳机v1.0-客户端技术方案</a></td><td>版本总方案</td><td>现行</td><td>2024-07</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v1.1 · 1 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v1.1 · 1 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1812795791048179773">AI耳机V1.1-对外技术方案</a></td><td>版本总方案</td><td>现行</td><td>2024-07</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v1.1 · 1 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v1.1 · 1 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1811649261931073603">AI耳机V1.1-客户端技术方案</a></td><td>版本总方案</td><td>现行</td><td>2024-07</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v1.2 · 1 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v1.2 · 1 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1814182128854761485">AI耳机V1.2-客户端技术方案</a></td><td>版本总方案</td><td>现行</td><td>2024-08</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v1.3 · 1 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v1.3 · 1 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1808375406798045227">AI耳机v1.3 客户端技术方案</a></td><td>版本总方案</td><td>现行</td><td>2024-11</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v1.4 · 2 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v1.4 · 2 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1854706614209085473">AI耳机v1.4 客户端技术方案</a></td><td>版本总方案</td><td>现行</td><td>2024-12</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1854070215680196696">AI耳机v1.4 客户端技术方案-废弃</a></td><td><span class="muted">废弃</span></td><td><span class="muted">已废弃</span></td><td>2024-12</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v1.5 · 1 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v1.5 · 1 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1876519647528882179">AI耳机v1.5+ 客户端技术方案</a></td><td>版本总方案</td><td>现行</td><td>2025-03</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v1.6 · 2 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v1.6 · 2 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1902964268895043616">AI耳机1.6版本客户端技术文档</a></td><td>版本总方案</td><td>现行</td><td>2025-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1905078782138519565">iOS AI耳机项目解析</a></td><td>调研分析</td><td>现行</td><td>2025-07</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v1.8 · 7 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v1.8 · 7 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1922469259573723187">AI耳机1.8版本客户端技术文档</a></td><td>版本总方案</td><td>现行</td><td>2025-05</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1922469877935771722">AI基座2.0接入</a></td><td>功能子方案</td><td>现行</td><td>2025-05</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1922490849074085898">iOS 性能优化</a></td><td>功能子方案</td><td>现行</td><td>2025-05</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1922815081331036222">Android性能优化</a></td><td>功能子方案</td><td>现行</td><td>2025-05</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1927173658002849795">App埋点</a></td><td>业务文档</td><td>现行</td><td>2025-07</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1930808891520581712">【Android】合入影响点评估</a></td><td>规范流程</td><td>现行</td><td>2025-06</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1930809026052886549">【iOS】合入公版影响点评估</a></td><td>规范流程</td><td>现行</td><td>2025-06</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v2.0 · 6 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v2.0 · 6 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1934417967257227277">AI耳机v2.0-客户端技术文档</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2025-06</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1934418161122148424">技术优化</a></td><td>功能子方案</td><td>现行</td><td>2025-06</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1934524930204897314">文件上传交互优化</a></td><td>功能子方案</td><td>现行</td><td>2025-06</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1934767796378407003">卡片强绑定逻辑优化</a></td><td>调研分析</td><td>现行</td><td>2025-06</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1934866806514651207">AI 卡片新增离线录音DP</a></td><td>功能子方案</td><td>现行</td><td>2025-06</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1940024390443864069">VAD动态阈值调整</a></td><td>功能子方案</td><td>现行</td><td>2025-10</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v2.1 · 7 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v2.1 · 7 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1942025272748408856">AI耳机v2.1-客户端技术文档</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2025-07</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1942096825276174348">AI手表health connect 适配技术方案</a></td><td>功能子方案</td><td>现行</td><td>2025-07</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1942132071795261470">小程序TTT Api</a></td><td>业务文档</td><td>现行</td><td>2025-07</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1942133745364504630">支持手机通道</a></td><td>功能子方案</td><td>现行</td><td>2025-07</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1942155983388147728">面对面翻译</a></td><td>功能子方案</td><td>现行</td><td>2025-07</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1942402266245890079">文件转写总结</a></td><td>功能子方案</td><td>现行</td><td>2025-07</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1942474736902602829">AI耳机2.1首页改动</a></td><td>功能子方案</td><td>现行</td><td>2025-07</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v2.2 · 6 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v2.2 · 6 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1945437543893831717">AI耳机V2.2-客户端技术方案</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2025-07</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1945437693282357251">AI音频相关业务代码重构</a></td><td>功能子方案</td><td>现行</td><td>2025-12</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1949644555863195746">TTT Api修改+模式切换</a></td><td>功能子方案</td><td>现行</td><td>2025-08</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1950854552009834499">自动化测试方案</a></td><td>功能子方案</td><td>现行</td><td>2025-08</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1951092104558022725">音频质量检测自动化工具</a></td><td>工具使用</td><td>现行</td><td>2025-08</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1951093218389004359">支持模式切换 + 设备切换</a></td><td>功能子方案</td><td>现行</td><td>2025-08</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v2.3 · 9 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v2.3 · 9 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1959815981870092356">AI耳机V2.3-客户端技术方案</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2025-08</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1959816149197651973">AI Note &amp; AI Translate</a></td><td>功能子方案</td><td>现行</td><td>2025-09</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1959866475976065046">实时转录支持朗读译文</a></td><td>功能子方案</td><td>现行</td><td>2025-08</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1959872271749222464">录音文件保存调整</a></td><td>功能子方案</td><td>现行</td><td>2025-08</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1959908059996229655">文本翻译</a></td><td>功能子方案</td><td>现行</td><td>2025-08</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1960181473243828291">AI耳机卡片拆分</a></td><td>功能子方案</td><td>现行</td><td>2025-09</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1962691675293749298">TTT-转录/总结 接口调整</a></td><td>功能子方案</td><td>现行</td><td>2025-09</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1964876207006679044">Silero Vad接入方案</a></td><td>功能子方案</td><td>现行</td><td>2025-09</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1970001552433221709">AI耳机2.3.5-客户端技术方案</a></td><td>版本总方案</td><td>现行</td><td>2025-09</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v2.4 · 6 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v2.4 · 6 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1969939723145187339">AI耳机V2.4-客户端技术方案</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2025-09</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1969940054511976532">小程序监听硬件DP状态</a></td><td>功能子方案</td><td>现行</td><td>2025-10</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1970315659845832781">云同步</a></td><td>功能子方案</td><td>现行</td><td>2026-01</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1976101088587153446">云同步-上传/下载</a></td><td>功能子方案</td><td>现行</td><td>2025-10</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1983351360510234652">AI Note问题转需求 &amp; 小程序Push刷新  &amp; 流式翻译 asr/translate合并发送</a></td><td>功能子方案</td><td>现行</td><td>2025-11</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1985164123985412191">流式翻译 2.0</a></td><td>功能子方案</td><td>现行</td><td>2025-11</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v2.5 · 9 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v2.5 · 9 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1987705631980654620">AI耳机V2.5-客户端技术方案</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2025-11</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1987705713916383302">手机-耳机模式</a></td><td>功能子方案</td><td>现行</td><td>2025-12</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1987705861631381557">电话翻译（预研）</a></td><td>调研分析</td><td>现行</td><td>2025-12</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1988057460161646641">文件导入</a></td><td>功能子方案</td><td>现行</td><td>2025-11</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1988064698725044323">硬件引导、文件来源、debug工具</a></td><td>功能子方案</td><td>现行</td><td>2025-11</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1988079669320089662">TTT-文件列表/实时ASR分页,直播,Token预申请</a></td><td>功能子方案</td><td>现行</td><td>2025-11</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1988119429451354136">多项技术优化</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1995327056568647711">Pro耳机DP协议</a></td><td>业务文档</td><td>现行</td><td>2025-12</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1996414109414850620">振幅问题</a></td><td>调研分析</td><td>现行</td><td>2025-12</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v2.6 · 7 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v2.6 · 7 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1998590554698416161">AI耳机V2.6-客户端技术方案</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2025-12</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1998590622155407418">AI 硬件方案迭代优化</a></td><td>功能子方案</td><td>现行</td><td>2026-01</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1998706834344509465">TTS 提前播放</a></td><td>功能子方案</td><td>现行</td><td>2025-12</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1998741344037638191">录音打断推送、录音超限自动重新开始</a></td><td>功能子方案</td><td>现行</td><td>2026-01</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2007651351735042087">TTT-音频分享获取合规路径</a></td><td>功能子方案</td><td>现行</td><td>2026-01</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2011273533082046549">客户端Atop请求ownerId修改</a></td><td>功能子方案</td><td>现行</td><td>2026-01</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2013164165669068878">TTT-onPartialRecordUpdate新增字段</a></td><td>功能子方案</td><td>现行</td><td>2026-01</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v2.7 · 10 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v2.7 · 10 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2008456431375749170">AI耳机V2.7-客户端技术方案</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2026-01</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2001896485532205146">iOS Note文件传输的错误码添加</a></td><td>功能子方案</td><td>现行</td><td>2026-05</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2008455198711742495">AI Note文件传输效果流程优化</a></td><td>功能子方案</td><td>现行</td><td>2026-01</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2008720730232979515">转写进度体验优化、新增分享功能</a></td><td>功能子方案</td><td>现行</td><td>2026-06</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2008788616695775300">Opus音频流多包合并上行</a></td><td>功能子方案</td><td>现行</td><td>2026-01</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2008824435192107089">音频上传进度的异常情况</a></td><td>调研分析</td><td>现行</td><td>2026-01</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2010604595541180462">audio-engine-sdk重构接入</a></td><td>功能子方案</td><td>现行</td><td>2026-01</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2011963661697941583">音频文件上传支持分片</a></td><td>功能子方案</td><td>现行</td><td>2026-01</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2013157109679521839">云同步方案对齐</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2026-01</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2014582357507440696">首页-AI笔记卡片/翻译小程序URL修改</a></td><td>功能子方案</td><td>现行</td><td>2026-05</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v2.8 · 10 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v2.8 · 10 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2019652832734486539">AI耳机V2.8-客户端技术方案</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2026-02</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2019662029651976250">客户端数据读写增加二级缓存</a></td><td>功能子方案</td><td>现行</td><td>2026-02</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2020675285514453014">文件合并方案设计</a></td><td>功能子方案</td><td>现行</td><td>2026-02</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2020678399424462861">Note-优化</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2020680924395479080">iOS 灵动岛/通知卡片/悬浮按钮</a></td><td>功能子方案</td><td>现行</td><td>2026-02</td></tr>
+<tr><td>↳ ↳ <a href="https://wiki.tuya-inc.com:7799/page/2028644136046821414">iOS 实时活动主工程配置</a></td><td>规范流程</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ ↳ <a href="https://wiki.tuya-inc.com:7799/page/2046534685630136388">iOS 实时录音描述文件制作</a></td><td>规范流程</td><td>现行</td><td>2026-04</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2020748260108402757">Android 通知样式/录音中悬浮按钮(TTT-新增API)</a></td><td>功能子方案</td><td>现行</td><td>2026-02</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2020773821832765525">慢方法统计</a></td><td><span class="muted">空壳目录页</span></td><td>现行</td><td>2026-02</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2020774385865981980">线程优化</a></td><td>功能子方案</td><td>现行</td><td>2026-02</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v2.9 · 20 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v2.9 · 20 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2030829696047906911">AI耳机V2.9-客户端技术方案</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2032264548936843267">Android系统收音质量优化</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2032042792263352358">快速开始录音</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2029391838925819977">小程序预加载/小程序调转</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2031184682267181117">PC 端应用技术方案（前端技术栈 · Windows / Mac）</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ ↳ <a href="https://wiki.tuya-inc.com:7799/page/2031541196165218341">竞品技术方案调研：Plaud PC 端登录流程</a></td><td>调研分析</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ ↳ <a href="https://wiki.tuya-inc.com:7799/page/2033810496393576466">待确认技术方案</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ ↳ <a href="https://wiki.tuya-inc.com:7799/page/2034167338596565062">基座2.0接入技术方案</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ ↳ <a href="https://wiki.tuya-inc.com:7799/page/2034169010051878999">调用组件 &amp; API</a></td><td>业务文档</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ ↳ <a href="https://wiki.tuya-inc.com:7799/page/2034171171888431132">MIC/系统内置收音</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ ↳ <a href="https://wiki.tuya-inc.com:7799/page/2034171561245675571">检测更新 &amp; 覆盖安装</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ ↳ <a href="https://wiki.tuya-inc.com:7799/page/2034171812207656992">打包exe/dmg</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ ↳ <a href="https://wiki.tuya-inc.com:7799/page/2034172115078352991">实时字幕</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2031195053984055378">AI Note 离线文件转换多线程优化</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2031197344157929476">快速启动-技术方案</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2031315586956394569">技术优化：iOS收音质量</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2031547123102646306">技术优化：IOS AINote转码优化方案</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2034105265321672719">标签 &amp; 搜索</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2036732110189887534">快速启动-Siri、聚焦搜索</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2038916372951470097">iOS 支持BR/EDR方案</a></td><td>功能子方案</td><td>现行</td><td>2026-03</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v3.0 · 3 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v3.0 · 3 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2044974695668781107">AI耳机V3.0-客户端技术方案</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2026-04</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2043967653411819598">系统分享导入音频</a></td><td>功能子方案</td><td>现行</td><td>2026-05</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2032071079928795183">Android 12+ Note新AP连接方案</a></td><td>功能子方案</td><td>现行</td><td>2026-04</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v3.1.0 · 6 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v3.1.0 · 6 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2053735959211540500">AI耳机v3.1.0-客户端技术方案</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2026-05</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2052359895600074763">文件导入 单文件分片并行转码_技术方案</a></td><td>功能子方案</td><td>现行</td><td>2026-05</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2053736293262688342">删除记录优化&amp;音频清理、消息中心跳转</a></td><td>功能子方案</td><td>现行</td><td>2026-05</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2054142344294301769">VAD 统一 C++ 实现技术方案</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2026-05</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2054157128645480476">visit 已读未读状态优化方案</a></td><td>功能子方案</td><td>现行</td><td>2026-05</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2054434893538000896">卡片防丢</a></td><td>功能子方案</td><td>现行</td><td>2026-05</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v3.2 · 6 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v3.2 · 6 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2067515992279355440">AI耳机V3.2-客户端技术方案</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2026-06</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2066757416434794575">Note 无网络提示优化</a></td><td>功能子方案</td><td>现行</td><td>2026-06</td></tr>
+<tr><td>↳ ↳ <a href="https://wiki.tuya-inc.com:7799/page/2067525332977582087">笔记无网络优化 iOS端</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2026-06</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2067516077943820318">Pro耳机电话录音/通话翻译流程技术优化</a></td><td>功能子方案</td><td>现行</td><td>2026-06</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2068882062038798412">音频分享优化</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2026-06</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2074023528994177106">音频收音异常链路技术方案</a></td><td>功能子方案</td><td>现行</td><td>2026-07</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v3.3.0 · 2 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v3.3.0 · 2 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2076935901916692547">AI耳机V3.3.0 - 客户端技术方案</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2026-07</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2076936011169923088">iOS 后台降频</a></td><td>功能子方案</td><td>现行</td><td>2026-07</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="v3.4.0 · 4 篇建档，可横向滚动">
+<table class="map-table">
+<caption>v3.4.0 · 4 篇建档</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2087428682166575108">AI耳机v3.4.0 技术文档</a></td><td><span class="muted">空壳目录页</span></td><td><span class="muted">未知</span></td><td>2026-08</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2087428887205122082">AI耳机 回收站 -云端</a></td><td>功能子方案</td><td>现行</td><td>2026-08</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2087484300520853507">AI耳机 回收站-客户端</a></td><td>功能子方案</td><td>现行</td><td>2026-08</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2087786724565454902">AI 耳机 回收站 — Android 客户端技术方案</a></td><td>功能子方案</td><td>现行</td><td>2026-08</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ==MAP:B== -->
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="根级独立文档 · 13 篇，可横向滚动">
+<table class="map-table">
+<caption>根级独立文档 · 13 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1828273235431526482">AI录音转写sdk-废弃</a></td><td><span class="muted">废弃</span></td><td><span class="muted">已废弃</span></td><td>2024-09</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1815929991720861746">AI耳机msbc-技术方案</a></td><td>功能子方案</td><td>现行</td><td>2024-08</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1801136077562445886">ai耳机-文件同步 - Android技术方案</a></td><td>功能子方案</td><td>现行</td><td>2024-06</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1860988775002280008">AI 效率小程序技术方案</a></td><td>版本总方案</td><td>现行</td><td>2024-11</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1826233088456261666">ai耳机产品高级功能打标</a></td><td>功能子方案</td><td>现行</td><td>2024-08</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1833667209524678681">AI录音实时转写API-废弃</a></td><td><span class="muted">废弃</span></td><td><span class="muted">已废弃</span></td><td>2024-09</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1833831380329431104">AI录音转写API</a></td><td>业务文档</td><td>现行</td><td>2024-09</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1839571841530724383">Ai耳机-AIsdk功能沉淀</a></td><td>业务文档</td><td><span class="muted">未知</span></td><td>2024-09</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1793458894018711607">耳机同声翻译调研方向</a></td><td>调研分析</td><td>现行</td><td>2024-05</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1880973737054969882">AI效率小程序android端优化方案</a></td><td>功能子方案</td><td>现行</td><td>2025-01</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1980104772350382163">AI耳机技术指标数据看板</a></td><td>业务文档</td><td>现行</td><td>2025-10</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2062054900610633766">Android 音频控制分析</a></td><td>调研分析</td><td>现行</td><td>2026-07</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1818595554507096153">临时</a> <span class="muted">(根级流程草稿)</span></td><td>业务文档</td><td><span class="muted">未知</span></td><td>2024-12</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ==MAP:C== -->
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="Checklist · 2 篇，可横向滚动">
+<table class="map-table">
+<caption>Checklist · 2 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1930865230078808116">1.6</a></td><td>上架审核</td><td>现行</td><td>2025-06</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1930865628969697377">1.8</a></td><td>上架审核</td><td>现行</td><td>2025-06</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="AI耳机测试工具 · 3 篇，可横向滚动">
+<table class="map-table">
+<caption>AI耳机测试工具 · 3 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1976887230475538472">AI耳机 端测 技术方案</a></td><td>工具使用</td><td>现行</td><td>2025-11</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1978335520350015565">AI 耳机 Vad策略</a></td><td><span class="muted">空壳目录页</span></td><td>现行</td><td>2025-10</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2064544144050618405">AI 耳机小程序规范</a></td><td><span class="muted">空壳目录页</span></td><td>现行</td><td>2026-06</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="工具使用文档 · 3 篇，可横向滚动">
+<table class="map-table">
+<caption>工具使用文档 · 3 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1954795258613076060">iOS AI耳机 工具使用文档</a></td><td>工具使用</td><td>现行</td><td>2025-10</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1954743406475350062">Android AI耳机 工具使用文档</a></td><td>工具使用</td><td>现行</td><td>2025-10</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2004002384920969235">CES展AI笔记功能演示使用说明</a></td><td>工具使用</td><td>现行</td><td>2025-12</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="AI耳机 客户端业务文档 · 8 篇，可横向滚动">
+<table class="map-table">
+<caption>AI耳机 客户端业务文档 · 8 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1965258056023412825">AI 耳机错误码汇总</a></td><td>业务文档</td><td>现行</td><td>2026-01</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2008715840211390531">端侧VAD方案</a></td><td>功能子方案</td><td>现行</td><td>2026-01</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1995672766832967727">AI Voice业务场景介绍 &amp; 智能设备DP协议</a></td><td>业务文档</td><td>现行</td><td>2026-08</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2032648859800305750">AI 耳机-通话翻译</a></td><td>业务文档</td><td>现行</td><td>2026-03</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2036633249513472080">AI Note相关业务文档</a></td><td>业务文档</td><td>现行</td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2042161569911013422">iOS &amp; Android 对比分析</a></td><td>调研分析</td><td>现行</td><td>2026-04</td></tr>
+<tr><td>↳ ↳ <a href="https://wiki.tuya-inc.com:7799/page/2037457366290530327">iOS AI  Note 文档</a></td><td>业务文档</td><td>现行</td><td>2026-04</td></tr>
+<tr><td>↳ ↳ <a href="https://wiki.tuya-inc.com:7799/page/2042165498979815431">Android AI Note 文档</a></td><td>业务文档</td><td>现行</td><td>2026-04</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="上架审核 · 3 篇，可横向滚动">
+<table class="map-table">
+<caption>上架审核 · 3 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2068873900426526771">GooglePlay-AI笔记前台服务权限说明</a></td><td>上架审核</td><td>现行</td><td>2026-07</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2072130248299773992">AI笔记配置项梳理</a></td><td>业务文档</td><td>现行</td><td>2026-07</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2072607411381731397">手表/指环 配置项整理</a></td><td>业务文档</td><td>现行</td><td>2026-07</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="1+X产品体验/竞品 · 9 篇，可横向滚动">
+<table class="map-table">
+<caption>1+X产品体验/竞品 · 9 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1896453051670077484">AI 耳机产品体验</a></td><td>业务文档</td><td>现行</td><td>2026-07</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1900462502802620419">豆包耳机体验</a></td><td>调研分析</td><td>现行</td><td>2025-03</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1902975588189081644">AI 耳机项目梳理</a></td><td>业务文档</td><td>现行</td><td>2025-08</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1904094721832128522">穿戴公版 Tuya Fit</a></td><td>业务文档</td><td>现行</td><td>2025-04</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1927648686880325728">AI 音频解决方案</a></td><td>版本总方案</td><td>现行</td><td>2025-07</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1934539727092842585">竞品安全合规分析</a></td><td>调研分析</td><td>现行</td><td>2025-06</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1940219847682035775">ASR准确率</a></td><td>工具使用</td><td>现行</td><td>2025-07</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1967478063901970517">ASR 基础知识</a></td><td>调研分析</td><td>现行</td><td>2025-09</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1984624654895026186">AirPods 实时&amp;离线翻译</a></td><td>调研分析</td><td>现行</td><td>2025-11</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="竞品分析 · 3 篇，可横向滚动">
+<table class="map-table">
+<caption>竞品分析 · 3 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1965940704739856416">竞品分析模板</a></td><td>规范流程</td><td>现行</td><td>2025-09</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1965952473583583289">竞品分析 - AI 录音卡片</a></td><td>调研分析</td><td>现行</td><td>2025-09</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1972927161870319627">竞品分析 - AI 眼镜</a></td><td>调研分析</td><td>现行</td><td>2025-12</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="AI 眼镜 · 1 篇，可横向滚动">
+<table class="map-table">
+<caption>AI 眼镜 · 1 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/1975758380307845122">AI 眼镜</a></td><td>调研分析</td><td>现行</td><td>2025-10</td></tr>
+</tbody>
+</table>
+</div>
+          <div class="callout"><p><strong>范围外：</strong>根级还有「AI分享」分组（DeepSeek / RAG / YOLO 等通用 AI 知识分享，数十篇），不属于研发方案，本报告未收录。</p></div>
+        </section>
+
+        <section id="sources" aria-labelledby="sources-title">
+          <h2 id="sources-title"><span class="section-number">07</span>来源与口径</h2>
+          <ol class="steps">
+            <li><strong>来源。</strong><p>内网 wiki「AI 耳机&amp;Note-研发」：<a href="https://wiki.tuya-inc.com:7799/page/1808375059060887638">wiki.tuya-inc.com:7799/page/1808375059060887638</a>。全部 173 篇正文级页面（TEXT 类型）均在收录范围。</p></li>
+            <li><strong>抓取方式。</strong><p>2026-11-05 经 Safari 登录态逐页抓取页面 SSR 的 <code>__NEXT_DATA__</code> JSON，转换为纯文本后由并行任务生成结构化摘要（类型 / 状态 / 摘要 / 要点 / 涉及端），本页为摘要的二次编排。173/173 全量命中，无缺页。</p></li>
+            <li><strong>日期口径。</strong><p>「建档」取页面 gmtCreate，「更新」取 gmtModified（UTC，精确到月）。v1.3 建档早于 v1.1/v1.2 属实——该页先建框架后补内容，版本排序仍按建档序。</p></li>
+            <li><strong>分类口径。</strong><p>「类型 / 状态 / 涉及端」为阅读后的人工分类标注，非 wiki 官方元数据；「空壳目录页」指正文为空或仅链接他处的页面。</p></li>
+            <li><strong>已知局限。</strong><p>摘要为原文压缩，细节（字段定义、时序、错误码全表）以原文为准；wiki 之外的引用目标（GitLab 代码库、腾讯文档错误码表、图片内的对比数据）未抓取，图片内容不在摘要内；同名页面「AI耳机2.1首页改动」等三篇在版本组内只列一次。</p></li>
+          </ol>
+        </section>
+      </main>
+    </div>
+    <footer>Tuya AI 耳机 &amp; Note · 研发方案总览 · 独立阅读文档 · 2026-11 快照整理，正文无需 JavaScript 即可阅读；链接目标为内网 wiki，需相应访问权限。</footer>
+  </div>
+</body>
+</html>

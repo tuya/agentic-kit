@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="涂鸦《AI耳机一键唤醒+hey tuya 方案》单篇深度分析：逐步功能规格（11 项功能、0x0094 五条指令与七个错误码、参数总表、状态机、12 项链路缺口），两幅时序图与协议表的恢复与图文矛盾（dp vs 0x0094、转码 vs 透传）、豆包 MFi 五阶段拆解、完成度盘点、九项技术疑点、P0/P1/P2 补齐路径。">
+  <title>AI 耳机一键唤醒 hey tuya · 方案分析</title>
+  <style>
+    :root { --ink:#172b43; --muted:#52657b; --blue:#165ba9; --line:#d4dde8; --soft:#f3f7fc; --paper:#fff; --mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; scroll-padding-top:24px; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif; font-size:16px; line-height:1.8; }
+    a { color:var(--blue); text-underline-offset:3px; }
+    a:hover { text-decoration-thickness:2px; }
+    :focus-visible { outline:3px solid #397ecd; outline-offset:4px; }
+    .skip-link { position:absolute; left:16px; top:-100px; padding:8px 16px; background:#fff; z-index:5; }
+    .skip-link:focus { top:12px; }
+    .page { width:min(1180px,calc(100% - 80px)); margin:auto; }
+    .masthead { display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid var(--line); padding:24px 0 19px; font-size:13px; letter-spacing:.05em; }
+    .masthead strong { font-weight:650; }
+    .masthead span { color:var(--muted); }
+    header { padding:54px 0 38px; }
+    .eyebrow { margin:0 0 12px; color:var(--blue); font-size:13px; font-weight:700; letter-spacing:.14em; }
+    h1 { font-size:clamp(30px,4.2vw,48px); line-height:1.32; letter-spacing:-.04em; max-width:880px; margin:0 0 22px; font-weight:750; }
+    .lead { font-size:20px; line-height:1.75; max-width:850px; margin:0; color:var(--muted); }
+    .scope { font-size:13px; margin:20px 0 0; color:var(--muted); }
+    .layout { display:grid; grid-template-columns:180px minmax(0,1fr); gap:48px; padding-bottom:64px; }
+    .toc { align-self:start; position:sticky; top:28px; font-size:14px; border-top:2px solid var(--ink); padding-top:14px; }
+    .toc p { font-size:12px; font-weight:700; letter-spacing:.09em; margin:0 0 10px; color:var(--muted); }
+    .toc a { display:block; padding:6px 0; color:var(--muted); text-decoration:none; }
+    .toc a:hover { color:var(--blue); }
+    main { min-width:0; }
+    section { border-top:1px solid var(--line); padding-top:25px; margin-bottom:44px; }
+    section:first-child { border-top:2px solid var(--ink); }
+    h2 { font-size:25px; line-height:1.45; letter-spacing:-.025em; margin:0 0 16px; }
+    .section-number { display:inline-block; color:var(--blue); font-size:13px; letter-spacing:.05em; vertical-align:middle; margin-right:12px; }
+    h3 { font-size:19px; line-height:1.5; margin:26px 0 10px; }
+    p { margin:0 0 14px; }
+    .muted, .note { color:var(--muted); }
+    .note { font-size:14px; }
+    code { font-family:var(--mono); font-size:.89em; overflow-wrap:anywhere; }
+    .callout { border-left:3px solid var(--blue); padding:12px 18px; background:var(--soft); margin:20px 0; }
+    .callout p:last-child { margin-bottom:0; }
+    .callout strong { color:var(--blue); }
+    .quote { border-left:3px solid var(--line); padding:2px 0 2px 16px; margin:12px 0 14px; color:var(--muted); font-size:14px; }
+    .quote p { margin:0 0 6px; }
+    .quote p:last-child { margin-bottom:0; }
+    .quote .where { font-family:var(--mono); font-size:12px; letter-spacing:.03em; }
+    .table-scroll { max-width:100%; overflow-x:auto; margin:15px 0; }
+    table { border-collapse:collapse; width:100%; font-size:14px; line-height:1.7; text-align:left; }
+    caption { caption-side:top; text-align:left; font-size:13px; color:var(--muted); padding-bottom:9px; }
+    th, td { padding:12px 13px; border-bottom:1px solid var(--line); vertical-align:top; }
+    th { background:var(--soft); font-weight:650; }
+    thead { border-top:1px solid var(--line); }
+    .stat-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:25px; margin:20px 0 18px; }
+    .stat-grid div { padding-top:11px; border-top:2px solid var(--line); }
+    .stat-grid dt { margin-bottom:8px; font-weight:700; }
+    .stat-grid dd { margin:0 0 6px; font-size:14px; color:var(--muted); }
+    .ver-title { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin:30px 0 8px; }
+    .ver-title h3 { margin:0; font-size:20px; }
+    .ver-title span { font-family:var(--mono); color:var(--muted); font-size:12px; letter-spacing:.05em; }
+    .ver-block p { margin:0 0 12px; }
+    .steps { margin:18px 0 0; padding-left:24px; }
+    .steps li { padding:0 0 13px 5px; }
+    .steps li::marker { color:var(--blue); font-weight:700; }
+    .steps strong { font-weight:650; }
+    .check-list { padding-left:21px; margin:15px 0; }
+    .check-list li { margin-bottom:12px; padding-left:4px; }
+    .check-list li::marker { color:var(--blue); }
+    .map-table td:first-child { min-width:200px; }
+    .map-table td a { overflow-wrap:anywhere; }
+    .map-table td:nth-child(2) { min-width:260px; }
+    footer { border-top:1px solid var(--line); padding:20px 0 30px; font-size:12px; color:var(--muted); }
+    @media (max-width:1000px) {
+      .page { width:calc(100% - 48px); }
+      .layout { grid-template-columns:145px minmax(0,1fr); gap:28px; }
+      .stat-grid { gap:15px; }
+    }
+    @media (max-width:760px) {
+      .page { width:calc(100% - 36px); }
+      .masthead { padding-top:18px; font-size:11px; }
+      .masthead span { text-align:right; }
+      header { padding:34px 0 28px; }
+      .lead { font-size:18px; }
+      .layout { display:block; }
+      .toc { position:static; display:flex; flex-wrap:wrap; gap:3px 18px; padding:12px 0 20px; border-top:1px solid var(--line); }
+      .toc p { width:100%; margin-bottom:1px; }
+      .toc a { font-size:13px; padding:3px 0; }
+      h2 { font-size:23px; }
+      .stat-grid { grid-template-columns:1fr; gap:15px; }
+      th, td { padding:10px; }
+      section { margin-bottom:34px; }
+      .callout { padding:12px 14px; }
+      .quote { padding-left:12px; }
+    }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+    @media print {
+      @page { size:A4; margin:15mm; }
+      html { scroll-behavior:auto; }
+      body { color:#172b43; font-size:10pt; line-height:1.6; }
+      .page { width:auto; max-width:none; }
+      .masthead { padding:0 0 10px; font-size:8pt; }
+      header { padding:20px 0; }
+      h1 { font-size:27pt; max-width:none; margin-bottom:12px; }
+      .lead { font-size:12pt; }
+      .scope, .note { font-size:8pt; }
+      .layout { display:block; padding-bottom:0; }
+      .toc, .skip-link { display:none!important; }
+      section { padding-top:15px; margin-bottom:24px; }
+      h2 { font-size:17pt; break-after:avoid; }
+      h3, .ver-title { break-after:avoid; }
+      h3 { font-size:13pt; }
+      .stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:15px; }
+      .stat-grid dd, table, .quote { font-size:8.5pt; }
+      .table-scroll { overflow:visible; }
+      th, td { padding:7px 8px; }
+      tr { break-inside:avoid; }
+      thead { display:table-header-group; }
+      .callout { break-inside:avoid; }
+      .steps li, .check-list li, .ver-block { break-inside:avoid; }
+      a { color:inherit; }
+      footer { padding:12px 0 0; }
+      * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+  <div class="page">
+    <div class="masthead"><strong>TUYA AI EARPHONE</strong><span>方案分析 · 客户端 App 知识库 · 单篇深度评审</span></div>
+    <header>
+      <p class="eyebrow">WIKI SPEC ANALYSIS · 1 DOC · 2026-01-07 → 2026-03-19 · V168</p>
+      <h1>AI 耳机一键唤醒 + hey tuya：<br>图画全了，正文和图却在各说各话</h1>
+      <p class="lead">「在 app 被杀死或者后台情况下，使用耳机唤醒 hey tuya 然后进行语音交互」——方案把这句话拆成拉起保活、模式协商、音频上行三段链路：正文写 dp(state=1/0) 双向回显握手、app 把 opus 转成 pcm 再上云；同一份文档里的时序图却画着 0x0094 四步握手 + 协议 0091 原始音频流「透传音频数据到云端」，语音流程里一个 dp 都没有。图文各自完整、互不引用，模板 15 个章节约 9 个未填、评审闭环无任何记录，而作者自己的实测（锁屏 20% 连不上、连接要 25s）与 3-5s 广播窗的规则也从未对齐。</p>
+      <p class="scope">依据内网 wiki 单页快照（2026-11-06 抓取）与三镜头独立分析（方案重构 / 批判评估 / 上下文关联，对照「AI 耳机&amp;Note-研发」空间全部 173 篇文档）。本页是分析，不替代原文；所有链接需内网访问权限。<a href="#sources">查看整理口径</a></p>
+    </header>
+    <div class="layout">
+      <nav class="toc" aria-label="文档目录">
+        <p>阅读导航</p>
+        <a href="#verdict">01 · 结论先行</a>
+        <a href="#rebuild">02 · 方案重构</a>
+        <a href="#spec">03 · 功能规格还原</a>
+        <a href="#elements">04 · 关键技术要素</a>
+        <a href="#research">05 · 调研数据</a>
+        <a href="#completion">06 · 完成度盘点</a>
+        <a href="#doubts">07 · 技术疑点</a>
+        <a href="#context">08 · 体系定位</a>
+        <a href="#next">09 · 下一步</a>
+        <a href="#sources">10 · 来源与口径</a>
+      </nav>
+      <main id="main">
+
+        <section id="verdict" aria-labelledby="verdict-title">
+          <h2 id="verdict-title"><span class="section-number">01</span>结论先行</h2>
+          <p>这份文档是客户端 App 团队技术方案模板下的一份<strong>中期状态稿</strong>：设计要点已落（9 个详细设计小节 + 两组调研数据），流程图、接口契约、异常流程、安全、测试、CheckList、评审意见全部未落。建档人与最后修改人均为朱恪帅（涂鸦名「迷龙」，工号 02655），2026-01-07 建档，最后修改 2026-03-19，页面版本 V168——而文档记录表里只有「迷龙 / 2026-01-7 / 初稿」一条。</p>
+          <dl class="stat-grid">
+            <div>
+              <dt>文档状态</dt>
+              <dd>建档 2026-01-07 · 改至 2026-03-19 · V168</dd>
+              <dd>记录表仅「初稿」一条，迭代无痕</dd>
+              <dd>模板约 15 个章节，约 9 个未填或仅剩占位</dd>
+              <dd>CheckList 27 行全空白 + 评审意见空白</dd>
+            </div>
+            <div>
+              <dt>核心链路（图已画全）</dt>
+              <dd>正文：ibeacon 广播拉起（3-5s）→ dp(state=1/0) 回显握手</dd>
+              <dd>时序图：系统配件拉起 → 0x0094 四步握手 + 0091 数据流</dd>
+              <dd>上行正文写 opus→pcm 转码，图写「透传音频数据到云端」</dd>
+              <dd>下行 BT 系统播放器 + 混音（待调研）</dd>
+            </div>
+            <div>
+              <dt>最大的问号</dt>
+              <dd>图文两套进入握手（dp vs 0x0094）从未对齐</dd>
+              <dd>Android 拉起保活：无任何机制，仅一句注记</dd>
+              <dd>锁屏实测 20% 连不上 / 25s，与 3-5s 广播窗矛盾</dd>
+              <dd>iOS 18 以下主目标不成立；与 dp63 协议族关系未提</dd>
+            </div>
+          </dl>
+          <div class="callout"><p><strong>总评：设计已铺开，一致性与工程闭环没跟上。</strong>方案不缺内容——9 个详细设计小节、两幅完整时序图（配网绑定 + 语音交互全流程、豆包 MFi 五阶段拆解）、一张 0x0094 协议定义图、两段演示视频都在；缺的是把它们<strong>对齐</strong>：正文的进入握手是 dp(state=1) 双向回显，时序图的语音流程全程只有 0x0094 request_start/start_recording；正文写 app 转 pcm 上云，图写 0091 原始流透传；承载音频的协议 0091 在正文里只字未提。安全、测试、CheckList、异常流程各节全空，模板定义的评审闭环从未留下任何记录。按模板自己的口径——「以下检查点均通过，技术方案才算正式通过评审」——这份方案目前不具备通过评审的条件；更准确地说，不是「评审没通过」，而是<strong>模板定义的评审闭环从未留下任何记录</strong>（CheckList 与评审意见双空白，无责任人、无时间），而 V168 的文档状态看起来又「很完整」，容易让下游团队误以为方案已定稿可依。</p></div>
+          <p class="note"><strong>第 03 节</strong>把散落在正文、时序图与协议图里的功能拼成一份逐步规格——11 项功能、5 条控制指令、7 个错误码、14 个参数，每条标注来源等级（正文 / 图 / 推断 / 缺失），可以直接拿它对照方案的可实施性：骨架其实完整，缺的是接口契约。</p>
+          <p class="note">对 agentic-kit 仓库读者的定位参考：本方案是耳机音频链路能力（BLE opus、dp 控制）与 App 侧 hey tuya 业务的<strong>第一次正式融合方案</strong>，落在 V2.5「手机-耳机模式」与 AI Voice DP 协议定型（2025-12）之后；仓库内 rtc-tcp-client（TAI）上行的正是 opus 流，「app 将 opus 转 pcm」的取舍与 <code>tai_send_audio_chunk()</code> 的透传设计同题，见 <a href="#doubt-3">疑点 3</a>。</p>
+        </section>
+
+        <section id="rebuild" aria-labelledby="rebuild-title">
+          <h2 id="rebuild-title"><span class="section-number">02</span>方案重构：原文实写了什么</h2>
+          <p>本节只陈述原文实写内容（模板占位引导语不计入），空缺处明确标注。原文存在编号缺陷：3.1 详细设计下出现两组 3.1.1 与 3.1.2，本页按实际标题引用。</p>
+
+          <h3>背景与目标</h3>
+          <div class="quote">
+            <p>背景：目前AI耳机已经实现同声传译等多种场景，涂鸦 app 也在发力hey tuya的应用场景。将两者能够融合就成为了非常必要的事情。</p>
+            <p>目标：在app被杀死或者后台情况下，使用耳机唤醒hey tuya然后进行语音交互</p>
+            <p class="where">—— 一.1 背景与目标（「2.需求分析」整节为空）</p>
+          </div>
+
+          <h3>总体设计三要点</h3>
+          <p>原文以三条 bullet 给出，对应「拉起/保活 — 模式协商 — 音频上行」三个环节：</p>
+          <ul class="check-list">
+            <li><strong>耳机能够断连后拉起和保活 app</strong>——解决 app 被杀死/后台时的可达性；</li>
+            <li><strong>app 启动后、连接状态下，通过新增命令上报唤醒 hey tuya</strong>——设备到 app 的模式协商（原文断句「app启动后在，连接状态下」带语病）；</li>
+            <li><strong>耳机将语音数据通过 BLE 上报给 app</strong>——音频上行通道。</li>
+          </ul>
+
+          <h3>进入路径 A：耳机未连接 app（冷路径，经 ibeacon）</h3>
+          <ol class="steps">
+            <li>【用户】触摸耳机，意图唤醒 hey tuya。</li>
+            <li>【耳机】因未连接 app，触发 ibeacon 广播，持续 <strong>3–5s</strong>。</li>
+            <li>【app】被拉起并连接上设备（依赖保活机制；实测耗时见 <a href="#research">第 05 节</a>——未锁屏 8s，锁屏最长约 25s）。</li>
+            <li>【耳机 → app】连接建立后，设备上报 <strong>dp(state=1)</strong>，请求进入 hey tuya 模式。</li>
+            <li>【app】收到 dp，初始化 hey tuya，并<strong>下发相同 dp(state=1)</strong> 完成双向确认。</li>
+            <li>【耳机】进入 hey tuya 模式；app 接收来自 BLE 的音频。</li>
+          </ol>
+          <div class="quote">
+            <p>当耳机未连接app时，触发ibeacon广播(3-5s), 等app连接上设备之后，设备上报dp(state=1)，请求进入hey tuya模式，app收到dp，初始化hey tuya并下发相同dp,设备进入hey tuya模式。app收到来自ble音频。异常：其他触摸动作终止或者超时后再连接不进入hey tuya模式。</p>
+            <p class="where">—— 3.1.2 AI耳机触发ibeacon（原文明确的两条异常分支：其他触摸动作终止；超时后再连接）</p>
+          </div>
+          <p class="note">注意异常分支二「超时后再连接不进入 hey tuya模式」：按实测 8s 的连接时长，3-5s 的广播窗大概率在 app 连上之前就结束了——这条规则与实测数据的矛盾见 <a href="#doubt-4">疑点 4</a>。</p>
+
+          <h3>进入路径 B：耳机已连接 app（热路径，无 ibeacon）</h3>
+          <p>设备<strong>直接上报 dp(state=1)</strong>，app 初始化并回发相同 dp，耳机进入模式，BLE 音频开始上行——无广播、无拉起，一次握手即完成。</p>
+
+          <h3>时序图里的另一套设计（二.2 流程设计说明）</h3>
+          <p>「二.2 流程设计说明」节内嵌一幅五参与者完整时序图（用户 / AI耳机设备 / 手机系统 (iOS/Android) / 涂鸦APP / 云端），分三段，画的却是一套与上文正文<strong>不一致</strong>的流程：</p>
+          <ol class="steps">
+            <li><strong>首次配网与绑定配件</strong>——App 向手机系统发起系统配件绑定请求（AccessorySetupKit）→ 系统与设备配对连接（BT + Accessory BLE）→ App 标记「配件绑定状态：已绑定」。</li>
+            <li><strong>自动化连接阶段</strong>——设备靠近/开盖（BT/BLE 广播）→ 手机系统识别配件并<strong>系统级拉起</strong> App → App 获取配件 BLE 系统通信权限 → 建立 BLE 连接、设备上线。</li>
+            <li><strong>语音交互流程（0x0094 控制 / 0091 传输）</strong>——用户触摸耳机（触发语音）→ 设备发 <strong>0x0094 opcode(request_start)</strong> → App 激活「Hey Tuya」语音引擎 → App 下发 <strong>0x0094 opcode(start_recording)</strong> → 循环音频切片传输：设备经<strong>协议 0091 上报语音原始数据流</strong>，App「<strong>透传音频数据到云端</strong>」→ 云端语义分析与 AI 处理 → 返回结果（TTS/指令）。</li>
+          </ol>
+          <p>时序图还画出三条通话结束分支：A 用户主动结束（0x0094 request_stop / stop_recording）；B 云端检测超时（10min）EventSleep → stop_recording；C 链路异常 BLE 断连 → 清理会话资源。</p>
+
+          <h3>图文矛盾对照：同一份文档里的两套设计</h3>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="图文矛盾对照表，可横向滚动">
+            <table>
+              <caption>正文（3.1.2 等）与二.2 时序图各写一套，全文无一处对齐说明</caption>
+              <thead><tr><th scope="col">环节</th><th scope="col">正文怎么写</th><th scope="col">时序图怎么画</th></tr></thead>
+              <tbody>
+                <tr><td>语音进入握手</td><td>设备上报 <strong>dp(state=1)</strong>，app 回发相同 dp 双向确认</td><td>语音流程<strong>全程无 dp</strong>：0x0094 request_start → start_recording 四步握手</td></tr>
+                <tr><td>app 拉起机制</td><td>触摸触发 <strong>ibeacon 广播 3-5s</strong> 拉起 app</td><td><strong>设备靠近/开盖 → 系统级拉起</strong>（配件自动连接），未画 ibeacon</td></tr>
+                <tr><td>音频上云路径</td><td>ble 传 opus 流，<strong>app 将 opus 转为 pcm</strong> 后传输到云端</td><td>协议 0091 上报原始数据流，App「<strong>透传音频数据到云端</strong>」</td></tr>
+                <tr><td>数据通道命名</td><td>只写「ble 传输」，<strong>0091 只字未提</strong></td><td>明确标注「协议 0091: 上报语音原始数据流」</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout"><p><strong>两套都说得通，但只能实现一套。</strong>dp 握手走涂鸦 DP 体系（可被 schemaModel 管理-cloud 可见），0x0094/0091 走 BLE 透传（不占 DP、更快）；转码减轻云端解码负担，透传省手机 CPU——每一条都是真实的设计取舍，方案却没有记录任何一条选择的理由。嵌入式固件按哪套实现、App 按哪套联调，文档没有答案；更隐蔽的风险是<strong>两边各自被当成「已定稿」引用</strong>——正文段落被复制进开发任务，时序图被截图进评审材料，最终对不上时才发现。图与文的逐项对齐见 <a href="#doubt-6">疑点 6</a>，音频路径的取舍见 <a href="#doubt-3">疑点 3</a>。</p></div>
+
+          <h3>变体：手机端按钮进入</h3>
+          <p>用户在手机上操作按钮进入「hey 涂鸦」语音界面时，<strong>使用系统录音来拾音，不触发耳机的 BLE 拾音</strong>——耳机拾音与系统录音是互斥的两条输入源。</p>
+
+          <h3>退出路径汇总（原文共 7 条）</h3>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="退出路径汇总表，可横向滚动">
+            <table>
+              <caption>七条退出路径，分属 3.1.2 与 3.1.7 两节；路径 1 的顺序是设备先退、app 后退并回发。</caption>
+              <thead><tr><th scope="col">#</th><th scope="col">触发</th><th scope="col">行为与顺序</th><th scope="col">出处</th></tr></thead>
+              <tbody>
+                <tr><td>1</td><td>耳机手势退出</td><td>设备上报 <strong>dp(state=0)</strong> 请求退出 → <strong>设备先退出</strong> → app 收到后也退出 → app 再<strong>下发相同指令</strong>给设备</td><td>3.1.2（第一组）</td></tr>
+                <tr><td>2</td><td>app 界面主动退出</td><td>用户在界面上退出 hey tuya 语音界面，退出 hey 涂鸦模式</td><td>3.1.2（第二组）</td></tr>
+                <tr><td>3</td><td>BLE 断开连接</td><td>关闭 hey tuya 语音界面</td><td>3.1.2（第二组）</td></tr>
+                <tr><td>4</td><td>长时间空音频</td><td>超过 10min 一直是空音频，关闭设备 hey tuya 模式</td><td>3.1.2（第二组）</td></tr>
+                <tr><td>5</td><td>电话拨入</td><td>自动发送 <strong>stop_recording</strong> 并结束 Hey Tuya 会话</td><td>3.1.2（第二组）</td></tr>
+                <tr><td>6</td><td>前台云端休眠</td><td>收到云端 <strong>EventSleep(10min)</strong> 信号后，App <strong>必须下发 0x0094</strong> 强制设备关停音频流</td><td>3.1.7</td></tr>
+                <tr><td>7</td><td>后台 TTS 静默</td><td>TTS 播放结束 <strong>8s</strong> 未有数据返回 → 退出模式；业务侧把事件返回给 SDK，由 SDK 关闭耳机收音</td><td>3.1.7</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">0x0094 的指令时序在时序图与协议图中是完整的（request_start → start_recording → 音频流 → request_stop → stop_recording，设备收到 App 回复后才启动/停止录音）；缺口在正文侧：dp(state=1/0) 与 0x0094 的配合关系、心跳超时后的具体处置动作，两套设计都没有写。</p>
+        </section>
+
+        <section id="spec" aria-labelledby="spec-title">
+          <h2 id="spec-title"><span class="section-number">03</span>功能规格还原：具体到每一步</h2>
+          <p>原方案把功能散在三处——正文 3.1.x 的散文、二.2 的时序图、3.1.2 的协议图，读者得自己在脑子里拼。本节按「能直接拿去开工」的粒度拼一遍，并给每条标注依据等级：<code>正文</code>＝段落白纸黑字；<code>图</code>＝只存在于时序图或协议图；<code>推断</code>＝由图与正文合并推出、原文未明说；<code>缺失</code>＝文档未定义。标了 <code>推断</code> 与 <code>缺失</code> 的地方，就是联调时会卡住的地方。</p>
+
+          <h3>03.1 功能清单</h3>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="功能清单表，可横向滚动">
+            <table>
+              <caption>11 项功能：谁触发、走哪条通道、文档给了多少</caption>
+              <thead><tr><th scope="col">编号</th><th scope="col">功能</th><th scope="col">触发方</th><th scope="col">通道 / 载体</th><th scope="col">依据</th></tr></thead>
+              <tbody>
+                <tr><td>F1</td><td>首次配置与配件绑定</td><td>用户（面板引导）</td><td>AccessorySetupKit + BT/BLE 配对</td><td><code>图</code></td></tr>
+                <tr><td>F2</td><td>设备靠近自动拉起 App</td><td>耳机（广播）→ 手机系统</td><td>系统配件识别</td><td><code>图</code></td></tr>
+                <tr><td>F3</td><td>冷路径进入 hey tuya</td><td>触摸耳机</td><td>ibeacon 3–5s + dp(state=1)</td><td><code>正文</code></td></tr>
+                <tr><td>F4</td><td>热路径进入 hey tuya</td><td>触摸耳机</td><td>dp(state=1)</td><td><code>正文</code></td></tr>
+                <tr><td>F5</td><td>拾音控制（开/停/心跳）</td><td>设备 ↔ App 双向</td><td>BLE 0x0094</td><td><code>正文</code>+<code>图</code></td></tr>
+                <tr><td>F6</td><td>语音原始流上行</td><td>设备 → App → 云端</td><td>BLE 协议 0091 + App 透传</td><td><code>图</code></td></tr>
+                <tr><td>F7</td><td>云端 VAD 与 AI 处理</td><td>云端</td><td>hey tuya 会话</td><td><code>正文</code></td></tr>
+                <tr><td>F8</td><td>下行播放与混音</td><td>App</td><td>BT + 系统播放器</td><td><code>正文</code>（混音待调研）</td></tr>
+                <tr><td>F9</td><td>会话退出（7 条路径）</td><td>多端</td><td>dp / 0x0094 / 计时器</td><td><code>正文</code>+<code>图</code></td></tr>
+                <tr><td>F10</td><td>提示音（4 个节点）</td><td>App / 耳机</td><td>未指定</td><td><code>正文</code>（建议层面）</td></tr>
+                <tr><td>F11</td><td>会话上下文同步</td><td>用户进入面板</td><td>面板拉取 Session 历史</td><td><code>正文</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>03.2 主流程：逐步消息规格</h3>
+
+          <p><strong>F1 首次配置与配件绑定</strong> <code>图</code></p>
+          <ol class="steps">
+            <li>用户打开设备面板。</li>
+            <li>App 提示「配置设备使用配件能力」。图内还带着作者自己的旁注「面板怎么知道当前设备需要，配置高级能力？」——连<strong>触发条件</strong>都还没定。</li>
+            <li>用户点【是】→ App → 手机系统：发起系统配件绑定请求（AccessorySetupKit）→ 手机系统 → 设备：配对连接（BT + Accessory BLE）→ 设备 → App：绑定成功 → App 标记<strong>【配件绑定状态：已绑定】</strong>。</li>
+            <li>用户点【否】→ 跳过绑定，App 提示「可在面板入口重新配置」。</li>
+          </ol>
+          <p class="note">缺口：配对失败、用户中途取消、超时重试、重复绑定是否幂等、解绑与恢复出厂后的残留清理——图里都没有。</p>
+
+          <p><strong>F2 自动拉起与连接</strong> <code>图</code></p>
+          <ol class="steps">
+            <li>设备靠近/开盖，出 BT/BLE 广播。</li>
+            <li>手机系统识别配件，<strong>系统级拉起 App</strong>（不经过用户点击）。</li>
+            <li>App → 手机系统：获取配件 BLE 系统通信权限。</li>
+            <li>App → 设备：建立 BLE 连接，设备上线。</li>
+          </ol>
+          <p class="note">缺口：拉起失败的兜底 UX、用户拒绝权限、同时存在多台配件时的选择规则。</p>
+
+          <p><strong>F3 冷路径进入 hey tuya</strong> <code>正文</code> 3.1.2</p>
+          <ol class="steps">
+            <li>用户触摸耳机。</li>
+            <li>因未连接 App，耳机触发 <strong>ibeacon 广播，持续 3–5s</strong>。</li>
+            <li>App 被拉起并与设备建立连接（实测：未锁屏 8s，锁屏最长约 25s）。</li>
+            <li>设备 → App：上报 <strong>dp(state=1)</strong>，请求进入 hey tuya 模式。</li>
+            <li>App 收到 dp，初始化 hey tuya，<strong>回发相同 dp(state=1)</strong>。</li>
+            <li>设备进入 hey tuya 模式，App 开始接收 BLE 音频。</li>
+          </ol>
+          <p class="note">异常（原文明确两条）：其他触摸动作终止；或超时后再连接——均不进入模式。<strong>F4 热路径</strong> 省略步骤 2–3：连接已在，设备直接上报 dp(state=1)，App 回发即进入。</p>
+
+          <p><strong>F5 语音交互与拾音控制</strong> <code>图</code>（二.2 时序图）</p>
+          <ol class="steps">
+            <li>用户触摸耳机（触发语音）。</li>
+            <li>设备 → App：<strong>0x0094 opcode 0x01 request_start</strong>——「请求开始；设备收到 app 回复的 start_recording 后再启动录音并推音频流」。</li>
+            <li>App 激活「Hey Tuya」语音引擎。</li>
+            <li>App → 设备：<strong>0x0094 opcode 0x03 start_recording</strong>——「准备就绪，通知设备开始上传音频」。</li>
+            <li>用户说话，设备采集。</li>
+            <li>循环：设备 → App <strong>协议 0091 上报语音原始数据流</strong>；App → 云端「<strong>透传音频数据到云端</strong>」。</li>
+            <li>云端语义分析 &amp; AI 处理，返回处理结果（TTS / 指令）。</li>
+            <li>结束：设备 → App <strong>request_stop(0x02)</strong> → App → 设备 <strong>stop_recording(0x04)</strong>。</li>
+          </ol>
+          <p class="note">注意第 2 步的方向：<strong>是设备先开口请求，App 再授权开始</strong>——不是 App 命令设备录音。这个方向决定了「谁有权发起一次拾音」，也决定了 App 被杀死时设备端会怎样（它有请求发出去了、没人应）。</p>
+
+          <p><strong>F6 心跳</strong> <code>正文</code>+<code>图</code></p>
+          <ol class="steps">
+            <li>开始录音后，App → 设备：<strong>0x0094 opcode 0x05 heartbeat，每 3s 一次</strong>。</li>
+            <li>设备侧：<strong>3 个周期</strong>（约 9s）未收到即判超时。</li>
+            <li>超时后做什么——退出模式？丢半句？出提示音？<strong>未定义</strong>。</li>
+          </ol>
+
+          <p><strong>F7–F11 概要</strong></p>
+          <ul class="check-list">
+            <li><strong>F7 云端 VAD</strong>——耳机持续上报，不在端侧切句；云端判定语音起止。</li>
+            <li><strong>F8 下行</strong>——BT 链路 + 系统音频播放器；iOS 设混音播放，与第三方音视频共存，且支持关闭混音；组件来自 IPC，可行性待调研。</li>
+            <li><strong>F9 退出</strong>——7 条路径见 <a href="#rebuild">第 02 节</a>汇总表；其中设备手势退出是<strong>设备先退、App 后退出并回发 dp(state=0)</strong>。</li>
+            <li><strong>F10 提示音</strong>——可说话提示音 → Thinking Tone（思考中）→ Earcon（播完）→ Earcon（退出模式），共 4 个节点，原文属「建议」层面。</li>
+            <li><strong>F11 上下文同步</strong>——进入面板时自动拉取当前 Session 对话历史；前提是 hey tuya 支持后台初始化。</li>
+          </ul>
+
+          <h3>03.3 状态机（<code>推断</code>：由正文与图合并，原文未给出）</h3>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="耳机侧状态机表，可横向滚动">
+            <table>
+              <caption>耳机侧状态：这张表原文没有，是从正文与两张图反推出来的；右列标出哪些迁移在原文里没有触发条件</caption>
+              <thead><tr><th scope="col">状态</th><th scope="col">进入条件</th><th scope="col">事件</th><th scope="col">动作</th><th scope="col">文档状态</th></tr></thead>
+              <tbody>
+                <tr><td>S0 未绑定</td><td>出厂 / 解绑</td><td>用户开面板</td><td>走 F1 绑定流程</td><td><code>图</code>；解绑未定义</td></tr>
+                <tr><td>S1 已绑定·未连接</td><td>绑定完成 / BLE 断连</td><td>靠近或开盖</td><td>广播，等系统拉起并连接</td><td><code>图</code></td></tr>
+                <tr><td>S2 已连接·待机</td><td>BLE 连接建立</td><td>触摸耳机</td><td>冷/热路径请求进入（dp 或 request_start）</td><td><code>正文</code>+<code>图</code>，两者不一致</td></tr>
+                <tr><td>S3 会话中·上传</td><td>收到 start_recording</td><td>持续采集</td><td>0091 切片上传；App 每 3s 心跳</td><td><code>图</code>+<code>正文</code></td></tr>
+                <tr><td>S4 会话中·静默</td><td>云端 TTS / 思考</td><td>8s 无数据返回</td><td>退出模式</td><td><code>正文</code>；谁判静默未定</td></tr>
+                <tr><td>S5 退出中</td><td>request_stop / EventSleep / 断连</td><td>—</td><td>停止上传、清理会话资源</td><td><code>图</code>+<code>正文</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">三处断点：① S2→S3 到底由 dp 触发还是由 request_start 触发，图文各说一套；② 心跳超时后落在哪个状态，没有定义；③ S4 的 8s 由 App 计时还是云端下发事件，正文写「业务侧把事件返回给 SDK」——即由上层判定，但没写判定者。</p>
+
+          <h3>03.4 参数总表</h3>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="参数总表，可横向滚动">
+            <table>
+              <caption>全文出现的全部数值参数；最后一列指出它是设计约束还是观测值——两者混在一份文档里，容易被当成同一层</caption>
+              <thead><tr><th scope="col">参数</th><th scope="col">值</th><th scope="col">作用</th><th scope="col">性质</th></tr></thead>
+              <tbody>
+                <tr><td>0x0094 报文头</td><td>3 字节（Version / Type / Opcode），Version 当前为 0</td><td>指令格式</td><td>设计</td></tr>
+                <tr><td>控制指令</td><td>5 条（0x01–0x05）</td><td>开/停/心跳</td><td>设计</td></tr>
+                <tr><td>错误码</td><td>7 种（0–6）</td><td>Type=0x01 通知</td><td>设计</td></tr>
+                <tr><td>ibeacon 广播窗</td><td>3–5s</td><td>冷路径拉起窗口</td><td>设计</td></tr>
+                <tr><td>心跳周期</td><td>3s</td><td>App → 设备</td><td>设计</td></tr>
+                <tr><td>设备心跳超时</td><td>3 个周期（约 9s）</td><td>判定 App 失联</td><td>设计</td></tr>
+                <tr><td>前台休眠</td><td>EventSleep(10min)</td><td>云端建议关流</td><td>设计/云端</td></tr>
+                <tr><td>后台 TTS 静默</td><td>8s</td><td>退出模式</td><td>设计</td></tr>
+                <tr><td>空音频上限</td><td>10min</td><td>关闭模式</td><td>设计</td></tr>
+                <tr><td>豆包关上下文</td><td>5s</td><td>竞品行为</td><td>观测</td></tr>
+                <tr><td>首次唤醒率</td><td>80%（锁屏/未锁屏均同）</td><td>ibeacon 实测</td><td>观测</td></tr>
+                <tr><td>未锁屏连接耗时</td><td>8s</td><td>唤醒 → 连上</td><td>观测</td></tr>
+                <tr><td>锁屏连接</td><td>仅 20% 成功，或约 25s</td><td>唤醒 → 连上</td><td>观测</td></tr>
+                <tr><td>提示音节点</td><td>4 个</td><td>交互反馈</td><td>建议</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">把「设计值」与「观测值」放在同一张表里看，矛盾立刻显形：3–5s 的广播窗是设计值，8s 的连接耗时是观测值，两者从未对齐；而 80% 的唤醒率没有任何目标值可比——因为需求分析整节是空的。</p>
+
+          <h3>03.5 0x0094 报文规格（按图逐字转写）</h3>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="0x0094 控制指令表，可横向滚动">
+            <table>
+              <caption>Type=0x00 控制/操作类：方向是关键——request_* 由设备发起，start/stop 由 App 授权</caption>
+              <thead><tr><th scope="col">操作信令</th><th scope="col">值</th><th scope="col">方向</th><th scope="col">描述</th></tr></thead>
+              <tbody>
+                <tr><td><code>request_start</code></td><td>0x01</td><td>设备 → App</td><td>请求开始；设备收到 app 回复的 start_recording 后再启动录音并推音频流</td></tr>
+                <tr><td><code>request_stop</code></td><td>0x02</td><td>设备 → App</td><td>请求结束；设备收到 app 回复的 stop_recording 后再停止录音</td></tr>
+                <tr><td><code>start_recording</code></td><td>0x03</td><td>App → 设备</td><td>开始录音/传输音频；准备就绪，通知设备开始上传音频</td></tr>
+                <tr><td><code>stop_recording</code></td><td>0x04</td><td>App → 设备</td><td>停止录音/传输音频；交互结束，通知设备停止上传音频</td></tr>
+                <tr><td><code>heartbeat</code></td><td>0x05</td><td>App → 设备</td><td>心跳包</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="0x0094 错误通知表，可横向滚动">
+            <table>
+              <caption>Type=0x01 错误通知类：Opcode 位直接承载错误原因；原文对该类的说明是「app 启动对应服务失败/异常，通知设备停止，也没必要尝试重试」</caption>
+              <thead><tr><th scope="col">Opcode（错误原因）</th><th scope="col">说明</th></tr></thead>
+              <tbody>
+                <tr><td>0</td><td>超量</td></tr>
+                <tr><td>1</td><td>任务已存在</td></tr>
+                <tr><td>2</td><td>权限未设置</td></tr>
+                <tr><td>3</td><td>语言不支持</td></tr>
+                <tr><td>4</td><td>隐私未同意</td></tr>
+                <tr><td>5</td><td>需要用户先登陆</td></tr>
+                <tr><td>6</td><td>其它错误</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">这份定义本身是完整的——缺的是<strong>它没有进入正文</strong>，也没写接收方该做什么（收到「权限未设置」是弹窗、静默失败还是引导去设置？）。另一处更关键的缺口：时序图里承载音频的<strong>协议 0091 没有任何格式定义</strong>——包长、分包规则、序号、时间戳、编码参数全部空白，而它才是真正的音频数据通道。</p>
+
+          <h3>03.6 两套握手怎么合并（<code>推断</code>）</h3>
+          <p>最自洽的读法是把它们放在<strong>不同层级</strong>：</p>
+          <ul class="check-list">
+            <li><strong>dp(state=1/0) 是模式级开关</strong>——表示「这台耳机现在处于 hey tuya 模式」，走涂鸦 DP 体系，云端与面板都可见，回显即双向确认。</li>
+            <li><strong>0x0094 是每一次拾音的控制</strong>——request_start / start_recording 这一对管的是「这一句开始录」，不是「进入模式」。</li>
+            <li><strong>heartbeat 只在录音期间有意义</strong>——模式开着但没在录时，心跳没有对象。</li>
+          </ul>
+          <p>按这个读法，时序图缺的只是最前面「先 dp 进模式、再 0x0094 开录」那一跳，正文缺的是「dp 进模式之后还要走 0x0094」。<strong>这只是一句解释的事，方案里一句都没有</strong>——于是两套设计各自成立、互相拆台。反过来，如果设计意图是「0x0094 一步到位、dp 只是兼容旧面板」，那就必须定义两者的去重规则（CheckList 里标了【重点考虑】的正是这一项）。两种读法的后续工作量差很多，必须先裁决。</p>
+
+          <h3>03.7 联调会卡住的功能缺口</h3>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="功能缺口清单，可横向滚动">
+            <table>
+              <caption>12 项文档未定义、但写代码时必然要问到的点</caption>
+              <thead><tr><th scope="col">#</th><th scope="col">缺口</th><th scope="col">卡住谁</th></tr></thead>
+              <tbody>
+                <tr><td>1</td><td>绑定失败 / 用户取消 / 超时重试</td><td>App 端（ASK 流程无分支定义）</td></tr>
+                <tr><td>2</td><td>解绑、恢复出厂后 ASK 绑定与 ibeacon 绑定是否残留</td><td>App 端 + 固件</td></tr>
+                <tr><td>3</td><td>拉起失败兜底（用户从未配置配件能力）</td><td>App 端产品逻辑</td></tr>
+                <tr><td>4</td><td>BLE 系统通信权限被拒</td><td>App 端</td></tr>
+                <tr><td>5</td><td>dp id 与 schemaModel 参数值（原文只给防丢器/手电筒的类比，没给 AI 耳机自己的值）</td><td>固件 + 云端 + App</td></tr>
+                <tr><td>6</td><td>协议 0091 报文格式（包长、分包、序号、时间戳）</td><td>固件 + App，<strong>无法开工</strong></td></tr>
+                <tr><td>7</td><td>音频参数（采样率、声道、帧长、码率）</td><td>固件 + App + 云端</td></tr>
+                <tr><td>8</td><td>心跳超时后设备行为</td><td>固件</td></tr>
+                <tr><td>9</td><td>Type=0x01 错误码的接收方动作</td><td>App + 固件</td></tr>
+                <tr><td>10</td><td>多设备 / 多会话并发（两只耳机、两台手机）</td><td>全链路</td></tr>
+                <tr><td>11</td><td>前后台切换时四个计时器由谁接管</td><td>App + 云端</td></tr>
+                <tr><td>12</td><td>提示音音频资源与触发实现（哪个端播、走哪条链路）</td><td>App + 固件</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout"><p><strong>这张表就是「功能描述不够具体」的量化形态。</strong>11 项功能、5 条指令、7 个错误码、14 个参数——方案的骨架其实相当完整，甚至比多数中期稿更细；但它停在「组件清单」而没有推进到「接口契约」：谁能发、发给谁、什么条件下发、失败怎么办、谁负责。第 6、7、8、9 四项尤其致命——它们不是完善度问题，而是<strong>嵌入式同事拿着这份文档写不出代码</strong>。</p></div>
+        </section>
+
+        <section id="elements" aria-labelledby="elements-title">
+          <h2 id="elements-title"><span class="section-number">04</span>关键技术要素</h2>
+          <ul class="check-list">
+            <li><strong>ibeacon 广播与注册</strong>——广播能力「现有涂鸦ibeacon协议已经支持」（3.1.1 全节仅此一句）；注册需<strong>通过二级品类注册 ibeacon 监听</strong>，AI 耳机需要有对应品类信息（3.1.4）。具体品类码/协议字段原文未给出。</li>
+            <li><strong>模式协商 dp(state=1/0) + schemaModel</strong>——进入/退出以布尔 dp 表达，app 收到后「初始化 hey tuya 并下发相同 dp」双向确认；该 dp 需在 schemaModel 中配置参数，类比既有品类：防丢器 <code>"callphone"</code>、sos 手电筒 <code>"sos"</code>（3.1.2）。</li>
+            <li><strong>拾音控制 0x0094 + 心跳 opcode=05（协议已有完整定义，在一张图里）</strong>——正文仅一句「使用ble协议 0x0094进行开启和结束耳机拾音模式」，但 3.1.2 该句后面内嵌一张协议定义图（PNG，2026-03-19 19:56 上传——恰在页面最后修改前 1 分钟，是作者收尾时补上的）：报文头 3 字节 <code>Version | Type | Opcode</code>（版本当前为 0）；<code>Type=0x00</code> 控制操作类含 5 条指令——<code>request_start=01</code>（设备→App，收到 App 回复 start_recording 后再启动录音推流）、<code>request_stop=02</code>（设备→App，同上对称）、<code>start_recording=03</code> / <code>stop_recording=04</code>（App→设备）、<code>heartbeat=05</code>（App→设备，开始录音后<strong>客户端每 3s 发一次</strong>，<strong>嵌入式端 3 个周期</strong>约 9s 未收到即超时）；<code>Type=0x01</code> 错误通知类（App 启动服务失败/异常时通知设备停止、无需重试）含 7 种错误码：超量 / 任务已存在 / 权限未设置 / 语言不支持 / 隐私未同意 / 需要用户先登陆 / 其它错误。</li>
+            <li><strong>app 拉起与保活</strong>——iOS 采用 <strong>AccessorySetupKit (ASK)，iOS 18 以上支持</strong>，「方案已通过可行性调研，待集成至涂鸦智能 App 后即可启用」；iOS 18 以下需打开 app 连接设备后才能用；首次配置需界面用户引导，用户不配置怎么提醒留给产品。需新增两个接口：①查询设备是否已是配件/伴身设备，②对 BLE 设备配置该能力。原文留有「方案示例：app ble配对 / app 保活效果」两个小标题，<strong>其后各内嵌一段演示视频</strong>（.mov 附件，2026-01-28 上传，即建档三周后补拍的真机演示）。<strong>Android 仅一条验收性注记</strong>：「在app启动后，将app杀死，在触摸耳机也需要能拉起」——无任何机制。</li>
+            <li><strong>上行链路：BLE，opus → pcm → 云端（图文两说）</strong>——选 BLE 的原因：「录音功能无法在后台直接唤醒」；正文写耳机经 BLE 传 opus 流给 app、app 转 pcm 后传云端，而二.2 时序图画的是协议 0091 上报原始数据流、App「透传音频数据到云端」——转码还是透传，同一份文档两个答案（见 <a href="#doubt-3">疑点 3</a>）。</li>
+            <li><strong>下行链路：BT + 系统播放器 + 混音</strong>——播放走 BT 链路、系统音频播放器；iOS 设混音播放保证第三方音视频与 hey tuya 回答同时播放，同时支持关闭混音；「混音模式需要调研，目前播放音频组件用的ipc提供的组件」。</li>
+            <li><strong>云端 VAD 与休眠/退出时序</strong>——采用云端 VAD，耳机持续上报音频流；前台收到 EventSleep(10min) 后必须下发 0x0094 关停；后台 TTS 结束 8s 无数据退出。括注豆包参照：结束语音播报 5s 后关闭上下文，需再用「豆包豆包」唤醒词。</li>
+            <li><strong>hey tuya 后台初始化</strong>——现状约束：hey tuya 必须点击按钮进入「hey 涂鸦」页面才能操作；改造点一：支持后台初始化；改造点二：前台面板支持会话上下文同步，进入页面自动拉取当前 Session 对话历史（3.1.3）。</li>
+            <li><strong>提示音体系（「建议」层面，4 个节点）</strong>——可说话提示音 / Thinking Tone（思考音）/ agent 播完后的 Earcon / 结束模式的 Earcon（3.1.5）。音频资源与触发实现原文未给出。</li>
+          </ul>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="提示音节点表，可横向滚动">
+            <table>
+              <caption>3.1.5 提示音交互的四个节点（原文为「建议」）</caption>
+              <thead><tr><th scope="col">交互节点</th><th scope="col">提示音</th></tr></thead>
+              <tbody>
+                <tr><td>app BLE 进入 hey tuya 通话模式后（可以说话）</td><td>提示音（未命名）</td></tr>
+                <tr><td>用户说完话、AI 还未返回</td><td>"Thinking Tone"（思考音）</td></tr>
+                <tr><td>耳机播放完 agent 的声音之后</td><td>"Earcon"（结束反馈音）</td></tr>
+                <tr><td>结束 hey tuya 模式</td><td>"Earcon"（结束反馈音）</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="research" aria-labelledby="research-title">
+          <h2 id="research-title"><span class="section-number">05</span>调研数据与竞品观察</h2>
+          <h3>ibeacon 唤醒实测（涂鸦 app，两组数字）</h3>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="ibeacon 唤醒实测数据表，可横向滚动">
+            <table>
+              <caption>3.2.1 实测：两组首次唤醒率相同（80%），差异全在唤醒后的连接阶段</caption>
+              <thead><tr><th scope="col">场景</th><th scope="col">首次唤醒 App 率</th><th scope="col">连接表现</th></tr></thead>
+              <tbody>
+                <tr><td>app 未锁屏</td><td>80%</td><td>唤醒后基本都可以连接上 app；唤醒到 app 连接 <strong>8s</strong></td></tr>
+                <tr><td>app 锁屏</td><td>80%</td><td>唤醒后很难连上 app（<strong>20%</strong>），或者需要 <strong>25s 左右</strong></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout"><p><strong>这组数据止步于「调研情况」：</strong>没有改善措施、没有兜底 UX、没有可接受阈值，连测试条件（机型/系统版本/样本量/距离）都没记，「(20%)」的口径（连不上率还是别的）也不清。80% 算不算达标、25s 用户能不能忍——「2.需求分析」整节为空，全文没有任何目标值，所有实测数字都是「测了但不知道够不够」。展开见 <a href="#doubt-4">疑点 4</a>。</p></div>
+
+          <h3>豆包耳机交互观察（6 条）</h3>
+          <ul class="check-list">
+            <li>用「豆包豆包」语音唤醒时，有一个「嘟」简短提示音。</li>
+            <li>app 杀死断开时也有一个「嘟」（声音比唤醒的嘟<strong>音调重</strong>）。</li>
+            <li>未连上 app 时提问（如「今天天气怎么样」），提示「请重新打开豆包app再试」，但耳机仍会尝试唤醒 app。</li>
+            <li>app 已连接、豆包正在思考时，有一个「咚咚咚咚」过渡提示音。</li>
+            <li>接收完语音时有提示「嘟」；播放结束时也有一个「嘟」。</li>
+            <li>实测回答问题、播放音乐、并在回答过程中打开第三方音视频软件——说明豆包播放音频使用了<strong>混音模式</strong>。</li>
+          </ul>
+          <h3>双音频管道推断</h3>
+          <p>针对「app 内播放音乐的同时还能继续播放 AI 回答」，原文推断豆包 App 同时维护<strong>至少两条音频管道（Audio Pipelines）</strong>：<strong>Player A（Music Player）</strong>专放流媒体音乐（长音频），<strong>Player B（TTS Player）</strong>专放 AI 语音回答（短音频）。这是竞品行为的逆向推测，不能替代自家组件的可行性结论（见 <a href="#doubt-5">疑点 5</a>）。</p>
+
+          <h3>豆包 MFi 链路拆解（3.2.2 末尾的时序图，竞品调研已到机制层）</h3>
+          <p>调研情况末尾还有一幅完整时序图（用户 / Ola Friend 耳机 (MFi Device) / iOS 系统 (CoreAudio/EAAccessory) / 豆包 App (MFi Protocol) / Bilibili (Media App)），把豆包耳机的混音链路拆成五个阶段——这已经不只是「观察」，是机制级拆解：</p>
+          <ol class="steps">
+            <li><strong>设备连接与特权鉴权</strong>——iAP2 通道，App 监听 <code>EAAccessoryDidConnectNotification</code>，通过 Protocol String 握手验证，鉴权成功后解锁「混音模式」。</li>
+            <li><strong>背景音频播放</strong>——第三方媒体（图中为 Bilibili）走 A2DP 经典蓝牙。</li>
+            <li><strong>上行通信</strong>——语音数据走 iAP2 数据包 Data Stream：无麦克风权限请求，系统视为<strong>外部配件通信、非录音行为、不触发橙点</strong>；经 EAAccessoryInputStream 透传上云做 ASR &amp; LLM。</li>
+            <li><strong>下行通信</strong>——<code>AVAudioSession.setActive(true)</code>，Category 取 Playback、Option 取 <strong>DuckOthers</strong>：第三方音频被压低到<strong>约 20% 但不会暂停</strong>，系统级混音。</li>
+            <li><strong>会话结束与恢复</strong>——<code>setActive(false, options: .notifyOthersOnDeactivation)</code>，Unducking 淡入恢复至 100%。</li>
+          </ol>
+          <div class="callout"><p><strong>这幅图同时照亮了两个盲区。</strong>其一：竞品靠 <strong>MFi 特权</strong>拿到「iAP2 传输不算录音（不触发橙点）+ DuckOthers 系统级混音」，涂鸦耳机是 BLE 配件、没有 MFi 身份，正文里「混音模式需要调研」的疑虑在竞品拆解面前显得更具体——iOS 18 以下系统、非 MFI 通路能不能稳定压低第三方音频，正文没有答案（见 <a href="#doubt-5">疑点 5</a>）。其二：图中「不触发橙点」的表述说明作者已注意到 iOS 隐私指示灯这个体验细节，但正文安全节空缺，这个点没有被接住。</p></div>
+        </section>
+
+        <section id="completion" aria-labelledby="completion-title">
+          <h2 id="completion-title"><span class="section-number">06</span>完成度盘点与结构性缺陷</h2>
+          <p>对照模板自身要求的逐项盘点：<strong>约 15 个模板章节约 9 个未填或仅剩占位</strong>；「功能设计详情」深浅极不均，「流程设计说明」则出乎意料地完整——只是与正文矛盾。</p>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="完成度盘点表，可横向滚动">
+            <table>
+              <caption>模板章节 × 模板自己的要求 × 作者填写情况</caption>
+              <thead><tr><th scope="col">模板章节</th><th scope="col">模板自己的要求（引导语）</th><th scope="col">填写情况</th></tr></thead>
+              <tbody>
+                <tr><td>一.2 需求分析</td><td>（需求拆解）</td><td><strong>整节为空</strong>：标题后直接是「二.技术设计说明」</td></tr>
+                <tr><td>二.2 流程设计说明</td><td>「建议使用流程图、时序图；有异常流程的详细说明」</td><td><strong>已画</strong>：一幅五参与者完整时序图（ASK 配网绑定 → 自动化连接 → 0x0094/0091 语音交互 → 三条退出分支）——<strong>但与正文 3.1.2 的 dp 握手设计矛盾</strong>（见 <a href="#rebuild">第 02 节</a>对照表）</td></tr>
+                <tr><td>二.3 功能设计详情</td><td>「包含不限于 单个功能流程、接口调用说明、规则说明」</td><td><strong>部分填写</strong>：3.1.1–3.1.7 深浅极不均——3.1.1 全部内容只有一句「现有涂鸦ibeacon协议已经支持」</td></tr>
+                <tr><td>3.3 接口支持 / 3.4 接口声明</td><td>—</td><td>仅「暂无」二字（与正文要求的新增接口矛盾，见 <a href="#doubt-9">疑点 9</a>）；3.4 空标题。0x0094 报文格式<strong>已由 3.1.2 内嵌协议图定义</strong>（但只存在于图片中，未入正文表格），dp id 与 0091 数据协议仍无定义</td></tr>
+                <tr><td>二.4 异常流程设计</td><td>「必须要考虑不同芯片，可能在每个环节发生异常的情况……模拟异常情况进行验证」</td><td><strong>章节未填</strong>；二.2 时序图倒是画了三条结束分支（用户主动 / 云端超时 / BLE 断连），正文散见的退出路径共 7 条（见 <a href="#rebuild">第 02 节</a>表），但无芯片差异、无验证设计</td></tr>
+                <tr><td>二.5 多协议通道支持情况</td><td>「比如mqtt新增了一个协议，而局域网是否支持……ble 3.x系列支持了某个功能，4.x系列是否也要支持」</td><td><strong>未填</strong>（BLE 之外通道、BLE 版本系列兼容只字未提）</td></tr>
+                <tr><td>二.6 技术专利申请条件</td><td>—</td><td><strong>未填</strong></td></tr>
+                <tr><td>二.7 通用功能 CheckList</td><td>「该项主要防止撰写方案时，对其他模块的影响考虑是否周全，以防测试阶段或上线后才发现问题」</td><td><strong>27 行「支持情况」列全部空白</strong>，唯一非空格子是模板示例「例如：不受影响」</td></tr>
+                <tr><td>三 安全设计（4 小节）</td><td>安全&amp;隐私（加密、隐私合规、三方库、权限）/ 可监控可降级 / Android &amp; iOS 差异 / 新老版本兼容</td><td><strong>全部未填</strong>——对语音数据经 BLE 上手机、转码上云的产品，安全节空缺是高危项</td></tr>
+                <tr><td>四 测试说明</td><td>风险点 / 影响范围&amp;测试建议 / 效果</td><td><strong>三小节全空</strong></td></tr>
+                <tr><td>五 评审意见</td><td>「记录各端提出的意见和建议，需描述清楚每条待确定项的责任人和确定时间」</td><td><strong>未填</strong>：无任何评审记录、无责任人、无时间</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h3>结构性问题（6 项）</h3>
+          <ol class="steps">
+            <li><strong>正文与时序图两套设计并行</strong>——进入握手（dp 回显 vs 0x0094 四步）、拉起机制（ibeacon vs 系统配件唤醒）、音频路径（转码 vs 透传）、数据通道（未命名 vs 0091）四处不一致（对照表见 <a href="#rebuild">第 02 节</a>），无一处对齐说明。</li>
+            <li><strong>章节编号重复且重置</strong>——两个 3.1.1（「AI 耳机支持 ibeacon广播」「app拉起和保活」）与两个 3.1.2（「AI耳机触发ibeacon」「hey tuya的唤醒与关闭」）：后两节是后来整块插入、未重排编号。引用「3.1.1」有歧义，评审意见无法按编号锚定。</li>
+            <li><strong>标题层级错乱</strong>——「### 3.1 详细设计」（h3）之后紧跟「## 3.2 调研情况」（h2），再回到「### 3.3 接口支持」（h3），目录无法反映真实从属。</li>
+            <li><strong>「2.需求分析」整节为空是根因性缺陷</strong>——需求没有拆解成可验收指标（唤醒成功率、连接时长、端到端时延目标），实测数字没有判断基准。</li>
+            <li><strong>版本迭代不可追溯</strong>——记录表仅一条初稿记录，页面元数据却是 V168、跨两个多月；与空白的「五.评审意见」互相印证。</li>
+            <li><strong>命名口径不统一</strong>——「hey tuya」与「hey 涂鸦」全文混用，提示内容来自不同时期的粘贴，未做统一审校。</li>
+          </ol>
+          <div class="callout"><p><strong>CheckList 全空白意味着什么：</strong>对一个<strong>新增 dp + 新增 BLE 命令 + 改变 app 生命周期行为</strong>的方案，CheckList 恰是风险面——设备解绑/恢复出厂后 ASK 配置与 ibeacon 绑定是否残留（设备 id 复用）、游客/非管理员能否使用、旧面板收到会话上下文同步会怎样、dp 与 0x0094 双通道的数据去重（该项模板标了「【重点考虑】」）。模板规定「以下检查点均通过，技术方案才算正式通过评审」——CheckList 与评审意见双空白，等于「对各模块影响的考虑」被整体推迟到测试阶段或上线后，<strong>这正是模板设计要防止的结局</strong>。</p></div>
+        </section>
+
+        <section id="doubts" aria-labelledby="doubts-title">
+          <h2 id="doubts-title"><span class="section-number">07</span>技术疑点清单（9 项）</h2>
+          <p>每项附原文依据。疑点 4（广播窗矛盾）与疑点 1（Android 空白）直接关系方案成立性。</p>
+
+          <div class="ver-block" id="doubt-1">
+            <div class="ver-title"><h3>疑点 1 · Android 拉起保活：只有一句注记，没有任何方案</h3><span>3.1.1 app拉起和保活</span></div>
+            <div class="quote"><p>Android：<br>注：在app启动后，将app杀死，在触摸耳机也需要能拉起</p></div>
+            <p>这是<strong>目标复述，不是设计</strong>。方案目标明写「在app被杀死或者后台情况下……」，总体设计要求「保证app可以一直在后台运行」，而 Android 半壁江山没有给出任何机制（前台服务？系统广播？厂商白名单？），甚至没标「待调研」。对照 iOS 至少给出了 ASK 并称已过可行性调研，Android 侧的空白意味着<strong>方案的一半平台处于未解决状态</strong>。另外，「保证 app 一直在后台运行」与两大平台的后台管控策略相悖，合规风险（iOS 审核被拒、Android 厂商查杀）在空白的「安全&amp;隐私」节里也无人评估。</p>
+          </div>
+
+          <div class="ver-block" id="doubt-2">
+            <div class="ver-title"><h3>疑点 2 · iOS 18 以下体验断层：核心目标在该人群上不成立</h3><span>3.1.1 app拉起和保活</span></div>
+            <div class="quote"><p>针对 iOS 18 以下版本，需要打开app连接设备之后才可以使用该方案唤醒保活。</p><p>注：第一次配置该能力需要在界面添加用户引导，提醒用户配置该能力的用处。产品还需要考虑用户不配置该能力后需要怎么提醒</p></div>
+            <p>即在 iOS 18 以下系统上，「app 被杀死后唤醒」这一<strong>方案主目标直接不成立</strong>；文档没有说明目标用户的 iOS 版本分布，也没有降级路径设计。即便是 iOS 18+ 的 ASK 也依赖用户显式配置，而「用户不配置怎么提醒」是一个无责任人、无时间点、无决策的产品问题，被原样留在技术方案里。</p>
+          </div>
+
+          <div class="ver-block" id="doubt-3">
+            <div class="ver-title"><h3>疑点 3 · BLE opus 上行链路零量化</h3><span>3.1.6 通信链路设计</span></div>
+            <div class="quote"><p>因为录音功能无法在后台直接唤醒，上行链路选择ble链路，ble传输opus流给app，app将opus转为pcm流后传输到云端。</p></div>
+            <p>没有 opus 码率、BLE 连接间隔/MTU/吞吐实测、分包与丢包重传策略、端到端时延预算——<strong>这条链路的可行性完全依赖未做的实测</strong>。更基础的问题：到底转不转码。正文写「app将opus转为pcm流后传输到云端」（手机端解码重编码，付 CPU/功耗/延迟），二.2 时序图却写协议 0091「上报语音原始数据流」、App「透传音频数据到云端」（手机只搬运，云端解码）——<strong>同一份文档两个答案</strong>。本仓库 TAI 链路上行的即是 opus 流，透传是更省手机资源的选项；方案对两种选择的成本均未评估。下行「系统音频播放器」走 BT，同样没有时延预算；耳机拾音持续开启时系统播放器外放 TTS 的回声路径（AEC）全文未提。</p>
+            <p class="note">旁证：耳机空间的 <a href="https://wiki.tuya-inc.com:7799/page/2038916372951470097">iOS 支持BR/EDR方案</a>记录过「电话翻译模式下，耳机使用 BLE 传输音频数据带宽不足，导致部分 iPhone/Android 设备数据传输不畅」——云端 VAD 让耳机持续上报，把 BLE 上行带宽压力推到最大。该文档 2026-03-31 建档、晚于本方案最后修改（03-19）十二天，属「定稿后出现、修订时必读」而非当时可引（见 <a href="#context">第 08 节</a>）。</p>
+          </div>
+
+          <div class="ver-block" id="doubt-4">
+            <div class="ver-title"><h3>疑点 4 · 实测数据 vs 目标体验，且广播窗自相矛盾</h3><span>3.1.2 / 3.2.1 · 最重的一条</span></div>
+            <div class="quote"><p>当耳机未连接app时，触发ibeacon广播(3-5s), 等app连接上设备之后，设备上报dp(state=1)……异常：其他触摸动作终止或者超时后再连接不进入hey tuya模式。</p><p>app未锁屏情况下，首次唤醒App率 80% ，唤醒后基本都可以连接上app,唤醒到app连接 8S<br>app 锁屏，首次唤醒app率80%，但是唤醒后很难连上app(20%)，或者需要很久 25s左右</p></div>
+            <p>未锁屏要等 8s 才连上，对「一键唤醒语音交互」已是勉强；锁屏场景 20% 连不上、连上要 25s，等于五分之一的用户按了没反应。文档把这组数据放在「调研情况」里就止步了。</p>
+            <p>更严重的是<strong>内部矛盾</strong>：广播窗只有 3-5s，而实测「唤醒到 app 连接 8S」——广播窗大概率在 app 连上之前就结束了，规则又规定「超时后再连接不进入hey tuya模式」。<strong>推演结果是：未锁屏场景可能系统性地「唤醒成功 → app 8s 后连上 → 已超时 → 不进入模式」。</strong>3-5s 与 8s 两个数字写在同一份文档里，没有任何人对齐过。</p>
+          </div>
+
+          <div class="ver-block" id="doubt-5">
+            <div class="ver-title"><h3>疑点 5 · 混音：调研未做，设计已定</h3><span>3.1.6 通信链路设计</span></div>
+            <div class="quote"><p>播放音频使用系统音频播放器，iOS设置混音播放，这样可以保证第三方音频(音视频)和hey tuya回答同时播放。同时支持关闭混音。<br>混音模式需要调研，目前播放音频组件用的ipc提供的组件</p></div>
+            <p>3.1.6 先把混音写成设计决定，紧接着承认「需要调研」，且依赖的播放组件是「ipc提供的组件」（跨团队依赖）——无责任方、无排期、无替代方案。3.2.2 的竞品调研其实已经做到机制层（豆包 MFi 五阶段拆解：iAP2 鉴权解锁混音、DuckOthers 把第三方压到约 20% 不暂停、会话结束 Unducking 恢复，见 <a href="#research">第 05 节</a>）——但那靠的是 MFi 特权身份，<strong>恰好反衬出自家路径的未验证</strong>：涂鸦走 BLE 而非 MFi，非 MFI 通路在 iOS 上能否稳定压低第三方音频、Android 侧如何混音，仍是空白。耳机空间后来建档的 <a href="https://wiki.tuya-inc.com:7799/page/2062054900610633766">Android 音频控制分析</a>（2026-06，晚于本方案最后修改）含 Android 14+ 多焦点共存机制的完整调研，可直接填充这一空白，属修订时必读而非当时可引。</p>
+          </div>
+
+          <div class="ver-block" id="doubt-6">
+            <div class="ver-title"><h3>疑点 6 · 两套进入握手 + 未提 0091：协议要素齐了，关系没定义</h3><span>3.1.2 / 二.2 / 3.3 接口支持</span></div>
+            <div class="quote"><p>类似防丢器，sos手电筒和门锁等，需要在对应dp的schemaModel中配置参数，比如防丢器:"callphone",sos手电筒："sos"。</p></div>
+            <p><strong>先澄清一件事：0x0094 的协议并不缺。</strong>3.1.2 内嵌一张协议定义图（见 <a href="#elements">第 04 节</a>），3 字节报文头、5 条控制指令（含 request_start/start_recording 四步握手语义与 heartbeat=05）、7 种错误码定义齐全——但它只存在于图片里，未转成正文表格，dp id 与时序图中承载音频的<strong>协议 0091 在正文里只字未提</strong>。</p>
+            <p>真正的缺口有两层。其一，<strong>图文两套握手</strong>：正文进入 hey tuya 靠 dp(state=1) 双向回显，时序图语音流程全程无 dp、只有 0x0094 request_start → start_recording——是 dp 先协商模式再用 0x0094 开拾音（两层并存），还是 0x0094 一步到位（dp 作废）？文档没有答案。其二，<strong>与既有拾音协议族的关系未定义</strong>：背景自述「AI耳机已经实现同声传译等多种场景」，即设备侧已有 <a href="https://wiki.tuya-inc.com:7799/page/1995327056568647711">Pro耳机DP协议</a>的 record_control/dp63 一族（cmd 0–6 含 cmd=4 心跳），而本方案另起 dp + 0x0094/0091 三条新通道，配置类比却取自防丢器品类。新协议与 dp63 族是复用、并存还是替代？同声传译进行中收到 dp(state=1) 怎么办？dp id 是多少？旧固件收到 0x0094 会不会解析出错？均无交代。双通道并存还直接踩中 CheckList 标了「【重点考虑】」的「数据是否重复和去重」——dp(state=1) 与 0x0094 request_start 会不会重复触发拾音，无人分析。</p>
+          </div>
+
+          <div class="ver-block" id="doubt-7">
+            <div class="ver-title"><h3>疑点 7 · 心跳 3s：功耗影响与超时行为均未定义</h3><span>3.1.2 hey tuya的唤醒与关闭</span></div>
+            <div class="quote"><p>新增心跳指令opcode=05，开始录音后客户端3s发一次，嵌入式3周期没有收到指令超时</p></div>
+            <p>耳机是电池最小、最怕耗电的一端，3s 一次的心跳对续航的影响没有评估；为什么需要 app→耳机方向的心跳（防的是什么故障）没有论证；<strong>超时后设备行为未定义</strong>——退出 hey tuya 模式？正在说的半句怎么处理？要不要提示音？3.1.5 的提示音清单里没有超时项。</p>
+          </div>
+
+          <div class="ver-block" id="doubt-8">
+            <div class="ver-title"><h3>疑点 8 · 四个计时器口径混杂，无状态机</h3><span>3.1.2 / 3.1.7</span></div>
+            <div class="quote"><p>App 在收到云端 EventSleep(10min)信号后，必须下发 0x0094 指令强制设备关停音频流。(豆包结束语音播报5s后会关闭上下文，这时候需要再使用“豆包豆包”唤醒词来唤醒）……TTS播放结束8S未有数据返回后出hey tuya模式。……超过10min一直是空音频，关闭设备hey tuya模式。</p></div>
+            <p>四个计时器：EventSleep(10min)、豆包 5s 关上下文、后台 8s 无数据退出、空音频 10min 关闭。问题有三：① 括号里「豆包结束语音播报5s后会关闭上下文」是竞品（豆包耳机）行为还是自家云端行为？口径不明；② 若 5s 关上下文为真，则 5s~10min 之间耳机「持续上报音频流」全部无效，「为了节省功耗」的动机落空；③ 四个计时器分属云端/App/设备三端、散落在 3.1.2 与 3.1.7 两节，全文没有一个状态机把它们统一，前后台切换时哪个计时器接管也未说明——二.2 时序图的结束分支 B（云端检测超时 10min → EventSleep → stop_recording）与正文口径一致，算全文少数图文对上的地方，但也仅此一条。</p>
+          </div>
+
+          <div class="ver-block" id="doubt-9">
+            <div class="ver-title"><h3>疑点 9 · 关键接口依赖无人认领，且与「接口支持：暂无」直接矛盾</h3><span>3.1.1 / 3.1.3 / 3.1.4 / 3.3</span></div>
+            <div class="quote"><p>需要提供接口能力：<br>- 查询当前设备是否已经是配件/伴身设备<br>- 对ble设备配置该能力</p></div>
+            <p>这两条是 ASK 落地的前提，但「3.3 接口支持」写的是「暂无」，全文没有责任方（iOS SDK？蓝牙 SDK？固件？）、没有接口签名、没有排期。同类无主依赖还有：3.1.4 二级品类注册（依赖云端/品类数据）；3.1.3 面板会话上下文同步（依赖面板团队）——而 CheckList 里「面板」一行恰好空白。</p>
+          </div>
+        </section>
+
+        <section id="context" aria-labelledby="context-title">
+          <h2 id="context-title"><span class="section-number">08</span>体系定位：在 173 篇耳机文档中的位置</h2>
+          <p>对照「AI 耳机&amp;Note-研发」空间全部 173 篇文档做交叉定位。时间线上，本方案接在 V2.5 手机-耳机模式与 AI Voice DP 协议定型之后，是<strong>耳机音频链路能力与 App 侧 hey tuya 业务的第一次正式融合方案</strong>。</p>
+          <ul class="check-list">
+            <li><strong>2025-01</strong> <a href="https://wiki.tuya-inc.com:7799/page/1876519647528882179">AI耳机v1.5+ 客户端技术方案</a>——确立 BLE 大数据上传通道 + 透传通道（离线文件 TLD 协议）。</li>
+            <li><strong>2025-03</strong> <a href="https://wiki.tuya-inc.com:7799/page/1900462502802620419">豆包耳机体验</a>（徐程程）——第一轮豆包调研，仅 3 条结论（经典蓝牙、MPI 心跳拉起、数据流逻辑）；其「MPI 心跳 10s 就算 iOS 被手动杀死也能拉起 App」正是本方案保活设计要对标的竞品基线。本方案 3.2.2 是在它基础上的第二轮深化。</li>
+            <li><strong>2025-03</strong> <a href="https://wiki.tuya-inc.com:7799/page/1902964268895043616">AI耳机1.6版本客户端技术文档</a>——数据源从 opus 转 pcm、TTT 录音配置多路化改造的起点。</li>
+            <li><strong>2025-11</strong> <a href="https://wiki.tuya-inc.com:7799/page/1987705713916383302">手机-耳机模式</a>（V2.5 需求）——Pro 版「BLE 通道同时收音+播放 TTS」，recordType 5/6、audioSourceList 多路输入；其「此模式下设备仅允许连接 BLE，如果连接 BT 需要耳机主动断开 BT」的约束与本方案 BT 下行设计冲突（见下）。</li>
+            <li><strong>2025-12</strong> <a href="https://wiki.tuya-inc.com:7799/page/1995327056568647711">Pro耳机DP协议</a>（12-01）与 <a href="https://wiki.tuya-inc.com:7799/page/1995672766832967727">AI Voice业务场景介绍 &amp; 智能设备DP协议</a>（12-02，维护至 2026-08）——record_control(dp63) 家族 + Type 3/4 新增手机耳机模式、电话翻译模式。</li>
+            <li><strong>2025-09-08</strong> <a href="https://wiki.tuya-inc.com:7799/page/1964876207006679044">Silero Vad接入方案</a>——耳机线<strong>端侧 VAD</strong> 路线的早期节点。</li>
+            <li><strong>2026-01-07</strong> <a href="https://wiki.tuya-inc.com:7799/page/2008715840211390531">端侧VAD方案</a>——端侧 VAD 路线主文档，与本方案同日建档。</li>
+            <li><strong>2026-01-07 → 03-19</strong> <strong>本方案</strong>。</li>
+            <li><strong>2026-03-31</strong> <a href="https://wiki.tuya-inc.com:7799/page/2038916372951470097">iOS 支持BR/EDR方案</a>——电话翻译因「BLE 传输音频数据带宽不足」迁移 BR/EDR。</li>
+            <li><strong>2026-05-12</strong> <a href="https://wiki.tuya-inc.com:7799/page/2054142344294301769">VAD 统一 C++ 实现技术方案</a>——端侧 VAD 路线的统一实现，晚于本方案定稿近两个月：端侧与云端两条 VAD 路线在并行推进，没有汇合点。</li>
+          </ul>
+          <p class="note">「AI耳机v2.5-客户端技术方案」「AI耳机v2.7-客户端技术方案」两页在知识库中为空占位页（仅标题）；v2.5 的实质内容在同日建档的「手机-耳机模式」里。</p>
+
+          <h3>复用既有能力 vs 全新要素</h3>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="复用与全新要素对照表，可横向滚动">
+            <table>
+              <caption>要素盘点：哪些是照搬先例，哪些在参照空间中零先例</caption>
+              <thead><tr><th scope="col">类别</th><th scope="col">要素</th><th scope="col">既有体系中的对应</th></tr></thead>
+              <tbody>
+                <tr><td rowspan="4">复用</td><td>BLE opus 上行</td><td>Pro 耳机既有实践（手机-耳机模式；Opus音频流多包合并上行覆盖 Pro 耳机/AI Note/AI 眼镜，单声道 40Bytes/帧）；App 侧 opus→PCM 解码是现成链路</td></tr>
+                <tr><td>ibeacon 协议</td><td>涂鸦 App 级既有能力；但 173 篇耳机文档<strong>零篇提及 ibeacon</strong>，品类注册与广播是新增工作</td></tr>
+                <tr><td>dp 触发 App 特性的 schemaModel 模式</td><td>防丢器 callphone / sos 手电筒 sos 的「DP 触发 App 特性」先例照搬（属客户端 App 知识库）</td></tr>
+                <tr><td>设备发起会话的交互形态</td><td>dp63 家族已有 cmd=5「设备发起的开始」——设备主动拉起音频会话有先例，本方案换了载体</td></tr>
+                <tr><td rowspan="5">全新</td><td>ASK 保活</td><td>AccessorySetupKit 在 173 篇中<strong>零命中</strong>；既有「保活」全是文件下载场景的后台保活，「App 被杀后由外设拉起」无先例（最接近的快速启动方案全是用户主动入口）</td></tr>
+                <tr><td>hey tuya 后台初始化与会话同步</td><td>对现有前台页面耦合逻辑的改造，参照空间无对应文档（「hey」在 173 篇中仅 4 处命中且不在唤醒链路）</td></tr>
+                <tr><td>dp(state=1/0) 握手 + 0x0094/0091 新协议</td><td>新协议要素，0x0094 已有图内定义但与 dp 握手的关系、与 dp63 族的关系均未定义（见<a href="#doubt-6">疑点 6</a>）</td></tr>
+                <tr><td>手势一键唤醒实测数据</td><td>与竞品「被杀也能拉起」的差距量化（80% / 8s / 20% / 25s）是新信息，也是 ASK 的立论依据</td></tr>
+                <tr><td>提示音体系</td><td>对标豆包观察的 App 侧新增（4 节点）</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>为什么必须是这个形态：平台唤醒权的三角约束</h3>
+          <p>方案看起来叠了四套机制——ibeacon 广播、ASK 配件绑定、dp 握手、0x0094/0091 透传——很容易读成设计混乱。把平台规则摆出来看，它更像是被三条硬约束挤出来的组合：<strong>耳机要便宜通用（不能上 MFi）</strong>、<strong>app 被杀后必须能被拉起（否则需求不成立）</strong>、<strong>音频要够 ASR 用还要能和第三方媒体混音</strong>。这三条在标准蓝牙外设里没有交集——「把耳机当手机的标准外设」这条路，恰好卡死在第二条上。</p>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="平台唤醒路径对照表，可横向滚动">
+            <table>
+              <caption>标准外设拿不到唤醒权；能拿到的路径各有硬代价。表中 iOS 行为以平台公开规则为准，Android 一列为候选方案、需在目标 ROM 上实测</caption>
+              <thead><tr><th scope="col">路径</th><th scope="col">app 被杀后能否拉起</th><th scope="col">按键/语音归谁</th><th scope="col">代价</th></tr></thead>
+              <tbody>
+                <tr><td>A2DP（经典蓝牙媒体）</td><td><strong>否</strong></td><td>系统媒体控制，单向下行无麦克风</td><td>无成本，但做不了上行</td></tr>
+                <tr><td>HFP（免提）</td><td><strong>否</strong></td><td>AT+BVRA 语音识别激活，落到<strong>系统助手</strong>（Siri / Google），不是第三方 app</td><td>SCO 窄带 8/16kHz，ASR 音质不够</td></tr>
+                <tr><td>BLE GATT + bluetooth-central 后台模式</td><td>仅当 app 被<strong>系统回收</strong>时可由 state restoration 重拉；用户手动划掉后不会</td><td>app（但要求 app 已在运行）</td><td>需要 app 常驻，正是本方案要绕开的前提</td></tr>
+                <tr><td>MFi / iAP2 外部配件</td><td><strong>是</strong>（protocol string 关联 + 连接通知）</td><td>app，且系统视为配件通信（见 <a href="#research">第 05 节</a>豆包拆解）</td><td>MFi 认证 + 认证芯片，成本与周期；平台方无法要求每个耳机 SKU 都做</td></tr>
+                <tr><td>ASK（AccessorySetupKit）</td><td><strong>是</strong></td><td>app</td><td>仅 iOS 18+；需系统配件绑定流程与用户引导</td></tr>
+                <tr><td>Android Companion Device Manager</td><td><strong>候选</strong>：设备出现时可拉起伴身服务</td><td>app</td><td>国内 ROM 后台存活需逐家实测；<strong>本方案一个候选都没列</strong></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>于是方案的真实结构是：<strong>ASK 当主干（iOS 18+）、ibeacon 当兜底（Android 与老 iOS）、dp/0x0094 当控制面、0091 当数据面</strong>——它不是四选一的犹豫，是四个约束下的拼接。这也解释了音频链路为什么非对称：上行用标准 HFP 的 8/16kHz 喂不饱 ASR，所以自建 BLE 数据通道（时序图的协议 0091）；下行要跟第三方媒体共存，所以走 BT A2DP + DuckOthers 混音。豆包 MFi 拆解（第 05 节）是同一形态的另一个实现，差别只在它用 iAP2 特权换来「不触发橙点」。</p>
+          <div class="callout"><p><strong>要澄清一个容易被误读的点：</strong>方案并没有把耳机「交给系统托管」——0x0094/0091 本身就是 app 直连管理耳机，和既有 Tuya 音频设备的做法一致。它向系统借的只有<strong>冷启动那一棒</strong>（把已死的 app 拉起来），其余全靠自建通道。所以真正的问题不是「为什么用 app 管耳机」，而是「冷启动那一棒在各平台分别由谁负责」——而这恰恰是方案唯一的空白：iOS 有 ASK 与实测数据，Android 只有一句验收注记，连 CDM 这类候选都没进入讨论。写清这条约束推导，评审时「为什么不用标准外设」这类问题不必再问一遍；不写，它就是评审桌上第一个被问倒的问题。</p></div>
+
+          <div class="callout"><p><strong>一个边界翻转：VAD 选型。</strong>本方案采用云端 VAD（耳机持续上报），而耳机研发线的既有路线是<strong>端侧 VAD</strong>（Silero 接入方案 2025-09 建档、端侧VAD方案与本方案同日 2026-01-07、统一 C++ 实现 2026-05 定稿后落地）。为「app 被杀死/后台、无界面参与」的场景放弃端侧断句，代价是持续上报的 BLE 带宽与功耗——该代价与 BR/EDR 文档记录的「电话翻译模式 BLE 带宽不足」风险同源，方案仅以 EventSleep(10min)/TTS 8s 等兜底关停对冲。EventSleep、stop_recording 在 173 篇中零命中，属 hey tuya 云端事件域，方案未给出来源链接。</p></div>
+
+          <h3>与 dp63 协议族的边界：三个方案未处理的点</h3>
+          <p>既有架构是「控制面走 DP 族（record_control dp63 / record_interrupt dp62 / buds_mode_switch dp65/66 / ai_mode dp67 / offline_record_state dp68）、数据面走 BLE 音频透传」两层；本方案的模式进出走新增 dp(state=1/0)、拾音开关与保活走 0x0094。为什么可能这样设计（基于文档事实的推断，方案本身未说明理由）：dp63 的 Type 字段是 TTT 录音/翻译业务的枚举命名空间，复用就要把 hey tuya 挂进 TTT 状态机及错误码体系；ibeacon 拉起场景 app 可能在冷启动，布尔 dp 的双向回显是最小握手；心跳放 BLE 透传层可能因后台场景下比 DP 通道更少依赖云端路由。但三个边界点无人处理：</p>
+          <ol class="steps">
+            <li><strong>双心跳并存</strong>——若设备同时支持既有录音模式与 hey tuya 模式，dp63 cmd=4 心跳与 0x0094 opcode=05 心跳的超时互斥关系未定义。</li>
+            <li><strong>来电中断未复用 record_interrupt(dp62)</strong>——方案用 App 侧 stop_recording 自行处理，而既有族为来电专门建了 dp62；「Android 音频控制分析」还证明系统通话时普通录音会被强制静音帧，两者关系应对齐。</li>
+            <li><strong>下行链路与「手机-耳机模式」约束相悖</strong>——该文档明确规定此模式「设备仅允许连接 BLE，如果连接 BT 需要耳机主动断开 BT」，与本方案「上行 BLE + 下行 BT」双链路共存给出相反答案，方案未引用也未解释。</li>
+          </ol>
+
+          <h3>本方案未引用、但应当参考的文档</h3>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="应引未引文档表（定稿前已存在），可横向滚动">
+            <table class="map-table">
+              <caption>应引未引 9 篇（定稿 2026-03-19 前已存在）：均属「AI 耳机&amp;Note-研发」空间，与本方案的未决问题直接对口</caption>
+              <thead><tr><th scope="col">文档</th><th scope="col">为什么必引</th></tr></thead>
+              <tbody>
+                <tr><td><a href="https://wiki.tuya-inc.com:7799/page/1995672766832967727">AI Voice业务场景介绍 &amp; 智能设备DP协议</a></td><td>音频输入设备 DP 协议注册总表；新增 dp(state=1/0) 必须在此登记并声明与 dp63 族的关系，否则协议家族出现第二个事实标准</td></tr>
+                <tr><td><a href="https://wiki.tuya-inc.com:7799/page/1987705713916383302">手机-耳机模式</a></td><td>最近的先例（BLE 收音+同时播放 TTS、recordType 5/6、audioSourceList 多路输入）；其「仅允许 BLE」约束与本方案 BT 下行冲突</td></tr>
+                <tr><td><a href="https://wiki.tuya-inc.com:7799/page/1995327056568647711">Pro耳机DP协议</a></td><td>dp63 cmd/Type 的权威定义（含 cmd=4 心跳与 cmd=5 设备发起）；新协议要素与之的互斥/共存规则需以它为基准</td></tr>
+                <tr><td><a href="https://wiki.tuya-inc.com:7799/page/2031197344157929476">快速启动-技术方案</a> / <a href="https://wiki.tuya-inc.com:7799/page/2032042792263352358">快速开始录音</a></td><td>既有「一键进入即开始录音」机制（快捷入口、设备离线自动切手机、权限/未登录分支）；会话历史自动拉取与前后台切换应复用其异常分支设计</td></tr>
+                <tr><td><a href="https://wiki.tuya-inc.com:7799/page/1900462502802620419">豆包耳机体验</a></td><td>本方案 3.2.2 的前作，应建立引用关系；MPI 心跳 10s 是保活设计的竞品基线</td></tr>
+                <tr><td><a href="https://wiki.tuya-inc.com:7799/page/1965258056023412825">AI 耳机错误码汇总</a></td><td>若新模式复用任何 TTT/录音错误码（10021 心跳超时、10082 蓝牙断连等），需在此登记——0x0094 错误通知类的 7 种错误码与之如何对接也该在这里定</td></tr>
+                <tr><td><a href="https://wiki.tuya-inc.com:7799/page/2008788616695775300">Opus音频流多包合并上行</a></td><td>BLE opus 上行的吞吐优化（帧合并）；持续上报使上行量成为常态成本，应评估是否直接受益</td></tr>
+                <tr><td><a href="https://wiki.tuya-inc.com:7799/page/1793458894018711607">耳机同声翻译调研方向</a></td><td>其 case 1「耳机ble、bt连着手机」正是本方案的双链路形态，可作链路可行性旁证</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="定稿后建档文档表，可横向滚动">
+            <table class="map-table">
+              <caption>3 篇定稿后建档（2026-03-19 之后）：方案撰写时无从引用，但任何修订版都必须先读——它们恰好回答本方案悬置的问题</caption>
+              <thead><tr><th scope="col">文档（建档日期）</th><th scope="col">补上哪块空白</th></tr></thead>
+              <tbody>
+                <tr><td><a href="https://wiki.tuya-inc.com:7799/page/2038916372951470097">iOS 支持BR/EDR方案</a>（2026-03-31）</td><td>「BLE 传输音频数据带宽不足」的实测结论与 EDR 迁移经验；云端 VAD 持续上报把 BLE 压力推到最大，是上行链路（<a href="#doubt-3">疑点 3</a>）的直接裁决证据</td></tr>
+                <tr><td><a href="https://wiki.tuya-inc.com:7799/page/2062054900610633766">Android 音频控制分析</a>（2026-06-03）</td><td>记载「音频SDK本质上用的AudioRecord，录音业务调用，hey tuya 调用，互相占用」的现网冲突——本方案手机按钮拾音支路恰好落在该冲突上；Android 14+ 多焦点调研可填混音空白（<a href="#doubt-5">疑点 5</a>）</td></tr>
+                <tr><td><a href="https://wiki.tuya-inc.com:7799/page/2076936011169923088">iOS 后台降频</a>（2026-07-14）</td><td>iOS CPU Monitor 会终止后台高 CPU 应用；本方案要在后台持续跑 BLE 接收 + opus 解码 + 云端上传，正中靶心，应作异常流程与测试说明的输入</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="next" aria-labelledby="next-title">
+          <h2 id="next-title"><span class="section-number">09</span>下一步该补什么</h2>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3>P0 —— 决定方案能否成立，先于一切开发</h3></div>
+            <ol class="steps">
+              <li><strong>Android 拉起保活方案或明确的降级决策</strong>——目前主目标在 Android 上无任何机制支撑，这是方案成立与否的第一分叉点。Android 并非无路可走：Companion Device Manager（伴身设备服务）在设备出现时可拉起 app，可作为候选在目标 ROM 上实测存活率；但方案连候选都没列。</li>
+              <li><strong>锁屏可达性裁决</strong>——对齐 3-5s 广播窗与 8s 实测连接的矛盾（延长广播窗/重试/超时兜底），就「20% 连不上、25s」给出可接受阈值或放弃锁屏场景的产品决策；同时补「2.需求分析」：唤醒率、连接时长、端到端时延的验收指标。</li>
+              <li><strong>BLE opus 上行链路实测</strong>——码率、吞吐、时延、丢包行为，以及 opus→pcm 手机端转码的必要性与成本；给出上下行端到端时延预算与回声处理结论。</li>
+              <li><strong>协议定义落盘</strong>——把 0x0094 协议图的 5 条指令与 7 个错误码转成正文表格（<a href="#spec">第 03 节</a>已按其逐字还原，可直接搬），并补齐时序图出现而正文未提的协议 0091（包长、分包、序号、时间戳）、音频参数（采样率/声道/帧长/码率）、dp id 与 schemaModel 参数值；裁决 dp 与 0x0094 的层级关系（<a href="#spec">第 03 节</a>给出最自洽的合并读法，需作者确认）；ASK 两条接口、品类注册、面板会话同步的责任方与排期。</li>
+            </ol>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3>P1 —— 设计完整性，评审前必须补</h3></div>
+            <ol class="steps" start="5">
+              <li>对齐正文与时序图（两套进入握手 dp vs 0x0094、转码 vs 透传、ibeacon vs 系统配件拉起、0091 未入正文），裁决后补异常流程设计：拉起失败、连接超时、心跳超时、电话之外的中断（闹钟/其他语音助手/多设备争抢）、BLE 断开的半开状态。</li>
+              <li>统一状态机：EventSleep(10min)/豆包 5s/后台 8s/空音频 10min 四计时器的口径、归属端、前后台切换规则；先澄清「豆包 5s 关上下文」是竞品观察还是自家行为。</li>
+              <li>混音调研结论落地，或从设计中降级为可选；「ipc提供的组件」依赖确认。</li>
+              <li>与现有拾音协议族（record_control/dp63、同声传译链路）的关系与互斥规则；dp 与 0x0094 双通道的去重设计。</li>
+              <li>安全&amp;隐私：BLE 音频链路加密、云端 ASR 数据合规、新增蓝牙权限；新老版本兼容（旧 app×新设备 dp、新 app×旧固件 0x0094）。</li>
+              <li>心跳 3s 功耗评估与超时行为定义；可监控可降级（拉起成功率/连接时长埋点、失败兜底）。</li>
+            </ol>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3>P2 —— 流程与文档质量</h3></div>
+            <ol class="steps" start="11">
+              <li>通用功能 CheckList 27 项逐项填写（重点：数据重复与去重、设备解绑/恢复出厂、面板）。</li>
+              <li>「五.评审意见」按模板要求记录责任人/时间，走正式评审闭环。</li>
+              <li>修复章节编号（两个 3.1.1/3.1.2）与层级（3.2 错升 h2）；补文档记录表（V168 仅一条初稿记录）；统一「hey tuya / hey 涂鸦」命名；明确 3.1.5 提示音的播放端与触发路径。</li>
+            </ol>
+          </div>
+        </section>
+
+        <section id="sources" aria-labelledby="sources-title">
+          <h2 id="sources-title"><span class="section-number">10</span>来源与口径</h2>
+          <ul class="check-list">
+            <li><strong>源文档</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2008881655002959959">《AI耳机一键唤醒+hey tuya 方案》</a>（wiki page 2008881655002959959，客户端 App 知识库）。建档 2026-01-07、最后修改 2026-03-19、版本 V168；建档人与最后修改人均为朱恪帅（涂鸦名「迷龙」，工号 02655）；文档记录表仅「迷龙 / 2026-01-7 / 初稿」一条。</li>
+            <li><strong>快照与提取</strong>——2026-11-06 自页面 <code>__NEXT_DATA__</code> 提取为 Markdown（约 4.9K 字符 / 10.7KB）。<strong>文档含五件媒体</strong>：3.1.2 内嵌一张 0x0094 协议定义图（PNG，2026-03-19 19:56 上传）；3.1.1 两段演示视频（.mov，2026-01-28 上传，app ble 配对 / app 保活效果）；二.2 与 3.2.2 各一幅完整 PlantUML 时序图（配网绑定+语音交互 / 豆包 MFi 五阶段）。初版 Markdown 提取漏掉了全部媒体节点（PlantUML 源码存于节点 code 属性、图片与附件存于节点属性），对抗校验阶段从页面 JSON 逐一找回——本页第 02/03/04 节的时序图重构、协议表转写、视频注记均以此为准。模板自带的引导语（<code>&gt;</code> 引用块）一律不当作作者内容。</li>
+            <li><strong>分析方法</strong>——三镜头独立分析后综合：方案重构（只陈述原文实写内容）/ 批判评估（对照模板要求的完成度与技术疑点）/ 上下文关联（对照「AI 耳机&amp;Note-研发」空间 173 篇文档交叉定位）。第 03 节的功能规格由正文、两幅时序图与 0x0094 协议图合并而成，逐条标注 <code>正文</code>/<code>图</code>/<code>推断</code>/<code>缺失</code>；标 <code>推断</code> 的部分（状态机、两套握手的合并读法）原文未明说，属本页的解读。第 08 节中「为什么可能这样设计」等推断同样已标注为推断，方案本身未说明理由。</li>
+            <li><strong>无法交叉验证的部分（如实说明）</strong>——ibeacon、AccessorySetupKit、EventSleep、stop_recording 在 173 篇耳机空间文档中全部零命中：它们分别属客户端 App 知识库、hey tuya 云端事件域与 App BLE SDK 域，本页对这些要素的转述在耳机研发空间内没有第二来源。0x0094 的指令定义只存在于本文档 3.1.2 的图片中（本页按图逐项转写，未改动数值）；协议 0091 仅出现在时序图文字里，无任何格式定义可交叉验证。页面元数据（V168/日期/媒体上传时间）来自页面 JSON，非正文。</li>
+            <li><strong>关联阅读</strong>——同目录下：<a href="tuya-ai-earphone-note-overview.html">「AI 耳机&amp;Note-研发」空间 173 篇总览</a>（本文第 08 节参照系的完整地图）；<a href="tuya-ai-base-platform.html">「AI基座」平台 48 篇总览</a>（hey tuya 云端会话所在的服务端体系）。</li>
+          </ul>
+        </section>
+
+      </main>
+    </div>
+    <footer>
+      <p>整理于 2026-11-06 · 依据内网 wiki 快照与三镜头分析 · 本页为分析文档，不替代原方案；所有 wiki 链接需内网访问权限。</p>
+    </footer>
+  </div>
+</body>
+</html>

@@ -142,6 +142,7 @@ add_library(agentic_kit_common STATIC
     "${COMMON_DIR}/log.c"
     "${COMMON_DIR}/tls.c"
     "${COMMON_DIR}/rng.c"
+    "${COMMON_DIR}/json_lexical.c"
 )
 target_include_directories(agentic_kit_common PUBLIC
     "${COMMON_DIR}"
@@ -272,6 +273,7 @@ set(TUYA_BLE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/modules/tuya-ble")
 
 add_library(tuya_ble STATIC
     "${TUYA_BLE_DIR}/src/tuya_ble_bigdata.c"
+    "${TUYA_BLE_DIR}/src/tuya_ble_dp.c"
     "${TUYA_BLE_DIR}/src/tuya_ble_prov.c"
     "${TUYA_BLE_DIR}/src/tuya_ble_trsmitr.c"
 )
@@ -289,6 +291,21 @@ target_link_libraries(tuya_ble PUBLIC
 # Tests
 # -----------------------------------------------------------------------------
 if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
+    add_executable(json_lexical_test
+        "${COMMON_DIR}/json_lexical.c" "${COMMON_DIR}/test/test_json_lexical.c")
+    target_include_directories(json_lexical_test PRIVATE "${COMMON_DIR}")
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(json_lexical_test PRIVATE -Wall -Wextra -Werror)
+    endif()
+    add_test(NAME json_lexical_test COMMAND json_lexical_test)
+
+    add_executable(bounded_string_test "${COMMON_DIR}/test/test_bounded_string.c")
+    target_include_directories(bounded_string_test PRIVATE "${COMMON_DIR}")
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(bounded_string_test PRIVATE -Wall -Wextra -Werror)
+    endif()
+    add_test(NAME bounded_string_test COMMAND bounded_string_test)
+
     # Fake only the public ATOP boundary, so service parsing/ownership can be
     # checked without network credentials or a subprocess. Register in ctest.
     add_executable(biz_ai_role_test ${BIZ_CLIENT_SOURCES}
@@ -565,9 +582,11 @@ if(AGENTIC_KIT_BUILD_TESTS AND AGENTIC_KIT_ENABLE_PROJECT_TESTS)
     # test_wire assert on "[ble] [TRSMITR]" warns.
     add_executable(tuya_ble_test
         "${TUYA_BLE_DIR}/src/tuya_ble_bigdata.c"
+        "${TUYA_BLE_DIR}/src/tuya_ble_dp.c"
         "${TUYA_BLE_DIR}/src/tuya_ble_prov.c"
         "${TUYA_BLE_DIR}/src/tuya_ble_trsmitr.c"
         "${TUYA_BLE_TESTS_DIR}/test_wire.c"
+        "${TUYA_BLE_TESTS_DIR}/test_control.c"
         "${TUYA_BLE_TESTS_DIR}/test_prov.c"
         "${TUYA_BLE_TESTS_DIR}/tuya_ble_hal_host.c"
     )

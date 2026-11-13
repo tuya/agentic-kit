@@ -185,7 +185,8 @@ idf.py flash monitor
 ## BLE 核心移植约定 {#ble-核心移植约定}
 
 配置字符串必须在核心状态生命周期内有效，并以 NUL 结尾：`product_key` 为
-16 字节、`auth_key` 为 32 字节，`uuid` 为 16 字节或 20 个字母/数字。
+8 或 16 字节（未绑定广播按实际长度下发 id 字段，绑定态为 16 字节加密块）、
+`auth_key` 为 32 字节，`uuid` 为 16 字节或 20 个字母/数字。
 升级后重新编译调用方，公开状态结构的布局发生了变化。
 
 在同一 BLE 执行上下文调用 `tuya_ble_prov_on_data()`、`tuya_ble_prov_tx_ready()`、

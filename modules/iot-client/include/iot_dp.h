@@ -6,8 +6,8 @@
  *
  * Sits on top of the existing transport layer: uplink reuses iot_client_publish()
  * (P2.3 encryption -> smart/device/out/{devid}); downlink is intercepted on the
- * existing iot_client_process() receive path. No new encryption path, no new
- * threads/timers. See the design doc for the full picture.
+ * existing iot_client_process() receive path. Authenticated LAN/BLE DP sets can
+ * enter through iot_client_apply_local_dps(). No new threads/timers.
  *
  * Persistence is NOT performed by the SDK. The SDK only provides the mechanism:
  *   - export current DP state via iot_dp_dump_json() (pull) or the save callback (push);
@@ -81,11 +81,11 @@ typedef struct {
 } iot_dp_value_t;
 
 /**
- * @brief Cloud-to-device DP callback.
+ * @brief Application DP-set callback for cloud and authenticated local requests.
  *
- * Fired once per changed DP after a downlink DP-set, after the internal lock is
- * released. @p value (and any string/raw it points to) is valid only for the
- * duration of the call.
+ * Fired once per supplied DP after a downlink DP-set or successful
+ * iot_client_apply_local_dps(), after the internal lock is released. @p value
+ * (and any string/raw it points to) is valid only for the duration of the call.
  */
 typedef void (*iot_dp_callback_t)(uint8_t dp_id, const iot_dp_value_t *value, void *user_data);
 
@@ -102,9 +102,10 @@ typedef void (*iot_schema_update_callback_t)(const char *schema_id, const char *
  * @brief DP-state-changed (persistence) callback.
  *
  * Fired (batched once per change event, after the internal lock is released)
- * whenever a DP is written — via a downlink DP-set, iot_dp_set(), or
- * iot_dp_report(). It fires even when the value written equals the current one
- * (there is no value-equality check), so treat it as "a DP was written" rather
+ * whenever a DP is written — via a downlink DP-set, iot_dp_set(),
+ * iot_client_apply_local_dps(), or iot_dp_report(). It fires even when the value
+ * written equals the current one (there is no value-equality check), so treat
+ * it as "a DP was written" rather
  * than strictly "the value differs". @p dp_state_json is the current snapshot
  * {"dps":{...}},
  * SDK-owned and valid only during the callback; write it (or copy it) before
@@ -125,7 +126,7 @@ typedef void (*iot_dp_save_callback_t)(const char *dp_state_json, void *user_dat
 /* ---- Callback registration ---- */
 
 /**
- * @brief Register the cloud-to-device DP callback. cb/user_data may be NULL.
+ * @brief Register the application DP-set callback. cb/user_data may be NULL.
  * @return OPRT_OK, or OPRT_INVALID_PARAMETER if client is NULL,
  *         OPRT_UNINITIALIZED if the DP context could not be allocated.
  */
@@ -161,8 +162,8 @@ IOT_API int iot_dp_set(iot_client_t *client, uint8_t dp_id, const iot_dp_value_t
  *
  * RISK — the returned STRING/RAW pointer aliases the live DP cache and has no
  * independent lifetime. The backing buffer is freed by the NEXT write to the same
- * dp_id (iot_dp_set / iot_dp_report / a downlink DP-set), after which any retained
- * pointer dangles (use-after-free if dereferenced):
+ * dp_id (iot_dp_set / iot_dp_report / iot_client_apply_local_dps / a downlink
+ * DP-set), after which any retained pointer dangles (use-after-free if dereferenced):
  *   - Single-threaded: safe only if you consume or copy the value BEFORE the next
  *     write to that dp_id; never stash the pointer across such a call.
  *   - Multi-threaded: a concurrent write to the same dp_id on another thread can

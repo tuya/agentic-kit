@@ -5,10 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Historical bare `(#N)` references identify [GitHub PRs](https://github.com/tuya/agentic-kit/pulls).
+New entries use explicit platform-qualified PR/MR links; see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## [Unreleased]
 
 ### Added
 
+- iot-client — apply authenticated local DP batches atomically through `iot_client_apply_local_dps()`, with persistence callbacks and explicit cloud reporting (PR pending).
+- docs — manual contribution workflow for GitLab 17.8.7: contribution guidelines, PR/MR templates and a GitLab-to-GitHub sync runbook ([GitLab MR !5](https://registry.code.tuya-inc.top/TuyaAI/agentic-kit/-/merge_requests/5)).
+- ci — GitLab pipeline mirrors the GitHub checks (sanitizers, POSIX examples) and adds the valgrind leak, CodeScan and gitleaks secret-detection gates ([GitLab MR !5](https://registry.code.tuya-inc.top/TuyaAI/agentic-kit/-/merge_requests/5)).
+  - External contributions must pass the CodeScan gate; `BLOCK_ON_VULN=false` switches it to report-only.
+- tuya-ble — BLE single-mode provisioning: activation delivery (cmd `0x001B`) in the unbound session, in-session bind via `tuya_ble_prov_bind()`, and Unbind/Device reset (`0x0005`/`0x0006`) with an `unbound` callback (PR pending).
+  - The SDK parses the protocol-defined JSON payload (`devID`, `secKey`, `localKey`, `schema`) and validates the 16-byte credential pair; a malformed payload is failure-ACKed without a callback. The application callback receives the parsed, borrowed fields to persist and may veto the install. The ACK rides the unbound session and the bound form flips only after the ACK is queued.
+- Examples — `ble_only_activate` runs BLE-only (single-mode) provisioning end to end: the App-assisted cloud activation, the `0x001B` activation delivery over an in-process BLE loopback, and bound DP control (PR pending).
+- tuya-ble — activated-device local DP control over bound KEY_14/KEY_15 sessions: DP write/query callbacks, explicit TLV reports with optional UTC timestamps, and bound advertising (PR pending).
 - Examples — `workflow_variables_demo` sends sequential `chat`, `generate-img`, and `decide` Events with plain-text, saved-image, and boolean-result JSON responses (PR pending).
 - biz-client — typed AI role management, language/timbre queries, POSIX and ESP-IDF examples, and bilingual API documentation (#47).
 - iot-client — `iot_get_binding_status()` queries `tuya.device.info.sync` with saved credentials, without an IoT client (#44).
@@ -18,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- ci — GitLab pipelines run the same job set at three moments: merge-request events (a detached pipeline on the MR head, satisfying the project's "Pipelines must succeed" gate), `master`/`main` pushes (the merge itself, plus `pages`), and manual pipelines (`IS_RELEASE=true` releases skip the history gitleaks scan); bare branch and tag pushes no longer run GitLab CI — open the MR (GitHub's push CI still covers `feature/**` directly) (PR pending).
 - **BREAKING** pal — mandatory `wal_clock_time` provides Unix UTC milliseconds; `time_ms` keeps its monotonic timing contract (#45).
   - Custom PALs must supply `wal_clock_time` and rebuild SDK/PAL consumers.
   - FreeRTOS defaults to libc `gettimeofday()`; platforms using another UTC source can override the callback. POSIX keeps `CLOCK_REALTIME`.
@@ -27,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- rtc-tcp-client — `tai_frame_verify` rejects a declared frame length smaller than the signature before deriving the payload size, preventing a size_t underflow that swept out of bounds inside the HMAC computation (CodeScan high; not reachable through the SDK's own receive path, where the frame-length guard rejects the frame first) (PR pending).
+- tuya-ble — persist verified credentials from extended single-mode pair requests, retain bound advertising on reconnect, and omit WiFi status frames for BLE-only devices (PR pending).
 - pal — FreeRTOS `time_ms` preserves tick wraps and converts non-integral tick periods correctly (#45).
 - biz-client — role request timestamps and the clock gate read PAL UTC instead of libc time, so ports without a synchronized libc clock work (#45).
 

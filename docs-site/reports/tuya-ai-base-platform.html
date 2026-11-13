@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="涂鸦云端开发部「AI基座」目录全量 48 篇文档总览：推流网关与接入协议 2.0→3.0、bizcode 与属性、Apex 大模型网关、AIGC 与实时语音、安全加密、成本工程化。">
+  <title>AI 基座 · 平台文档总览</title>
+  <style>
+    :root { --ink:#172b43; --muted:#52657b; --blue:#165ba9; --line:#d4dde8; --soft:#f3f7fc; --paper:#fff; --mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; scroll-padding-top:24px; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif; font-size:16px; line-height:1.8; }
+    a { color:var(--blue); text-underline-offset:3px; }
+    a:hover { text-decoration-thickness:2px; }
+    :focus-visible { outline:3px solid #397ecd; outline-offset:4px; }
+    .skip-link { position:absolute; left:16px; top:-100px; padding:8px 16px; background:#fff; z-index:5; }
+    .skip-link:focus { top:12px; }
+    .page { width:min(1180px,calc(100% - 80px)); margin:auto; }
+    .masthead { display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid var(--line); padding:24px 0 19px; font-size:13px; letter-spacing:.05em; }
+    .masthead strong { font-weight:650; }
+    .masthead span { color:var(--muted); }
+    header { padding:54px 0 38px; }
+    .eyebrow { margin:0 0 12px; color:var(--blue); font-size:13px; font-weight:700; letter-spacing:.14em; }
+    h1 { font-size:clamp(30px,4.2vw,48px); line-height:1.32; letter-spacing:-.04em; max-width:880px; margin:0 0 22px; font-weight:750; }
+    .lead { font-size:20px; line-height:1.75; max-width:850px; margin:0; color:var(--muted); }
+    .scope { font-size:13px; margin:20px 0 0; color:var(--muted); }
+    .layout { display:grid; grid-template-columns:180px minmax(0,1fr); gap:48px; padding-bottom:64px; }
+    .toc { align-self:start; position:sticky; top:28px; font-size:14px; border-top:2px solid var(--ink); padding-top:14px; }
+    .toc p { font-size:12px; font-weight:700; letter-spacing:.09em; margin:0 0 10px; color:var(--muted); }
+    .toc a { display:block; padding:6px 0; color:var(--muted); text-decoration:none; }
+    .toc a:hover { color:var(--blue); }
+    main { min-width:0; }
+    section { border-top:1px solid var(--line); padding-top:25px; margin-bottom:44px; }
+    section:first-child { border-top:2px solid var(--ink); }
+    h2 { font-size:25px; line-height:1.45; letter-spacing:-.025em; margin:0 0 16px; }
+    .section-number { display:inline-block; color:var(--blue); font-size:13px; letter-spacing:.05em; vertical-align:middle; margin-right:12px; }
+    h3 { font-size:19px; line-height:1.5; margin:26px 0 10px; }
+    p { margin:0 0 14px; }
+    .muted, .note { color:var(--muted); }
+    .note { font-size:14px; }
+    code { font-family:var(--mono); font-size:.89em; overflow-wrap:anywhere; }
+    .callout { border-left:3px solid var(--blue); padding:12px 18px; background:var(--soft); margin:20px 0; }
+    .callout p:last-child { margin-bottom:0; }
+    .callout strong { color:var(--blue); }
+    .table-scroll { max-width:100%; overflow-x:auto; margin:15px 0; }
+    table { border-collapse:collapse; width:100%; font-size:14px; line-height:1.7; text-align:left; }
+    caption { caption-side:top; text-align:left; font-size:13px; color:var(--muted); padding-bottom:9px; }
+    th, td { padding:12px 13px; border-bottom:1px solid var(--line); vertical-align:top; }
+    th { background:var(--soft); font-weight:650; }
+    thead { border-top:1px solid var(--line); }
+    .stat-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:25px; margin:20px 0 18px; }
+    .stat-grid div { padding-top:11px; border-top:2px solid var(--line); }
+    .stat-grid dt { margin-bottom:8px; font-weight:700; }
+    .stat-grid dd { margin:0 0 6px; font-size:14px; color:var(--muted); }
+    .ver-title { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin:30px 0 8px; }
+    .ver-title h3 { margin:0; font-size:20px; }
+    .ver-title span { font-family:var(--mono); color:var(--muted); font-size:12px; letter-spacing:.05em; }
+    .ver-block p { margin:0 0 12px; }
+    .steps { margin:18px 0 0; padding-left:24px; }
+    .steps li { padding:0 0 13px 5px; }
+    .steps li::marker { color:var(--blue); font-weight:700; }
+    .steps strong { font-weight:650; }
+    .check-list { padding-left:21px; margin:15px 0; }
+    .check-list li { margin-bottom:12px; padding-left:4px; }
+    .check-list li::marker { color:var(--blue); }
+    .map-table td:first-child { min-width:220px; }
+    .map-table td a { overflow-wrap:anywhere; }
+    .map-table td:nth-child(2), .map-table td:nth-child(3), .map-table td:nth-child(4), .map-table td:nth-child(5) { white-space:nowrap; }
+    .map-intro + .table-scroll { margin-top:8px; }
+    footer { border-top:1px solid var(--line); padding:20px 0 30px; font-size:12px; color:var(--muted); }
+    @media (max-width:1000px) {
+      .page { width:calc(100% - 48px); }
+      .layout { grid-template-columns:145px minmax(0,1fr); gap:28px; }
+      .stat-grid { gap:15px; }
+    }
+    @media (max-width:760px) {
+      .page { width:calc(100% - 36px); }
+      .masthead { padding-top:18px; font-size:11px; }
+      .masthead span { text-align:right; }
+      header { padding:34px 0 28px; }
+      .lead { font-size:18px; }
+      .layout { display:block; }
+      .toc { position:static; display:flex; flex-wrap:wrap; gap:3px 18px; padding:12px 0 20px; border-top:1px solid var(--line); }
+      .toc p { width:100%; margin-bottom:1px; }
+      .toc a { font-size:13px; padding:3px 0; }
+      h2 { font-size:23px; }
+      .stat-grid { grid-template-columns:1fr; gap:15px; }
+      th, td { padding:10px; }
+      section { margin-bottom:34px; }
+      .callout { padding:12px 14px; }
+    }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+    @media print {
+      @page { size:A4; margin:15mm; }
+      html { scroll-behavior:auto; }
+      body { color:#172b43; font-size:10pt; line-height:1.6; }
+      .page { width:auto; max-width:none; }
+      .masthead { padding:0 0 10px; font-size:8pt; }
+      header { padding:20px 0; }
+      h1 { font-size:27pt; max-width:none; margin-bottom:12px; }
+      .lead { font-size:12pt; }
+      .scope, .note { font-size:8pt; }
+      .layout { display:block; padding-bottom:0; }
+      .toc, .skip-link { display:none!important; }
+      section { padding-top:15px; margin-bottom:24px; }
+      h2 { font-size:17pt; break-after:avoid; }
+      h3, .ver-title { break-after:avoid; }
+      h3 { font-size:13pt; }
+      .stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:15px; }
+      .stat-grid dd, table { font-size:8.5pt; }
+      .table-scroll { overflow:visible; }
+      th, td { padding:7px 8px; }
+      tr { break-inside:avoid; }
+      thead { display:table-header-group; }
+      .callout { break-inside:avoid; }
+      .steps li, .check-list li { break-inside:avoid; }
+      a { color:inherit; }
+      footer { padding:12px 0 0; }
+      * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+  <div class="page">
+    <div class="masthead"><strong>TUYA AI FOUNDATION</strong><span>AI基座 · 云端开发部知识库 · 全目录阅读摘要</span></div>
+    <header>
+      <p class="eyebrow">WIKI DIRECTORY ANALYSIS · 48 DOCS · 2023-11 → 2026-11</p>
+      <h1>从一台 IPC 推流网关起步，<br>长成设备与 App 的 AI 会话底座</h1>
+      <p class="lead">「AI基座」目录下全部 48 篇文档的分析整理：一条从推流网关 1.0 演进到基座 3.0 的传输与会话协议主线，一面统一调度 119 个线上模型的 Apex 网关，加上加密、AIGC 标识、成本与工程化的完整支撑面。</p>
+      <p class="scope">依据内网 wiki 抓取整理（2026-11-06 快照，48/48 篇）。本页是导航与摘要，不替代原文；所有链接需内网访问权限。<a href="#sources">查看整理口径</a></p>
+    </header>
+    <div class="layout">
+      <nav class="toc" aria-label="文档目录">
+        <p>阅读导航</p>
+        <a href="#overview">01 · 总览</a>
+        <a href="#timeline">02 · 版本演进主线</a>
+        <a href="#transport">03 · 接入与传输</a>
+        <a href="#session">04 · 会话与业务语义</a>
+        <a href="#apex">05 · Apex 与模型服务</a>
+        <a href="#aigc">06 · AIGC 与实时语音</a>
+        <a href="#security">07 · 安全与加密</a>
+        <a href="#engineering">08 · 成本与工程化</a>
+        <a href="#map">09 · 文档地图</a>
+        <a href="#sources">10 · 来源与口径</a>
+      </nav>
+      <main id="main">
+
+        <section id="overview" aria-labelledby="overview-title">
+          <h2 id="overview-title"><span class="section-number">01</span>总览</h2>
+          <p>AI基座是涂鸦的设备侧 AI 能力底座，由两半组成：<strong>传输与会话面</strong>——设备 / App 经 <code>steam</code> 推流网关建立加密连接，把音视频与事件流交给 <code>omni</code> 服务跑 AI 业务；<strong>模型服务面</strong>——<code>apex</code> 作为各类大模型调用的统一入口，负责选路、容错、限流与计费观测。本目录是云端开发部对这套平台的全部沉淀：协议规范、属性字典、网关设计、模型治理与工程化文档。</p>
+          <p class="note">对 agentic-kit 仓库的读者：RTC/TAI 客户端（<code>libstm.a</code>，即 STM 客户端）连接的服务端正是这套体系——本目录的 2.x / 3.0 接入协议就是 <code>tai_connect()</code> 背后的另一端。</p>
+          <dl class="stat-grid">
+            <div>
+              <dt>文档构成（48 篇）</dt>
+              <dd>技术方案 14 · 版本协议 11 · 接口文档 6</dd>
+              <dd>使用说明 4 · 设计文档 4 · 空壳 4</dd>
+              <dd>发布计划 2 · 需求 / 规划 / 测试记录 各 1</dd>
+              <dd>状态：现行 37 · 空壳 8 · 草稿 3</dd>
+            </div>
+            <div>
+              <dt>建档人（9 人）</dt>
+              <dd>任磊 17 · 王升 17 —— 两位主力各占三分之一</dd>
+              <dd>任磊写协议主线（2.x / 3.0 / 属性 / 加密 / 音频）</dd>
+              <dd>王升写 Apex 模型服务侧（2026-04 起）</dd>
+              <dd>姜发波 3（早期 apex）、朱卫标 3、李定康 2、范利伟 2、官宏伟 2、李智骁 1、温强强 1</dd>
+            </div>
+            <div>
+              <dt>时间与主题分布</dt>
+              <dd>2023-11 推流网关 1.0 → 2026-11 bifrost 迁移，约 3 年</dd>
+              <dd>标签：Apex 20 · 接入层 13 · 协议 / 模型 各 12 · 加密 / AIGC 各 10</dd>
+              <dd>版本归属：2.0×10 · 2.1×11 · 2.2×6 · 3.0×2（多数文档不绑定单一版本）</dd>
+            </div>
+          </dl>
+          <div class="callout"><p><strong>8 篇空壳里有三组值得注意：</strong>「AI基座2.1 webrtc 接入」「AI基座2.1/2.2 quic 接入」两篇 2026-03 建了标题但正文一直空缺——传输演进的这两条支线是否落地，文档层面无从判断；「基座端侧视觉资源加密上行」连同其需求文档与设想方案三页同日建立后全部未填写。详见<a href="#map">第 09 节文档地图</a>。</p></div>
+        </section>
+
+        <section id="timeline" aria-labelledby="timeline-title">
+          <h2 id="timeline-title"><span class="section-number">02</span>版本演进主线</h2>
+          <p>协议主线按建档时间排列；每级给出与上一版的核心差异。</p>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/1724370089651736577">推流网关 1.0</a></h3><span>2023-11 · 任磊 · 服务 IPC 场景</span></div>
+            <p>起点是一台面向摄像头的推流网关：可变长包头（version / 分片 / 加密 / 签名等标志位）+ 命令包 / 图片包 / 音视频包，Attribute 结构承载扩展参数，HMAC-SHA256 用设备 <code>localKey</code> 签名。设备先调 <code>/stream/allocateSteam</code> 取服务器与鉴权信息，会话级重连带连接 ID、15 秒会话保留。<code>EventID / BizCode / BizTag</code> 事件模型和五类业务流程（抓图、移动侦测、视频消息、云存储）从这里定型——BizCode 概念一直沿用至今。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/2013144975029567555">基座 2.0</a></h3><span>方案 2025-04 · 成册 2026-01 · 李智骁 / 任磊</span></div>
+            <p>面向 AI 业务的全面重设计。动机是消除 TCP 多流队头阻塞（信令被数据阻塞）、改善弱网与心跳超时检测：<a href="https://wiki.tuya-inc.com:7799/page/1913075468806914092">UDP 接入层方案</a>引入多流隔离、可配置重传 / 拥塞控制 / FEC，设备端统一经 steam-sdk 接入。报文分两层——<code>TransportPacket</code>（统一分片、加解密、签名，L3 = AES-CBC、L4 = AES-GCM，除 ClientHello 外全部 HMAC-SHA256 签名）与应用层 <code>Packet</code>（type 1-35：握手、鉴权、会话、媒体、Event Cmd）。连接 token 经 atop/mqtt 获取，重试按 5-10s 起逐次翻倍至 320-640s 封顶的指数退避。<a href="https://wiki.tuya-inc.com:7799/page/1935941758466654283">v2 汇总页</a>（2025-06）是这族的目录索引。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/2013220510753628202">基座 2.1</a></h3><span>2026-01 · 任磊 · 做减法</span></div>
+            <p>传输层大幅简化：除视频帧、图片等特殊安全数据外<strong>其它数据都不加密</strong>，包头去掉 iv / security_level 字段、属性结构去掉 payload_type。新增 developer 客户端类型；加密密钥改由人马座 sagittarius 按设备 id 或家庭 id 下发。引入<strong>优雅下线</strong>：<code>DelayDisconnect</code> 信令（type=12）、连接最长 24 小时、设备侧空闲检测最长 12 小时——空闲后须重新取 token 连接而非重连。Event Cmd 扩展 ClearDataCache、ServerTimeout、UpdataContext、EventTrigger、EventSleep。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/2031618088058749008">基座 2.2</a></h3><span>2026-03 · 任磊 · 把加密加回来</span></div>
+            <p>在 2.1 基础上专注视频与图片加密：ClientHello 新增 <code>SecuritySuit</code>（sign_level L0/L1/L2、security_level L3/L4/L5、<code>video_encrypt_range</code> 与 <code>image_encrypt_range</code> 0-4 档），加密范围可选「只关键帧 1K / 4K / 关键帧全量 / 全帧全量」，适配不同性能终端；<code>gcmWithPadding</code> 在本版本固定为 1。2.1 与 2.2 的差异就是「要不要媒体加密」这一件事——分版而不是加开关，是为了让低端设备可以停留在 2.1。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/2097882190158237757">基座 3.0</a></h3><span>2026-09 · 任磊 · 重新分层</span></div>
+            <p>定位重写：<strong>steam 只维护客户端连接与 Omni gRPC 连接，按统一消息转发，不再解析 ACP / AG-UI / MCP</strong>。客户端协议分三族——TCP 3.0（DATA / PING / PONG）、WS 3.0（复用 websocket 内置机制）、STM 3.0（外层帧 + 33 字节绑定握手 + 私有 QUIC 提供一条可靠流 + 单流统一消息 ≤1MiB）。亮点是多路聚合：同一逻辑连接并发 TLS 与 DTLS 多条物理链路、客户端自行选路切换，全部断开后 60 秒内无新链路并入才关闭；无应用层心跳，反压经 QUIC 流控自然传导。同端口按首字节区分 2.x / 3.0 各协议。</p>
+          </div>
+
+          <div class="ver-block">
+            <div class="ver-title"><h3><a href="https://wiki.tuya-inc.com:7799/page/2056707308490063966">开发者协议文档 V2</a></h3><span>2026-05 · 任磊 · 面向外部的裸协议</span></div>
+            <p>与内部协议并行的另一条线：让外部开发者在 agentic-kit 未覆盖的语种 / 平台上<strong>不依赖 SDK 直接接入</strong>。统一二进制包头（type 0-6：system / text / audio / video / image / file / mcp）+ TLV 属性区 + QUIC varint 长度，跑在 TLS 1.2/1.3、WebSocket over TLS、DTLS 上；系统命令走 JSON（15 个 cmd），轮次语义由 FIRST/LAST + commit/finish 构成。视频与图片始终加密上传（SDK 纯透传），文件上限 50 MB，MCP 大数据用 ChunkDesc/$attach 分块。内部版的复杂机制（数据复用等）对外无收益，被刻意拿掉了。</p>
+          </div>
+        </section>
+
+        <section id="transport" aria-labelledby="transport-title">
+          <h2 id="transport-title"><span class="section-number">03</span>接入与传输</h2>
+          <p>传输形态按时间叠加而非替换，每一版都新增一种接入方式：</p>
+          <ul class="check-list">
+            <li><strong>TCP / TLS</strong>——1.0 起的基线，2.0 加上 UDP 方案的多流隔离与可配置重传 / 拥塞控制 / FEC（<a href="https://wiki.tuya-inc.com:7799/page/1913075468806914092">UDP 方案</a>；信令走 0 号流，SessionNew / Event / SessionClose 的完整时序在文档内）。</li>
+            <li><strong>WebSocket</strong>——<a href="https://wiki.tuya-inc.com:7799/page/1976215260670988291">Web 端接入</a>（2025-10）：steam 监听 443，web 端经 moto 的 <code>/v2/stream/allocateSteam</code>（新增 clientType=web）拿 wss 地址；域名 + 证书复用 + url token 与 ClientHello 双重鉴权。</li>
+            <li><strong>DTLS</strong>——<a href="https://wiki.tuya-inc.com:7799/page/1996514592569688083">UDP SDK 升级 DTLS</a>（2025-12）：按公司安全要求把私有安全传输协议换成标准 DTLS，域名替代 IP、等级协商改造，云 / 端 / SDK 合计 17 人天。</li>
+            <li><strong>WebRTC / QUIC</strong>——2.1/2.2 的两条接入支线：<a href="https://wiki.tuya-inc.com:7799/page/2035924191470944353">webrtc 接入</a>与<a href="https://wiki.tuya-inc.com:7799/page/2036982886686523464">quic 接入</a>两页均只有标题，正文空缺；3.0 的 STM 承载里倒是内置了自定义 QUIC（MSS 1200、有效分片 1184、FEC 关闭）。</li>
+            <li><strong>音频标准化</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2074109619604553732">AI基座音频标准化</a>（2026-07）：把音频编码转换从下游 Supersonic 上移到 steam 统一处理，上行各种编码统一转 PCM 16kHz / 单声道 / 16bit，下行按会话声明编码整场锁定——修复同一连接内下行编码混发导致的杂音 / 卡顿；按设备灰度，默认关闭。</li>
+            <li><strong>扩展协议</strong>——<a href="https://wiki.tuya-inc.com:7799/page/1935941995700686914">接入层扩展协议</a>：2.0 之上的信令 / 流管理扩展，与 UDP 方案同批成稿。</li>
+          </ul>
+        </section>
+
+        <section id="session" aria-labelledby="session-title">
+          <h2 id="session-title"><span class="section-number">04</span>会话与业务语义</h2>
+          <ul class="check-list">
+            <li><strong>属性字典</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2013458387227901954">AI基座v2属性</a>（修改记录 2026-01 → 2026-08，全库被引最多）：属性号段 1-999 系统 / 1000-1999 AI 业务 / 2000-2999 IPC 业务；连接属性（PingInterval 默认 60000ms、1.5 倍间隔无数据断开）、媒体参数族（70-104）、UserData 111、Signature 115，加上安全套件枚举、连接 / 会话状态码与关闭错误码（200/400/401/404/408/500/504/601-610、omni 1000-1008）。</li>
+            <li><strong>bizcode 业务编码</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2012009286946791496">bizcode 说明</a>是总表：v1.0 抓图（7-10）、AI 云存储 / 录像（11-18、21）、视频消息（22-24）、宠物识别（26）、通用 AI 业务（65537）、v2.2 普通云存储与音视频转发（100/101/102）。两条硬约束：同一设备的 AI 云存储片段不可重复（联播会回退）、一次会话最多录像 5 分钟。<a href="https://wiki.tuya-inc.com:7799/page/1938490904406921289">2.0 bizcode 业务说明</a>补充各产品差异（喂鸟器单片段、宠物检测多片段 + 抽帧 + 每 10 秒回调）。</li>
+            <li><strong>IPC 业务属性</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2014604865380024347">IPC 业务属性</a>：v2.0 下走嵌套 Attributes，号段 2000-2999（StartTime / PerDuration / TotalDuration / FragFlag / ExtImage / ExtStrategy / BizIdentification）。</li>
+            <li><strong>对象存储</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2014262359341670410">cetus 使用说明</a>：各业务上传 bucket 与 objectKey 规则（<code>airtake-temp-data-ai</code>，<code>autoclean/1-day/*</code> 一天自动清理），createToken / PUT（AWS4-HMAC-SHA256）/ GET（X-Amz-Expires=3600）三件套；图片 / 录像内容均需加密，密钥来自 SessionResponse 或设备密钥。</li>
+          </ul>
+        </section>
+
+        <section id="apex" aria-labelledby="apex-title">
+          <h2 id="apex-title"><span class="section-number">05</span>Apex 与模型服务</h2>
+          <p>Apex 是大模型调用的统一入口，本目录近半数文档（标签 Apex×20）围绕它，且几乎全部出自王升一人（2026-04 起）。</p>
+          <ul class="check-list">
+            <li><strong>网关本体</strong>——<a href="https://wiki.tuya-inc.com:7799/page/1820338989773623348">apex 接入网关</a>（2024-08，全库最早的一批）：按（模型, 区域）组成模型单元，评分 = 成功率×100 + 延时得分选点，令牌桶限流、多模型 code 容错、主动缓存；apollo 配置 per-provider key、group 按百分比 / 优先级分配。<a href="https://wiki.tuya-inc.com:7799/page/1871382268472197205">AI 服务 (APEX) 设计文档</a>（2024-12）补充架构：kafka 消息服务器 + http api + worker，业务方不再自己处理音视频与模型接入。</li>
+            <li><strong>高可用</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2075199067641610307">高可用与容错</a>（2026-07）的判断很直白：选路做得好、失败后的容错几乎空白。方案 A1 调用失败重试 + 主动 failover（failover 成功率目标 ≥90%）、A2 硬熔断，辅以请求防护与可观测，全程灰度开关秒级回滚。</li>
+            <li><strong>错误码</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2077639188978597924">标准错误码封装</a>：五家上游（DashScope / Ark / Gemini / Azure OpenAI / Zenlayer）统一映射到 apex 既有 251-258 / 500，不新增不改值。两个陷阱被明确点出：内容违规多藏在 200 响应而非 error 路径；429 不等于可重试（欠费 / 额度耗尽落 258）。</li>
+            <li><strong>线上模型</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2087385689581686860">apex 线上可用模型</a>：脚本自动维护，7 区域 × 16 供应商，全区去重 <strong>119 个模型</strong>（多模态对话 87、生图 16、视频生成 6、实时语音 5、纯文本 4、快速决策 1）。<a href="https://wiki.tuya-inc.com:7799/page/2026480176958808117">模型下线信息</a>同步治理退役：gpt-5-chat、gemini-2.0-flash 等已下线，豆包系 8 模型 2026-09-21 统一退场换 seed-2.0-lite/mini，gpt-4o 排到 2027-04。</li>
+            <li><strong>response-api</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2084892433094545455">接口文档</a>：封装 OpenAI Responses 有状态会话——首轮不传句柄、响应句柄保存后续携带并照传全量 messages，网关只下发增量；句柄绑定凭证通道并记录内容指纹，指纹不符等 13 种情况自动回落全量重放，调用方无感。<a href="https://wiki.tuya-inc.com:7799/page/2114655715103604763">可用模型</a>：PRO 14 个（仅 gpt-6-luna / gpt-6-sol / gpt-6.1-sol 七区全开）。</li>
+            <li><strong>decision-api</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2113098798061322288">接入说明</a>（2026-10）：输入 evidence + questions，一次调用返回类型化答案（choice / predicate / score / refusal）+ 置信度 + 候选概率分布，不做自由文本生成，面向工单路由、内容分类、规则判定。可用模型均处预发（StartLux、阿里决策、Jev）。</li>
+            <li><strong>治理与演进</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2094766758790430774">技术优化规划</a>：重写模型评分（旧 leader 集中式评分的七缺陷：分母污染致限流振荡、空闲回血、窗口口径差 40 倍……）、channel 级切流（有效权重 = 配置权重 × h × g，急停 + 缓调）、清理 IPC 弃用代码约 16500 行。<a href="https://wiki.tuya-inc.com:7799/page/2118321482420453425">bifrost 迁移分析</a>（2026-11-05，快照最新一篇）：apex 已验证能力按 U1-U13 迁移单元逐个判定迁 / 不迁，bifrost 承接新增文本域流量、apex 继续服务存量与多模态。</li>
+          </ul>
+        </section>
+
+        <section id="aigc" aria-labelledby="aigc-title">
+          <h2 id="aigc-title"><span class="section-number">06</span>AIGC 与实时语音</h2>
+          <ul class="check-list">
+            <li><strong>生图</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2045021613002326020">生图 API 扩展字段</a>：<code>ext_json</code> 不为空即走新模式，原字段全部忽略，按豆包 / Gemini / 阿里三套厂商 schema 透传；图生图最多 14 张（URL 或 Base64）。<a href="https://wiki.tuya-inc.com:7799/page/1958048040644251660">文生图图片编辑接口统一化</a>（2025-08，草稿）调研了五家接口的异同（千问异步、Google 走项目证书），统一化设计尚未成稿。</li>
+            <li><strong>视频生成</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2048586365523726423">Apex 视频生成 API</a>：TyaiVideoCreateTask 提交即回 task_id、TyaiVideoQueryTask 查询，适用 seedance-2-0；媒体只收公网 URL，时长 4-15 秒，产物为火山临时链接 24 小时有效。查询时 model_codes 必传且须与创建时一致，否则路由不到对应 API Key。配套<a href="https://wiki.tuya-inc.com:7799/page/2049088649827450923">测试记录</a>页只留了两个 task_id。</li>
+            <li><strong>实时语音</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2052268524134469675">实时语音大模型 API 设计</a>（117KB，本目录最重的接口设计）：S2S 走 gRPC 双向流 + Protobuf 3，音频 bytes 直传免 Base64；输入固定契约 PCM 16bit / 16kHz / mono（推荐 100ms / 3200 字节一包），输出透传不转码、由首个 audio_delta「格式头包」告知格式；会话最长 30 分钟、无需应用层心跳。附 Azure OpenAI / 火山豆包 / Gemini / 阿里 Qwen-Omni Realtime 四家在连接管理、计费、音色、Function Calling 上的深度对比。</li>
+            <li><strong>AIGC 内容标识</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2079103398057087065">内容标识方案</a>：落实《人工智能生成合成内容标识办法》（2025-09-01 施行）与强制国标 GB 45438-2025，显式水印 + 元数据隐式标识 7 字段；豆包链路开火山原生隐式水印、阿里链路外挂 SASE 打标服务。apex 自我定位是「技术支持者」——法定义务主体是面向 C 端的终端 App。</li>
+            <li><strong>思考档位</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2097659603968856103">思考等级查询 api</a>：按 model code 查各模型直传三方的 thinking_level 映射，只读不调用；档位三形态（有值 / 仅开关 / 不支持自动收敛）。</li>
+          </ul>
+        </section>
+
+        <section id="security" aria-labelledby="security-title">
+          <h2 id="security-title"><span class="section-number">07</span>安全与加密</h2>
+          <ul class="check-list">
+            <li><strong>图片加密</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2031557174567632958">AI基座图片加密</a>：上传临时存储的加密文件格式按安全等级分 v1（固定 L3 全量）/ v2（等级由 security_level 定，MJPEG 用）/ v3（范围由 encrypt_range 定，支持「加密段 + 明文段」拼接）/ v0xabcdef00（IPC 非 MJPEG 帧固定 L3）四个版本，整型一律小端。</li>
+            <li><strong>文件加密</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2114625497731170400">AI基座文件加密</a>（2026-10，快照期最新成稿之一）：64 字节文件头（version=4 / iv 16B / size 4B / security_level 1B 默认 4 / reserve 39B）+ 全密文数据区，L4 = AES128-GCM、L5 = AES256-GCM，均不带 padding。</li>
+            <li><strong>链路安全</strong>——协议层的等级与范围协商见 2.2 的 SecuritySuit（第 02 节）；传输面从私有安全协议到标准 DTLS 的整体迁移见<a href="https://wiki.tuya-inc.com:7799/page/1996514592569688083">DTLS 升级</a>（第 03 节）。</li>
+            <li><strong>端侧视觉资源加密上行</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2029388058205356050">标题页</a>、<a href="https://wiki.tuya-inc.com:7799/page/2029388249520144435">需求文档</a>与<a href="https://wiki.tuya-inc.com:7799/page/2029394500991848500">设想方案</a>三页 2026-03-05 同日建立后均为空壳，这条线停留在标题阶段。</li>
+          </ul>
+        </section>
+
+        <section id="engineering" aria-labelledby="engineering-title">
+          <h2 id="engineering-title"><span class="section-number">08</span>成本与工程化</h2>
+          <ul class="check-list">
+            <li><strong>Cost Center SDK 三部曲</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2068995234464796696">接入技术方案</a>（设计稿）：各供应商凭据（apiKey/ak/sk/baseUrl）从 Apollo 明文切到公司统一 Cost Center SDK，业务方只给「业务模型名」；沿用 entryPoint「配置不可变 + 整体替换」，SDK 取不到自动回退 Apollo，30+ 处 provider 代码零改动。<a href="https://wiki.tuya-inc.com:7799/page/2069709652869775435">重构方案</a>把范围扩成三件闭环的事：凭证来源 + 以模型 code 为中心的配置结构 + 模型重定向（请求 A 实走 B）。<a href="https://wiki.tuya-inc.com:7799/page/2072661846191505430">发布计划</a>（2026-07）：覆盖 7 区 222 个模型定义，Apollo 开关热切换 15 秒生效，金丝雀 → 分批 → 全量，改回开关即秒级回滚。</li>
+            <li><strong>工程基建</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2074012604602257493">ci-runner 部署指南</a>：平台无共享 runner 时在 Linux 虚拟机上自建 GitLab Runner（docker executor）的幂等部署脚本，覆盖内网受限环境的离线镜像导入与故障排查。</li>
+            <li><strong>HeyTuya 异步委派</strong>——<a href="https://wiki.tuya-inc.com:7799/page/2112085853554610255">HeyTuya 异步委派设备能力 v0.1</a>（2026-10，草稿）：以「帮我给 xxx 发邮件」为首个场景，Omni 完成授权与内容确认后由主模型创建持久任务，设备侧完成后回传真实结果、Omni 续跑总结并定向下发文本 + TTS；首期用模拟邮件执行器在一款智能音箱上打通闭环，9 个工作包合计 120 小时。注意它挂在「AI基座v2汇总」页之下，是 v2 汇总的唯一子页。</li>
+          </ul>
+        </section>
+
+        <section id="map" aria-labelledby="map-title">
+          <h2 id="map-title"><span class="section-number">09</span>文档地图</h2>
+          <p class="map-intro">48 篇按主题域分组列出（组内大致按版本 / 建档时间）。「版本」列是文档明确绑定的基座版本；「更新」为最后修改月份；标题直达内网 wiki。<code>↳</code> 表示目录树内子页。</p>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="版本与连接协议主线 · 7 篇，可横向滚动">
+<table class="map-table">
+<caption>版本与连接协议主线 · 7 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">版本</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2013144975029567555">AI基座2.0</a></td><td>版本协议</td><td>现行</td><td><span class="muted">2.0</span></td><td>2026-01</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2013220510753628202">AI基座2.1</a></td><td>版本协议</td><td>现行</td><td><span class="muted">2.1</span></td><td>2026-04</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2031618088058749008">AI基座2.2</a></td><td>版本协议</td><td>现行</td><td><span class="muted">2.2</span></td><td>2026-04</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2097882190158237757">AI基座3.0</a></td><td>版本协议</td><td>现行</td><td><span class="muted">3.0</span></td><td>2026-10</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2056707308490063966">AI基座开发者协议文档V2</a></td><td>版本协议</td><td>现行</td><td><span class="muted">3.0</span></td><td>2026-06</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1935941758466654283">AI基座v2汇总</a></td><td><span class="muted">空壳</span></td><td><span class="muted">空壳</span></td><td><span class="muted">2.0、2.1、2.2</span></td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2112085853554610255">HeyTuya异步委派设备能力v0.1技术方案</a></td><td>技术方案</td><td><span class="muted">草稿</span></td><td><span class="muted">—</span></td><td>2026-10</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="接入层与传输 · 6 篇，可横向滚动">
+<table class="map-table">
+<caption>接入层与传输 · 6 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">版本</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1913075468806914092">AI基座2.0接入层UDP方案</a></td><td>技术方案</td><td>现行</td><td><span class="muted">2.0</span></td><td>2025-11</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1996514592569688083">AI基座UDP SDK升级DTLS</a></td><td>技术方案</td><td>现行</td><td><span class="muted">2.1</span></td><td>2025-12</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1935941995700686914">AI 基座2.0接入层扩展协议</a></td><td>版本协议</td><td>现行</td><td><span class="muted">2.0、2.1</span></td><td>2026-03</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2035924191470944353">AI基座2.1 webrtc 接入</a></td><td><span class="muted">空壳</span></td><td><span class="muted">空壳</span></td><td><span class="muted">2.1</span></td><td>2026-03</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2036982886686523464">AI基座2.1/2.2 quic 接入</a></td><td><span class="muted">空壳</span></td><td><span class="muted">空壳</span></td><td><span class="muted">2.1、2.2</span></td><td>2026-03</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1976215260670988291">AI基座web端接入方案</a></td><td>技术方案</td><td>现行</td><td><span class="muted">2.0、2.1</span></td><td>2025-10</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="业务属性与 bizcode · 5 篇，可横向滚动">
+<table class="map-table">
+<caption>业务属性与 bizcode · 5 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">版本</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2012009286946791496">AI基座bizcode说明</a></td><td>版本协议</td><td>现行</td><td><span class="muted">2.0、2.1、2.2</span></td><td>2026-08</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1938490904406921289">AI基座2.0 bizcode业务说明</a></td><td>版本协议</td><td>现行</td><td><span class="muted">2.0</span></td><td>2026-01</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2013458387227901954">AI基座v2属性</a></td><td>版本协议</td><td>现行</td><td><span class="muted">2.0、2.1、2.2</span></td><td>2026-08</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2014604865380024347">AI基座IPC业务属性</a></td><td>版本协议</td><td>现行</td><td><span class="muted">2.0、2.1</span></td><td>2026-03</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2014262359341670410">AI基座cetus使用说明</a></td><td>使用说明</td><td>现行</td><td><span class="muted">—</span></td><td>2026-03</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="Apex 网关与模型服务 · 13 篇，可横向滚动">
+<table class="map-table">
+<caption>Apex 网关与模型服务 · 13 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">版本</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1820338989773623348">apex接入网关</a></td><td>接口文档</td><td>现行</td><td><span class="muted">—</span></td><td>2026-07</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1871382268472197205">AI服务(APEX)设计文档</a></td><td>设计文档</td><td>现行</td><td><span class="muted">—</span></td><td>2025-07</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1724370089651736577">AI推流网关1.0</a></td><td>版本协议</td><td>现行</td><td><span class="muted">—</span></td><td>2026-01</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2118321482420453425">apex 网关功能向 bifrost 迁移：最小改造路径分析</a></td><td>技术方案</td><td>现行</td><td><span class="muted">—</span></td><td>2026-11</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2075199067641610307">Apex高可用与容错能力建设方案</a></td><td>技术方案</td><td>现行</td><td><span class="muted">—</span></td><td>2026-07</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2094766758790430774">apex技术优化规划</a></td><td>规划</td><td>现行</td><td><span class="muted">—</span></td><td>2026-09</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2087385689581686860">apex 线上可用模型</a></td><td>使用说明</td><td>现行</td><td><span class="muted">—</span></td><td>2026-10</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2114655715103604763">response-api可用模型</a></td><td>使用说明</td><td>现行</td><td><span class="muted">—</span></td><td>2026-10</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2084892433094545455">response-api-接口文档</a></td><td>接口文档</td><td>现行</td><td><span class="muted">—</span></td><td>2026-09</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2077639188978597924">apex模型标准错误码封装</a></td><td>技术方案</td><td>现行</td><td><span class="muted">—</span></td><td>2026-07</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2097659603968856103">思考等级查询api</a></td><td>接口文档</td><td>现行</td><td><span class="muted">—</span></td><td>2026-09</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2113098798061322288">apex-decision-api-接入说明</a></td><td>接口文档</td><td>现行</td><td><span class="muted">—</span></td><td>2026-10</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2026480176958808117">AI基座模型下线信息</a></td><td>发布计划</td><td>现行</td><td><span class="muted">—</span></td><td>2026-09</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="AIGC 与语音 · 7 篇，可横向滚动">
+<table class="map-table">
+<caption>AIGC 与语音 · 7 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">版本</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/1958048040644251660">文生图图片编辑接口统一化</a></td><td>技术方案</td><td><span class="muted">草稿</span></td><td><span class="muted">—</span></td><td>2025-09</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2045021613002326020">生图API扩展字段说明</a></td><td>接口文档</td><td>现行</td><td><span class="muted">—</span></td><td>2026-04</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2048586365523726423">Apex视频生成API接口文档</a></td><td>接口文档</td><td>现行</td><td><span class="muted">—</span></td><td>2026-04</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2049088649827450923">测试记录</a></td><td>测试记录</td><td><span class="muted">空壳</span></td><td><span class="muted">—</span></td><td>2026-04</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2079103398057087065">aigc-内容标识-生图生视频-技术方案</a></td><td>技术方案</td><td>现行</td><td><span class="muted">—</span></td><td>2026-07</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2052268524134469675">实时语音大模型API设计文档</a></td><td>设计文档</td><td>现行</td><td><span class="muted">—</span></td><td>2026-07</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2074109619604553732">AI基座音频标准化</a></td><td>技术方案</td><td>现行</td><td><span class="muted">2.0、2.1、2.2</span></td><td>2026-07</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="安全与加密 · 5 篇，可横向滚动">
+<table class="map-table">
+<caption>安全与加密 · 5 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">版本</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2031557174567632958">AI基座图片加密</a></td><td>设计文档</td><td>现行</td><td><span class="muted">—</span></td><td>2026-04</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2114625497731170400">AI基座文件加密</a></td><td>设计文档</td><td>现行</td><td><span class="muted">—</span></td><td>2026-10</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2029388058205356050">基座端侧视觉资源加密上行</a></td><td>技术方案</td><td><span class="muted">空壳</span></td><td><span class="muted">—</span></td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2029388249520144435">端侧图片/视频传输加密方案需求文档</a></td><td>需求文档</td><td><span class="muted">空壳</span></td><td><span class="muted">—</span></td><td>2026-03</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2029394500991848500">设想方案</a></td><td>技术方案</td><td><span class="muted">空壳</span></td><td><span class="muted">—</span></td><td>2026-03</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-scroll" tabindex="0" role="region" aria-label="成本与工程化 · 5 篇，可横向滚动">
+<table class="map-table">
+<caption>成本与工程化 · 5 篇</caption>
+<thead><tr><th scope="col">文档</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">版本</th><th scope="col">更新</th></tr></thead>
+<tbody>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2068995234464796696">Cost Center SDK 接入技术方案</a></td><td>技术方案</td><td><span class="muted">草稿</span></td><td><span class="muted">—</span></td><td>2026-06</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2069709652869775435">Cost Center SDK接入 &amp; 模型配置重构方案</a></td><td>技术方案</td><td>现行</td><td><span class="muted">—</span></td><td>2026-06</td></tr>
+<tr><td>↳ <a href="https://wiki.tuya-inc.com:7799/page/2072661846191505430">配置SDK接入发布计划</a></td><td>发布计划</td><td>现行</td><td><span class="muted">—</span></td><td>2026-07</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2074012604602257493">ci-runner部署指南</a></td><td>使用说明</td><td>现行</td><td><span class="muted">—</span></td><td>2026-07</td></tr>
+<tr><td><a href="https://wiki.tuya-inc.com:7799/page/2056915260069122091">未命名文档</a></td><td><span class="muted">空壳</span></td><td><span class="muted">空壳</span></td><td><span class="muted">—</span></td><td>2026-05</td></tr>
+</tbody>
+</table>
+</div>
+        </section>
+
+        <section id="sources" aria-labelledby="sources-title">
+          <h2 id="sources-title"><span class="section-number">10</span>来源与口径</h2>
+          <ol class="steps">
+            <li><strong>来源。</strong><p>内网 wiki「云端开发部知识库 / AI基座」：<a href="https://wiki.tuya-inc.com:7799/page/2013144917575999577">wiki.tuya-inc.com:7799/page/2013144917575999577</a>（GROUPING 目录页，正文为空，内容全在子页）。目录下全部 48 篇 TEXT 页面均在收录范围，无排除项。</p></li>
+            <li><strong>抓取方式。</strong><p>2026-11-06 经 Safari 登录态逐页抓取 <code>__NEXT_DATA__</code> JSON（48/48，无失败），转换为 Markdown 后由 8 个领域分组的并行任务生成结构化摘要，再经 2 组对抗校验逐篇比对原文——校验发现 8 处事实偏差（字段归属、日期口径、音色绑定等）已全部修正后采用。</p></li>
+            <li><strong>日期口径。</strong><p>「建档 / 更新」取页面 gmtCreate / gmtModified（UTC）。协议文档的修改记录小节是文档内自述的演进时间线，与页面级日期口径不同，本文按页面口径。</p></li>
+            <li><strong>分类口径。</strong><p>「类型 / 状态 / 标签 / 版本归属」为阅读后的标注，非 wiki 官方元数据；「空壳」指正文为空或仅有标题的页面（8 篇，其中 v2 汇总为刻意的目录索引页）。</p></li>
+            <li><strong>已知局限。</strong><p>wiki 表格转 Markdown 时行内代码标记丢失，字段名在部分表格中与说明文字粘连；「apex 线上可用模型」的模型 code 列在抓取中丢失（仅区域 / 供应商分布与计数可读）；「思考等级查询 api」的服务名与方法名同样丢失。图片与附件内容一律未收录。摘要为原文压缩，字段定义、时序与错误码全表以原文为准。</p></li>
+          </ol>
+        </section>
+      </main>
+    </div>
+    <footer>Tuya AI 基座 · 平台文档总览 · 独立阅读文档 · 2026-11 快照整理，正文无需 JavaScript 即可阅读；链接目标为内网 wiki，需相应访问权限。</footer>
+  </div>
+</body>
+</html>
