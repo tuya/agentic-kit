@@ -43,3 +43,10 @@ Testing
 spec
 
 .codegraph/
+
+# CodeScan CI local dry runs
+codescan-report.json
+tools/__pycache__/*
+
+# OS junk
+.DS_Store
