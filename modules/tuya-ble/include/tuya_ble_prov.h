@@ -109,6 +109,22 @@ typedef struct {
 
 typedef void (*tuya_ble_prov_cb_t)(const tuya_ble_wifi_creds_t *creds);
 
+/* Hey Tuya voice-mode opcodes for cmd 0x0094 (App source names them
+ * ThingSmartAssistantVoiceOpcode; values verified against TuyaSmartBLEKit,
+ * HEARTBEAT against the protocol doc's 0x0094 opcode table). */
+#define TUYA_BLE_VOICE_OP_REQUEST_START 0x01 /* device -> App */
+#define TUYA_BLE_VOICE_OP_REQUEST_STOP  0x02 /* device -> App */
+#define TUYA_BLE_VOICE_OP_START_RECORD  0x03 /* App -> device */
+#define TUYA_BLE_VOICE_OP_STOP_RECORD   0x04 /* App -> device */
+#define TUYA_BLE_VOICE_OP_HEARTBEAT     0x05 /* App -> device */
+#define TUYA_BLE_VOICE_OP_ERROR_NOTIFY  0xE0 /* App -> device */
+
+/* App audio format codes (ThingAudioAudioFormat). These are different from
+ * the record_control DP's 0-based Opus profile codes. */
+#define TUYA_BLE_VOICE_FORMAT_OPUS_32KBPS 1
+#define TUYA_BLE_VOICE_FORMAT_OPUS_16KBPS 2
+#define TUYA_BLE_VOICE_FORMAT_OPUS TUYA_BLE_VOICE_FORMAT_OPUS_32KBPS
+
 /* Activation credentials parsed from delivery (0x001B) or an extended
  * single-mode pair request (0x0001). JSON fields are devID, secKey, localKey
  * and optional schema; secKey/localKey are validated to exactly 16
@@ -206,6 +222,18 @@ typedef struct {
      * can retry. */
     int (*activation_info)(const tuya_ble_activation_info_t *info, void *ctx);
     void *activation_ctx;
+    /* Hey Tuya voice-mode control (cmd 0x0094, PV >= 4.8). The 3-byte payload
+     * [Version][Type][Opcode] flows both directions in the established
+     * session: the device requests a voice turn with
+     * tuya_ble_send_voice_control() (REQUEST_START / REQUEST_STOP), and the
+     * App answers with START_RECORD / STOP_RECORD, notifies failures with
+     * ERROR_NOTIFY and keeps the session warm with HEARTBEAT. Called on the
+     * BLE owner context for App-to-device opcodes; a device-originated
+     * opcode arriving inbound is logged and
+     * ignored. NULL keeps 0x0094 unanswered (dropped without an ACK, like
+     * other unhooked optional commands). */
+    void (*voice_control)(uint8_t opcode, uint8_t version, uint8_t type, void *ctx);
+    void *voice_ctx;
     /* Called on the BLE owner context after an Unbind (0x0005) or Device
      * reset (0x0006) request dropped the bound form and restored the
      * unbound advertisement. Wipe persisted Activation credentials here and
@@ -338,6 +366,28 @@ int tuya_ble_prov_unbind(tuya_ble_prov_state_t *state);
 int tuya_ble_prov_send_frame(tuya_ble_prov_state_t *state, uint16_t cmd,
                              const uint8_t *data, uint16_t data_len,
                              uint8_t encrypt_mode);
+
+/* Send a Hey Tuya voice-mode request (cmd 0x0094) from the device to the
+ * App — REQUEST_START to ask for a recording turn, REQUEST_STOP to end one.
+ * The App answers with a fresh 0x0094 frame (START_RECORD / STOP_RECORD),
+ * which arrives on the voice_control callback; there is no same-frame ACK.
+ * Version/Type stay at their protocol defaults (0). Returns 0 once the
+ * frame is queued, negative on failure. */
+int tuya_ble_send_voice_control(tuya_ble_prov_state_t *state, uint8_t opcode);
+
+/* Send one AI voice data frame (cmd 0x0091) after the App's START_RECORD:
+ * [Version=0][Sn:2 BE][Type][Flag][Length:2 BE][audio]. @p sn is the
+ * caller-owned sequence; @p format is a TUYA_BLE_VOICE_FORMAT_* code carried
+ * in Flag bits 3-0; need_response=false sets Type bit7 so the App skips the
+ * per-frame status reply. Requires the bound KEY_15 session; rides the same
+ * bounded TX queue and backpressure as reports. The frame has ACK_SN=0:
+ * audio is an independent uplink, not a reply to the most recent command.
+ * Returns 0 queued,
+ * TUYA_BLE_SEND_BUSY when the queue is full (retry unchanged), negative on
+ * invalid input or no bound session. */
+int tuya_ble_send_voice_frame(tuya_ble_prov_state_t *state, uint16_t sn,
+                              uint8_t format, const uint8_t *audio,
+                              uint16_t len, bool need_response);
 
 #ifdef __cplusplus
 }

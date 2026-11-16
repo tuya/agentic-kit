@@ -5,10 +5,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#define DP_CMD_QUERY       0x0003
-#define DP_CMD_WRITE       0x0027
-#define DP_CMD_REPORT      0x8006
-#define DP_CMD_REPORT_TIME 0x8007
 #define DP_REPORT_PREFIX   7
 #define DP_TIME_PREFIX     5
 #define DP_FRAME_OVERHEAD  14

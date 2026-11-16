@@ -28,11 +28,12 @@ typedef struct {
     uint8_t written_tlv[512], queried_ids[256];
     size_t written_len, queried_count;
     /* Single-mode binding scenario state. */
-    unsigned activations, unbound_called;
+    unsigned activations, unbound_called, voice_events;
     int activation_rc;
     char activation_json[TUYA_BLE_RX_BUF_SIZE + 1];
     char activation_dev_id[32], activation_schema[64];
     char activation_local[17], activation_secret[17];
+    uint8_t voice_op, voice_ver, voice_type;
 } control_peer_t;
 
 static void put32(uint8_t *p, uint32_t value)
@@ -146,6 +147,14 @@ static void unbound_notification(void *ctx)
 {
     ((control_peer_t *)ctx)->unbound_called++;
 }
+static void voice_reply(uint8_t opcode, uint8_t version, uint8_t type, void *ctx)
+{
+    control_peer_t *peer = ctx;
+    peer->voice_events++;
+    peer->voice_op = opcode;
+    peer->voice_ver = version;
+    peer->voice_type = type;
+}
 static int crypt(int encrypt, const uint8_t key[16], const uint8_t iv[16],
                  const uint8_t *input, size_t len, uint8_t *output)
 {
@@ -231,6 +240,7 @@ static int setup(tuya_ble_prov_state_t *state, control_peer_t *peer, int bound)
         .schema = schema_json,
         .dp_write = write_dps, .dp_query = query_dps, .dp_ctx = peer,
         .activation_info = activation_reply, .activation_ctx = peer,
+        .voice_control = voice_reply, .voice_ctx = peer,
         .unbound = unbound_notification, .unbound_ctx = peer
     };
     CHECK(tuya_ble_prov_init(state, &cfg) == 0);
@@ -649,8 +659,8 @@ static int report_capacity_and_size_boundaries(void)
     return 0;
 }
 
-/* 发送设备激活信息 (0x001B): the wire payload is a JSON object with devID,
- * secKey, localKey and schema fields. */
+/* Activation delivery (0x001B, protocol section 8.32): the wire payload is a
+ * JSON object with devID, secKey, localKey and schema fields. */
 static const char activation_payload[] =
     "{\"devID\":\"dev1234567890abcdefq\",\"secKey\":\"secret_key_12345\","
     "\"localKey\":\"local_key_123456\",\"schema\":\"schema001\"}";
@@ -798,6 +808,26 @@ static int activation_delivery_is_gated(void)
     return 0;
 }
 
+/* 0x0060 BT device-info query: answered in the authenticated session with
+ * status, CTKD-off ability, bond and connected state, and the device name. */
+static int bt_dev_info_reports_state(void)
+{
+    tuya_ble_prov_state_t state;
+    control_peer_t peer;
+    uint8_t key15[16], data[512];
+    size_t len;
+    static const uint8_t query[] = {0};
+    CHECK(setup(&state, &peer, 1) == 0);
+    CHECK(handshake(&state, &peer, key15) == 0);
+    CHECK(receive(&state, 15, key15, 0x60, 3, query, sizeof(query)) == 0);
+    CHECK(peer.complete == 1);
+    CHECK(response(&peer, 0, key15, 15, 0x60, 3, data, &len) == 0);
+    CHECK(len == 11 + 4);                       /* header + "test" */
+    CHECK(data[0] == 0 && data[7] == 0);        /* status ok, no CTKD */
+    CHECK(data[8] == 1 && data[9] == 2);        /* bonded, connected */
+    CHECK(data[10] == 4 && memcmp(data + 11, "test", 4) == 0);
+    return 0;
+}
 
 /* Unbind (0x0005) and device reset (0x0006) ACK 0x01, drop the bound form,
  * notify the app and restore the unbound advertisement, after which the
@@ -863,6 +893,9 @@ static int device_info_capability_and_v2_flags(void)
         CHECK((flag2 & 0x02) == ((fc_lo & 0x04) ? 0x02 : 0));
         CHECK((flag2 & 0x04) == ((fc_lo & 0x08) ? 0x04 : 0));
         CHECK((flag2 & 0x02) && (flag2 & 0x04));
+        /* Bit 5 marks the Hey Tuya capability (PV >= 4.8); setup() wires a
+         * voice_control callback, so it is on. */
+        CHECK(flag2 & 0x20);
         /* Capability field: legacy default or the configured bits, BE24. */
         if (caps[c] == 0) {
             CHECK(reply[85] == 0 && reply[86] == 1 && reply[87] == 0);
@@ -870,8 +903,24 @@ static int device_info_capability_and_v2_flags(void)
             CHECK(reply[85] == 0x28 && reply[86] == 0 && reply[87] == 0);
         }
     }
+    /* Without a voice_control callback the Hey Tuya bit stays off: the
+     * response keeps its legacy bytes. */
+    {
+        tuya_ble_prov_state_t state;
+        control_peer_t peer;
+        uint8_t key11v[16], reply[512], request[] = {0, 244};
+        size_t len;
+        CHECK(setup(&state, &peer, 0) == 0);
+        state.cfg.voice_control = NULL;
+        tuya_ble_prov_close(&state);
+        CHECK(key11(key11v) == 0);
+        CHECK(receive(&state, 11, key11v, 0, 1, request, sizeof(request)) == 0);
+        CHECK(response(&peer, 0, key11v, 11, 0, 1, reply, &len) == 0 && len > 87);
+        CHECK(reply[54] == 0x06);
+    }
     return 0;
 }
+
 /* Real single-mode apps bind in the pair request rather than sending 0x001B.
  * Without a beacon key the v4.4 payload is 82 bytes; with one it is 98. */
 static int single_mode_device_info(tuya_ble_prov_state_t *state, control_peer_t *peer,
@@ -1055,6 +1104,83 @@ static int activation_delivery_requires_schema(void)
 }
 
 
+/* Hey Tuya voice control (0x0094): App->device opcodes (including the
+ * HEARTBEAT keep-alive) reach the callback
+ * with their [Version][Type][Opcode] header; a device-originated opcode
+ * inbound is consumed silently; each valid frame is ACKed at the frame
+ * level with one byte, and the device's own requests ride the session key. */
+static int voice_control_roundtrip(void)
+{
+    tuya_ble_prov_state_t state;
+    control_peer_t peer;
+    uint8_t key12[16], data[512];
+    size_t len;
+    CHECK(unbound_handshake(&state, &peer, key12, NULL) == 0);
+
+    /* START_RECORD with a visible version/type header. */
+    uint8_t start[3] = {0x07, 0x09, TUYA_BLE_VOICE_OP_START_RECORD};
+    CHECK(receive(&state, 12, key12, 0x94, 3, start, sizeof(start)) == 0);
+    CHECK(peer.voice_events == 1 && peer.voice_op == TUYA_BLE_VOICE_OP_START_RECORD);
+    CHECK(peer.voice_ver == 0x07 && peer.voice_type == 0x09);
+    CHECK(peer.complete == 1);
+    CHECK(response(&peer, 0, key12, 12, 0x94, 3, data, &len) == 0);
+    CHECK(len == 1 && data[0] == 0);
+
+    /* STOP_RECORD and ERROR_NOTIFY. */
+    uint8_t stop[3] = {0, 0, TUYA_BLE_VOICE_OP_STOP_RECORD};
+    CHECK(receive(&state, 12, key12, 0x94, 4, stop, sizeof(stop)) == 0);
+    CHECK(peer.voice_events == 2 && peer.voice_op == TUYA_BLE_VOICE_OP_STOP_RECORD);
+    uint8_t err[3] = {0, 0, TUYA_BLE_VOICE_OP_ERROR_NOTIFY};
+    CHECK(receive(&state, 12, key12, 0x94, 5, err, sizeof(err)) == 0);
+    CHECK(peer.voice_events == 3 && peer.voice_op == TUYA_BLE_VOICE_OP_ERROR_NOTIFY);
+
+    /* A device-originated opcode inbound: consumed, logged, never delivered. */
+    uint8_t echo[3] = {0, 0, TUYA_BLE_VOICE_OP_REQUEST_START};
+    CHECK(receive(&state, 12, key12, 0x94, 6, echo, sizeof(echo)) == 0);
+    CHECK(peer.voice_events == 3 && peer.complete == 4);
+    CHECK(response(&peer, 3, key12, 12, 0x94, 6, data, &len) == 0 && len == 1);
+
+    /* The device's own request rides the session key with the 3-byte body;
+     * its ack_sn references the last inbound frame (sn=6 above). */
+    clear_packets(&peer);
+    CHECK(tuya_ble_send_voice_control(&state, TUYA_BLE_VOICE_OP_REQUEST_START) == 0);
+    CHECK(peer.complete == 1);
+    CHECK(response(&peer, 0, key12, 12, 0x94, 6, data, &len) == 0);
+    CHECK(len == 3 && data[0] == 0 && data[1] == 0 && data[2] == TUYA_BLE_VOICE_OP_REQUEST_START);
+    /* App-originated opcodes are refused by the send API. */
+    CHECK(tuya_ble_send_voice_control(&state, TUYA_BLE_VOICE_OP_START_RECORD) == -1);
+    CHECK(peer.complete == 1);
+
+    /* Malformed (short) payload: no callback, no ACK. */
+    clear_packets(&peer);
+    uint8_t short_frame[2] = {0, 0};
+    CHECK(receive(&state, 12, key12, 0x94, 7, short_frame, sizeof(short_frame)) == 0);
+    CHECK(peer.voice_events == 3 && peer.complete == 0);
+
+    /* HEARTBEAT (0x05): delivered like any App->device opcode and ACKed. */
+    uint8_t hb[3] = {0, 0, TUYA_BLE_VOICE_OP_HEARTBEAT};
+    CHECK(receive(&state, 12, key12, 0x94, 8, hb, sizeof(hb)) == 0);
+    CHECK(peer.voice_events == 4 && peer.voice_op == TUYA_BLE_VOICE_OP_HEARTBEAT);
+    CHECK(response(&peer, 0, key12, 12, 0x94, 8, data, &len) == 0 && len == 1);
+    return 0;
+}
+
+/* Before Pairing the voice gate drops 0x0094 without a response. */
+static int voice_control_is_gated(void)
+{
+    tuya_ble_prov_state_t state;
+    control_peer_t peer;
+    uint8_t key11v[16], key12[16] = {0};
+    CHECK(setup(&state, &peer, 0) == 0);
+    CHECK(key11(key11v) == 0);
+    uint8_t frame[3] = {0, 0, TUYA_BLE_VOICE_OP_START_RECORD};
+    CHECK(receive(&state, 11, key11v, 0x94, 1, frame, sizeof(frame)) == 0);
+    CHECK(peer.voice_events == 0 && peer.complete == 0);
+    CHECK(receive(&state, 12, key12, 0x94, 2, frame, sizeof(frame)) == 0);
+    CHECK(peer.voice_events == 0 && peer.complete == 0);
+    return 0;
+}
+
 static int single_mode_pair_binds_and_reconnects(void)
 {
     for (unsigned beacon_len = 0; beacon_len <= 16; beacon_len += 16) {
@@ -1194,6 +1320,52 @@ static int pair_binding_then_schema_redelivery_keeps_session(void)
     return 0;
 }
 
+/* AI voice frames: the App routes 0x0091 to its AI audio delegate; 0x0031
+ * selects Alexa. Audio is an unsolicited notification with ACK_SN=0.
+ * The API formats [Version][Sn][Type][Flag][Len][audio]
+ * and rides the bound session; the response-skipping bit is honoured and a
+ * per-frame reply from the App is accepted without a callback. */
+static int voice_frame_sends_and_replies(void)
+{
+    tuya_ble_prov_state_t state;
+    control_peer_t peer;
+    uint8_t key12[16], key15[16], binding[98], material[38], data[512];
+    size_t len;
+    static const uint8_t audio[] = {0xDE, 0xAD, 0xBE, 0xEF};
+    CHECK(single_mode_device_info(&state, &peer, key12) == 0);
+    CHECK(make_pair_binding(binding, 0) == 0);
+    CHECK(receive(&state, 12, key12, 1, 2, binding, 82) == 0);
+    CHECK(response(&peer, 0, key12, 12, 1, 2, data, &len) == 0);
+    memcpy(material, local_key, 16);
+    memcpy(material + 16, secret_key, 16);
+    memcpy(material + 32, state.pair_rand, 6);
+    CHECK(mbedtls_md5(material, sizeof(material), key15) == 0);
+    /* The pair binding keeps the connection in the bound form: a KEY_15
+     * query completes the live session handshake before frames may flow. */
+    CHECK(receive(&state, 15, key15, 3, 3, NULL, 0) == 0);
+    clear_packets(&peer);
+    CHECK(tuya_ble_send_voice_frame(&state, 7, TUYA_BLE_VOICE_FORMAT_OPUS,
+                                    audio, sizeof(audio), false) == 0);
+    CHECK(peer.complete == 1);
+    CHECK(response(&peer, 0, key15, 15, 0x91, 0, data, &len) == 0);
+    CHECK(len == 7 + sizeof(audio));
+    CHECK(data[0] == 0 && data[1] == 0 && data[2] == 7);
+    CHECK(data[3] == 0x80 && data[4] == TUYA_BLE_VOICE_FORMAT_OPUS);
+    CHECK(data[5] == 0 && data[6] == sizeof(audio));
+    CHECK(memcmp(data + 7, audio, sizeof(audio)) == 0);
+    /* Per-frame reply from the App parses and does not disturb the session. */
+    uint8_t reply[6] = {0, 0, 7, 0x80, TUYA_BLE_VOICE_FORMAT_OPUS, 0};
+    CHECK(receive(&state, 15, key15, 0x91, 4, reply, sizeof(reply)) == 0);
+    /* 16 kbps Opus has its own App format code (2), distinct from 32 kbps
+     * (1). Resume must keep the caller's audio sequence unchanged. */
+    clear_packets(&peer);
+    CHECK(tuya_ble_send_voice_frame(&state, 8, 2, audio, sizeof(audio), true) == 0);
+    CHECK(response(&peer, 0, key15, 15, 0x91, 0, data, &len) == 0);
+    CHECK(data[2] == 8 && data[3] == 0 && data[4] == 2);
+    CHECK(memcmp(data + 7, audio, sizeof(audio)) == 0);
+    return 0;
+}
+
 static int single_mode_pair_rejects_bad_binding(void)
 {
     for (unsigned bad = 0; bad < 10; bad++) {
@@ -1297,7 +1469,11 @@ int test_control(void)
     RUN(activation_delivery_rejects_malformed_payloads);
     RUN(activation_delivery_is_gated);
     RUN(pair_binding_then_schema_redelivery_keeps_session);
+    RUN(bt_dev_info_reports_state);
+    RUN(voice_frame_sends_and_replies);
     RUN(device_info_capability_and_v2_flags);
+    RUN(voice_control_roundtrip);
+    RUN(voice_control_is_gated);
     RUN(pair_binding_requires_pre_provisioned_schema);
     RUN(activation_delivery_requires_schema);
     RUN(single_mode_pair_accepts_v48_tail);

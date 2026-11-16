@@ -12,7 +12,10 @@
 #define FRM_PAIR_REQ                 0x0001
 #define FRM_UNBONDING_REQ            0x0005
 #define FRM_DEVICE_RESET             0x0006
+#define FRM_VOICE_DATA               0x0091
 #define FRM_ACTIVATION_INFO_REQ      0x001B
+#define FRM_VOICE_ASSISTANT_CTRL     0x0094
+#define FRM_BT_DEV_INFO_REQ          0x0060
 #define FRM_RPT_NET_STAT_REQ         0x001E
 #define FRM_DOWNLINK_TRANSPARENT_REQ 0x801B
 #define FRM_UPLINK_TRANSPARENT_REQ   0x801C
@@ -378,6 +381,50 @@ int tuya_ble_prov_send_frame(tuya_ble_prov_state_t *state, uint16_t cmd,
     return tuya_ble_send(state, cmd, data, data_len, encrypt_mode);
 }
 
+int tuya_ble_send_voice_control(tuya_ble_prov_state_t *state, uint8_t opcode)
+{
+    if (!state) return -1;
+    if (opcode != TUYA_BLE_VOICE_OP_REQUEST_START &&
+        opcode != TUYA_BLE_VOICE_OP_REQUEST_STOP) {
+        TUYA_BLE_HAL_LOGW("[PROTO] Voice control: opcode 0x%02X is not device-originated",
+                          opcode);
+        return -1;
+    }
+    uint8_t payload[3] = {0, 0, opcode}; /* Version=0, Type=0 (reserved). */
+    return tuya_ble_send(state, FRM_VOICE_ASSISTANT_CTRL, payload, sizeof(payload),
+                         session_mode(state));
+}
+
+/* AI voice data frame (cmd 0x0091): [Version=0][Sn:2 BE][Type]
+ * [Flag][Length:2 BE][audio]. Type bit7 asks the App to skip the per-frame
+ * response; Flag bits 3-0 carry the audio format from the Start Speech
+ * parameter table. The whole frame rides the bounded TX queue like a
+ * report, so a BUSY result just means retry with the same buffer. The App
+ * dispatches 0x0031 as Alexa audio and 0x0091 as AI audio. */
+int tuya_ble_send_voice_frame(tuya_ble_prov_state_t *state, uint16_t sn,
+                              uint8_t format, const uint8_t *audio,
+                              uint16_t len, bool need_response)
+{
+    if (!state || !audio || !len || !state->handshake_bound) return -1;
+    if (len > TUYA_BLE_TX_BUF_SIZE - 64) {
+        TUYA_BLE_HAL_LOGW("[PROTO] Voice frame too long (%u bytes)", len);
+        return -1;
+    }
+    uint8_t payload[TUYA_BLE_TX_BUF_SIZE];
+    payload[0] = 0;                              /* VERSION <= V5 */
+    payload[1] = (uint8_t)(sn >> 8);
+    payload[2] = (uint8_t)sn;
+    payload[3] = need_response ? 0x00 : 0x80;    /* Type bit7: skip response */
+    payload[4] = (uint8_t)(format & 0x0F);       /* Flag: audio format */
+    payload[5] = (uint8_t)(len >> 8);
+    payload[6] = (uint8_t)len;
+    memcpy(payload + 7, audio, len);
+    TUYA_BLE_HAL_LOGI("[PROTO] Voice frame: sn=%u format=%u %u bytes%s",
+                      sn, format, len, need_response ? " (response wanted)" : "");
+    return send_frame_with_ack(state, FRM_VOICE_DATA, payload, (uint16_t)(len + 7),
+                                ENCRYPTION_MODE_KEY_15, 0);
+}
+
 static void handle_dev_info_req(tuya_ble_prov_state_t *state, const uint8_t *data, uint16_t data_len)
 {
     /* data/data_len feed only the protocol trace; keep -Wextra quiet when
@@ -421,7 +468,12 @@ static void handle_dev_info_req(tuya_ble_prov_state_t *state, const uint8_t *dat
 
     resp[52] = (state->cfg.comm_ability >> 8) & 0xFF;
     resp[53] = state->cfg.comm_ability & 0xFF;
-    resp[54] = (uint8_t)((SECRET_V2_SUPPORTED ? 0x02 : 0) | (SECRET_V2_EXECUTED ? 0x04 : 0));
+    /* Flag2: bits 1/2 carry the V2 secret flags; bit 5 marks the Hey Tuya
+     * capability (protocol cmd 0x0000 flag2, PV >= 4.8) and rides only when
+     * the integrator registered the voice_control callback, so products
+     * without voice stay byte-identical. */
+    resp[54] = (uint8_t)((SECRET_V2_SUPPORTED ? 0x02 : 0) | (SECRET_V2_EXECUTED ? 0x04 : 0)
+                         | (state->cfg.voice_control ? 0x20 : 0));
     resp[83] = 0x01;
     /* 3-byte big-endian device capability; zero config keeps the legacy
      * fixed byte so existing products stay byte-identical. */
@@ -767,6 +819,80 @@ static void handle_wifi_config(tuya_ble_prov_state_t *state, const uint8_t *data
     tuya_ble_prov_flush_credentials(state);
 }
 
+/* BT device-info query (0x0060, V6 doc, added in V4.4-beta2): dual-mode BT state
+ * probe. The App parses the response as status[1], MAC[6], ability[1]
+ * (bit0 CTKD), bond[1] (bit0 paired), connect[1] (0 disconnected / 1
+ * connecting / 2 connected), name_len[1], BT name (UTF-8). Leaving it
+ * unanswered stalls App flows that wait on this query. */
+static void handle_bt_dev_info_req(tuya_ble_prov_state_t *state)
+{
+    TUYA_BLE_HAL_LOGI("[PROTO] FRM_BT_DEV_INFO_REQ");
+
+    size_t name_len = strnlen(state->cfg.device_name, 32);
+    uint8_t resp[1 + 6 + 1 + 1 + 1 + 1 + 32];
+    size_t off = 0;
+    resp[off++] = 0x00;                 /* status: accepted */
+    memset(resp + off, 0, 6);           /* MAC: unknown at this layer */
+    off += 6;
+    resp[off++] = 0x00;                 /* ability: CTKD not supported */
+    resp[off++] = state->paired ? 0x01 : 0x00; /* bond: paired flag */
+    resp[off++] = 0x02;                 /* connect: connected (a frame arrived) */
+    resp[off++] = (uint8_t)name_len;
+    memcpy(resp + off, state->cfg.device_name, name_len);
+    off += name_len;
+
+    if (tuya_ble_send(state, FRM_BT_DEV_INFO_REQ, resp, off,
+                      session_mode(state)) != 0) {
+        TUYA_BLE_HAL_LOGE("[PROTO] BT device-info response send failed");
+    }
+}
+
+/* Hey Tuya voice-mode control (0x0094): a 3-byte [Version][Type][Opcode]
+ * payload, both directions, in the established session. The App sends
+ * START_RECORD / STOP_RECORD / ERROR_NOTIFY; the device asks for a turn
+ * with REQUEST_START / REQUEST_STOP via tuya_ble_send_voice_control(). There
+ * is no same-frame business ACK — the App answers a request with a fresh
+ * 0x0094 frame — so this handler only ACKs at the frame level (1-byte 0),
+ * mirroring how the App treats inbound device-originated opcodes: consumed,
+ * logged, not echoed. */
+static void handle_voice_control(tuya_ble_prov_state_t *state, const uint8_t *data,
+                                 uint16_t data_len)
+{
+    TUYA_BLE_HAL_LOGI("[PROTO] FRM_VOICE_ASSISTANT_CTRL (%d bytes)", data_len);
+
+    if (!state->cfg.voice_control) {
+        TUYA_BLE_HAL_LOGW("[PROTO] Voice control without a callback");
+        return;
+    }
+    if (data_len < 3) {
+        TUYA_BLE_HAL_LOGW("[PROTO] Voice control payload too short (%u)", data_len);
+        return;
+    }
+    uint8_t version = data[0], type = data[1], opcode = data[2];
+    switch (opcode) {
+    case TUYA_BLE_VOICE_OP_START_RECORD:
+    case TUYA_BLE_VOICE_OP_STOP_RECORD:
+    case TUYA_BLE_VOICE_OP_HEARTBEAT:
+    case TUYA_BLE_VOICE_OP_ERROR_NOTIFY:
+        state->cfg.voice_control(opcode, version, type, state->cfg.voice_ctx);
+        break;
+    case TUYA_BLE_VOICE_OP_REQUEST_START:
+    case TUYA_BLE_VOICE_OP_REQUEST_STOP:
+        TUYA_BLE_HAL_LOGW("[PROTO] Voice control: device-originated opcode 0x%02X inbound",
+                          opcode);
+        break;
+    default:
+        TUYA_BLE_HAL_LOGW("[PROTO] Voice control: unknown opcode 0x%02X", opcode);
+        break;
+    }
+    /* Frame-level ACK keeps the App's publish callback from waiting. */
+    uint8_t ack = 0x00;
+    if (tuya_ble_send(state, FRM_VOICE_ASSISTANT_CTRL, &ack, 1,
+                      session_mode(state)) != 0) {
+        TUYA_BLE_HAL_LOGE("[PROTO] Voice control ACK send failed");
+    }
+}
+
 static void handle_activation_info(tuya_ble_prov_state_t *state, const uint8_t *data, uint16_t data_len)
 {
     TUYA_BLE_HAL_LOGI("[PROTO] FRM_ACTIVATION_INFO_REQ (%d bytes)", data_len);
@@ -777,10 +903,11 @@ static void handle_activation_info(tuya_ble_prov_state_t *state, const uint8_t *
     }
     TUYA_BLE_HAL_HEXDUMP(data, data_len > 32 ? 32 : data_len);
 
-    /* 发送设备激活信息 (0x001B): the payload is a JSON object string
-     * {"devID":..., "secKey":..., "localKey":..., "schema":...}. The SDK owns
-     * the layout so every port sees the same parse; the application decides
-     * what to persist and may veto the install. */
+    /* Activation delivery (0x001B, protocol section 8.32): the payload is a
+     * JSON object string {"devID":..., "secKey":..., "localKey":...,
+     * "schema":...}. The SDK owns the layout so every port sees the same
+     * parse; the application decides what to persist and may veto the
+     * install. */
     char json_copy[TUYA_BLE_RX_BUF_SIZE + 1];
     char local_out[17] = {0}, secret_out[17] = {0};
     tuya_ble_activation_info_t info = {0};
@@ -1041,13 +1168,27 @@ void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t
                               encrypt_mode, state->authenticated, state->paired);
             return;
         }
+    } else if (cmd == FRM_VOICE_ASSISTANT_CTRL) {
+        if (encrypt_mode != session_mode(state) || !state->authenticated || !state->paired) {
+            TUYA_BLE_HAL_LOGW("[RX] Voice gate: mode=0x%02X auth=%d paired=%d",
+                              encrypt_mode, state->authenticated, state->paired);
+            return;
+        }
+    } else if (cmd == FRM_BT_DEV_INFO_REQ) {
+        if (encrypt_mode != session_mode(state) || !state->authenticated || !state->paired) {
+            TUYA_BLE_HAL_LOGW("[RX] BT info gate: mode=0x%02X auth=%d paired=%d",
+                              encrypt_mode, state->authenticated, state->paired);
+            return;
+        }
     } else if (cmd == FRM_UNBONDING_REQ || cmd == FRM_DEVICE_RESET) {
         if (encrypt_mode != session_mode(state) || !state->authenticated || !state->paired) {
             TUYA_BLE_HAL_LOGW("[RX] Unbind gate: mode=0x%02X auth=%d paired=%d",
                               encrypt_mode, state->authenticated, state->paired);
             return;
         }
-    } else if (cmd == 0x0027 || cmd == 0x0003 || cmd == 0x8006 || cmd == 0x8007) {
+    } else if (cmd == DP_CMD_WRITE || cmd == DP_CMD_QUERY ||
+               cmd == DP_CMD_REPORT || cmd == DP_CMD_REPORT_TIME ||
+               cmd == FRM_VOICE_DATA) {
         if (!is_bound(state) || encrypt_mode != ENCRYPTION_MODE_KEY_15 ||
             !state->handshake_bound || !state->handshake_ready ||
             !state->authenticated || !state->paired)
@@ -1074,14 +1215,29 @@ void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t
     case FRM_ACTIVATION_INFO_REQ:
         handle_activation_info(state, data, data_len);
         break;
+    case FRM_VOICE_DATA:
+        /* App-to-device 0x0091 carries only the per-frame status reply
+         * [Version][Sn:2][Type][Flag][Status]; frames are sent with the
+         * response-skipping bit, so log the reply and stay quiet. */
+        if (data_len >= 6) {
+            TUYA_BLE_HAL_LOGI("[PROTO] Voice frame reply: sn=%u status=%u",
+                              (unsigned)((data[1] << 8) | data[2]), data[5]);
+        }
+        break;
+    case FRM_VOICE_ASSISTANT_CTRL:
+        handle_voice_control(state, data, data_len);
+        break;
+    case FRM_BT_DEV_INFO_REQ:
+        handle_bt_dev_info_req(state);
+        break;
     case FRM_UNBONDING_REQ:
     case FRM_DEVICE_RESET:
         handle_unbind_req(state, cmd);
         break;
-    case 0x0027:
-    case 0x0003:
-    case 0x8006:
-    case 0x8007:
+    case DP_CMD_WRITE:
+    case DP_CMD_QUERY:
+    case DP_CMD_REPORT:
+    case DP_CMD_REPORT_TIME:
         (void)tuya_ble_dp_on_frame(state, cmd, data, data_len);
         break;
     default:

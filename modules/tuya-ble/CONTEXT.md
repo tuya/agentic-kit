@@ -156,6 +156,37 @@ a borrowed JSON array): binding without it is refused and the App receives a
 failure ACK.
 _Avoid_: WiFi credentials, BLE bonding, Activation delivery (the separate JSON command).
 
+**Voice control** (cmd `0x0094`, Hey Tuya):
+A 3-byte `[Version][Type][Opcode]` payload flowing both directions in the
+established session (any paired form — the App source has no Flag2-bit gate
+for it). The device asks for a voice turn with
+`tuya_ble_send_voice_control()` — `REQUEST_START`/`REQUEST_STOP`, Version and
+Type stay 0 — and the App answers with a fresh `0x0094` frame
+(`START_RECORD`/`STOP_RECORD`) or `ERROR_NOTIFY`; there is no same-frame
+business ACK, so inbound frames get only a 1-byte frame-level ACK.
+App-to-device opcodes fire the `voice_control` callback on the BLE owner; a
+device-originated opcode arriving inbound is logged and ignored, and a
+malformed short payload is dropped without an ACK. Opcode values verified
+against TuyaSmartBLEKit (`ThingSmartAssistantVoiceOpcode`): 0x01/0x02 device
+to App, 0x03/0x04/0xE0 App to device, plus the protocol doc's `HEARTBEAT`
+(0x05, App to device). The device-info response sets Flag2 bit5 — the
+protocol's Hey Tuya capability marker for PV >= 4.8 — whenever a
+`voice_control` callback is registered; the observed App does not gate on
+it. Audio data itself rides a different
+channel (the `0x0090` family); this command only carries the turn control.
+_Avoid_: Provisioning, DP TLV, the `0x0090` audio data channel.
+
+**AI voice data** (cmd `0x0091`):
+An unsolicited KEY_15 uplink with Frame `ACK_SN=0` and payload
+`[Version=0][Sn:2 BE][Type][Flag][Length:2 BE][audio]`. The App dispatches
+`0x0091` to its AI audio consumer and `0x0031` to Alexa. Type bit 7 skips
+the per-frame business reply. Flag uses the App's `ThingAudioAudioFormat`
+codes: 1 is 16 kHz Opus at 32 kbps, 2 is 16 kHz Opus at 16 kbps, both
+20 ms CBR. These codes are distinct from a product's `record_control` DP
+profile codes (0 for 32 kbps, 1 for 16 kbps). The application supplies
+the encoded bytes and audio sequence; the SDK does not capture or encode.
+_Avoid_: Voice control, DP TLV, Alexa audio (`0x0031`).
+
 **Unbind** (`0x0005`) and **Device reset** (`0x0006`):
 The app-initiated requests that drop installed Activation credentials and restore
 the unbound form (advertising, `key_11`/`key_12`). Both acknowledge the single

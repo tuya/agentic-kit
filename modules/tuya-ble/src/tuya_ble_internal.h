@@ -12,6 +12,12 @@
 
 #include "tuya_ble_config_defaults.h"
 
+/* DP Frame commands shared by authorization, dispatch and reporting. */
+#define DP_CMD_QUERY       0x0003
+#define DP_CMD_WRITE       0x0027
+#define DP_CMD_REPORT      0x8006
+#define DP_CMD_REPORT_TIME 0x8007
+
 /* Shared SDK-internal binding of the HAL log macros onto the global log
  * facade: every module diagnostic carries the "[ble] " prefix. The
  * ceiling is min(AGENTIC_KIT_LOG_LEVEL, AGENTIC_KIT_TUYA_BLE_LOG_LEVEL):

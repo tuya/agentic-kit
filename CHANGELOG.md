@@ -12,6 +12,10 @@ New entries use explicit platform-qualified PR/MR links; see [CONTRIBUTING.md](C
 
 ### Added
 
+- tuya-ble — Hey Tuya voice-mode control (cmd `0x0094`): a `voice_control` callback receives the App's start/stop/error/heartbeat opcodes with their `[Version][Type][Opcode]` header in any paired session, and `tuya_ble_send_voice_control()` sends the device's own `REQUEST_START`/`REQUEST_STOP`; inbound frames get a frame-level ACK only (the App answers a request with a fresh `0x0094` frame), device-originated opcodes inbound and short payloads are dropped with a log (PR pending).
+  - The device-info response Flag2 advertises the Hey Tuya capability bit (bit 5, PV >= 4.8) only when a `voice_control` callback is registered.
+- tuya-ble — AI audio uplink via `tuya_ble_send_voice_frame()` (`0x0091`, `ACK_SN=0`) and authenticated BT device-info replies (`0x0060`) (PR pending).
+  - Opus audio format codes distinguish 32 kbps (`1`) and 16 kbps (`2`).
 - tuya-ble — device-info protocol version 4.8 with the pair-request extension tail parsed per the App implementation: AppFlagLength/AppFlag (App DP-channel claim recorded in `app_dp_transport` and the activation JSON), optional mesh `node_id`/`ble_net_key`, malformed tails rejected before the activation callback; the 3-byte device capability is configurable via `TUYA_BLE_DEV_CAP_*` bits (bit 19 transparent DP, bit 21 mesh control), and the advertisement V2 flags and response Flag2 now derive from one source (PR pending).
   - v4.4 pair frames (82/98 bytes) are still accepted; a capability of zero keeps the legacy capability byte, so unchanged products stay byte-identical apart from the version field.
   - Transparent-DP routing (`0x801E`/`0x801F`) itself is not implemented: advertise bit 19 only after a port routes DP accordingly.
