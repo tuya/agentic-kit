@@ -198,7 +198,13 @@ _Avoid_: net-status (`0x001E`, the separate legacy notification), activation res
   provisioning status). Without a provider these additions are absent; `comm_ability`
   alone does not enable them. The NimBLE example configures a provider. These advertised
   bits do not establish support for a complete PSK3.0/fallback activation exchange:
-  credential delivery still uses legacy `0x801B` subcommand `0x0001`.
+  credential delivery accepts two commands -- the transparent channel
+  `0x801B` subcommand `0x0001` (two-byte flag + two-byte subcommand + JSON) and
+  the direct `0x0021` command (a NUL-terminated JSON string with no prefix,
+  acknowledged by a single STATE byte, `0` = accepted). Pure-HarmonyOS apps
+  provision only through `0x0021`. Both carry the same `{ssid,pwd,token}` object
+  and share the KEY_12 + authenticated + paired gate and the `credentials_pending`
+  single-delivery guard.
 - Big-data uplinks set flag bit 0 (`0x0001`, response requested). Downlinks with flag
   bit 1 set (big-data segmentation) are rejected; this is separate from supported
   Trsmitr segmentation. Only subcommands `0x0003` and `0x0004` are handled.

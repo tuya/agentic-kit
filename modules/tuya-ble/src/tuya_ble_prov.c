@@ -13,6 +13,10 @@
 #define FRM_RPT_NET_STAT_REQ         0x001E
 #define FRM_DOWNLINK_TRANSPARENT_REQ 0x801B
 #define FRM_UPLINK_TRANSPARENT_REQ   0x801C
+#define FRM_WIFI_INFO_DIRECT_REQ     0x0021
+
+/* Max accepted WiFi-credentials JSON length, in bytes. */
+#define TUYA_BLE_WIFI_JSON_MAX       512
 
 #define ENCRYPTION_MODE_NONE        TUYA_BLE_ENCRYPTION_MODE_NONE
 #define ENCRYPTION_MODE_KEY_11      TUYA_BLE_ENCRYPTION_MODE_KEY_11
@@ -418,6 +422,40 @@ void tuya_ble_prov_flush_credentials(tuya_ble_prov_state_t *state)
     }
 }
 
+/* Parse the WiFi-credentials JSON carried by both credential channels -- the
+ * legacy transparent channel (0x801B) and the direct provisioning command
+ * (0x0021) -- validate its fields, and commit them to state->creds. Both
+ * channels carry the same {ssid, pwd, token} object. Returns 0 on success,
+ * -1 on parse or validation failure (creds untouched). */
+static int wifi_creds_from_json(tuya_ble_prov_state_t *state, const char *json_str)
+{
+    cJSON *root = cJSON_ParseWithOpts(json_str, NULL, true);
+    if (root == NULL) {
+        TUYA_BLE_HAL_LOGE("JSON parse failed: %s", json_str);
+        return -1;
+    }
+
+    cJSON *ssid = cJSON_GetObjectItemCaseSensitive(root, "ssid");
+    cJSON *pwd = cJSON_GetObjectItemCaseSensitive(root, "pwd");
+    cJSON *token = cJSON_GetObjectItemCaseSensitive(root, "token");
+    if (!cJSON_IsObject(root) || !cJSON_IsString(ssid) || !cJSON_IsString(pwd) ||
+        !cJSON_IsString(token) || !ssid->valuestring[0] || !token->valuestring[0] ||
+        strlen(ssid->valuestring) > TUYA_BLE_SSID_MAX_LEN ||
+        strlen(pwd->valuestring) > TUYA_BLE_PASSWORD_MAX_LEN ||
+        strlen(token->valuestring) > TUYA_BLE_TOKEN_MAX_LEN) {
+        TUYA_BLE_HAL_LOGW("[PROTO] WiFi JSON rejected field validation");
+        cJSON_Delete(root);
+        return -1;
+    }
+    memset(&state->creds, 0, sizeof(state->creds));
+    strcpy(state->creds.ssid, ssid->valuestring);
+    strcpy(state->creds.password, pwd->valuestring);
+    strcpy(state->creds.token, token->valuestring);
+
+    cJSON_Delete(root);
+    return 0;
+}
+
 static void handle_wifi_config(tuya_ble_prov_state_t *state, const uint8_t *data, uint16_t data_len)
 {
     TUYA_BLE_HAL_LOGI("[PROTO] FRM_DOWNLINK_TRANSPARENT_REQ (%d bytes):", data_len);
@@ -450,7 +488,7 @@ static void handle_wifi_config(tuya_ble_prov_state_t *state, const uint8_t *data
         return;
     }
 
-    char json_str[512];
+    char json_str[TUYA_BLE_WIFI_JSON_MAX];
     uint16_t json_len = data_len - offset;
     if (json_len >= sizeof(json_str) || memchr(data + offset, 0, json_len)) {
         TUYA_BLE_HAL_LOGW("[PROTO] WiFi JSON too long or embedded NUL (%u)", data_len - offset);
@@ -461,33 +499,57 @@ static void handle_wifi_config(tuya_ble_prov_state_t *state, const uint8_t *data
     TUYA_BLE_HAL_LOGI("[PROTO] WiFi JSON: %s", json_str);
 
 
-    cJSON *root = cJSON_ParseWithOpts(json_str, NULL, true);
-    if (root == NULL) {
-        TUYA_BLE_HAL_LOGE("JSON parse failed: %s", json_str);
+    if (wifi_creds_from_json(state, json_str) != 0) {
         return;
     }
-
-    cJSON *ssid = cJSON_GetObjectItemCaseSensitive(root, "ssid");
-    cJSON *pwd = cJSON_GetObjectItemCaseSensitive(root, "pwd");
-    cJSON *token = cJSON_GetObjectItemCaseSensitive(root, "token");
-    if (!cJSON_IsObject(root) || !cJSON_IsString(ssid) || !cJSON_IsString(pwd) ||
-        !cJSON_IsString(token) || !ssid->valuestring[0] || !token->valuestring[0] ||
-        strlen(ssid->valuestring) > TUYA_BLE_SSID_MAX_LEN ||
-        strlen(pwd->valuestring) > TUYA_BLE_PASSWORD_MAX_LEN ||
-        strlen(token->valuestring) > TUYA_BLE_TOKEN_MAX_LEN) {
-        TUYA_BLE_HAL_LOGW("[PROTO] WiFi JSON rejected field validation");
-        cJSON_Delete(root);
-        return;
-    }
-    memset(&state->creds, 0, sizeof(state->creds));
-    strcpy(state->creds.ssid, ssid->valuestring);
-    strcpy(state->creds.password, pwd->valuestring);
-    strcpy(state->creds.token, token->valuestring);
-
-    cJSON_Delete(root);
 
     uint8_t resp[5] = {0x00, 0x00, 0x00, 0x01, 0x00};
     if (tuya_ble_send(state, FRM_UPLINK_TRANSPARENT_REQ, resp, sizeof(resp), ENCRYPTION_MODE_KEY_12) != 0) {
+        TUYA_BLE_HAL_LOGE("[PROTO] Creds ack send failed");
+        return;
+    }
+
+    state->credentials_pending = true;
+    tuya_ble_prov_flush_credentials(state);
+}
+
+/* 0x0021 "send provisioning info" (protocol 8.37): the payload is a single
+ * NUL-terminated JSON string carrying ssid/pwd/token DIRECTLY, with no 2-byte
+ * flag + 2-byte subcommand prefix -- unlike the legacy 0x801B transparent
+ * channel. Pure-HarmonyOS apps provision exclusively through this command, so
+ * a device that handles only 0x801B never receives credentials from them. The
+ * response is a single STATE byte (0 = accepted) under the same command. */
+static void handle_wifi_config_direct(tuya_ble_prov_state_t *state, const uint8_t *data, uint16_t data_len)
+{
+    TUYA_BLE_HAL_LOGI("[PROTO] FRM_WIFI_INFO_DIRECT_REQ (%d bytes):", data_len);
+
+    if (state->credentials_pending) {
+        TUYA_BLE_HAL_LOGW("[PROTO] Credentials awaiting acknowledgement; ignoring replacement");
+        return;
+    }
+
+    /* The spec appends a terminating NUL to DATA; strip any trailing NUL(s)
+     * so the length reflects the JSON body, then reject an empty payload or
+     * one with an embedded NUL. */
+    uint16_t json_len = data_len;
+    while (json_len > 0 && data[json_len - 1] == '\0') {
+        json_len--;
+    }
+    char json_str[TUYA_BLE_WIFI_JSON_MAX];
+    if (json_len == 0 || json_len >= sizeof(json_str) || memchr(data, 0, json_len)) {
+        TUYA_BLE_HAL_LOGW("[PROTO] WiFi JSON empty, too long or embedded NUL (%u)", data_len);
+        return;
+    }
+    memcpy(json_str, data, json_len);
+    json_str[json_len] = '\0';
+    TUYA_BLE_HAL_LOGI("[PROTO] WiFi JSON: %s", json_str);
+
+    if (wifi_creds_from_json(state, json_str) != 0) {
+        return;
+    }
+
+    uint8_t resp = 0x00; /* STATE: 0 = received OK */
+    if (tuya_ble_send(state, FRM_WIFI_INFO_DIRECT_REQ, &resp, sizeof(resp), ENCRYPTION_MODE_KEY_12) != 0) {
         TUYA_BLE_HAL_LOGE("[PROTO] Creds ack send failed");
         return;
     }
@@ -634,6 +696,12 @@ void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t
                               encrypt_mode, state->authenticated, state->paired);
             return;
         }
+    } else if (cmd == FRM_WIFI_INFO_DIRECT_REQ) {
+        if (encrypt_mode != ENCRYPTION_MODE_KEY_12 || !state->authenticated || !state->paired) {
+            TUYA_BLE_HAL_LOGW("[RX] Creds(direct) gate: mode=0x%02X auth=%d paired=%d",
+                              encrypt_mode, state->authenticated, state->paired);
+            return;
+        }
     } else if (cmd == TUYA_BLE_FRM_BIGDATA_DOWNLINK_REQ) {
         if (encrypt_mode != ENCRYPTION_MODE_KEY_12 || !state->authenticated || !state->paired) {
             TUYA_BLE_HAL_LOGW("[RX] Big-data gate: mode=0x%02X auth=%d paired=%d",
@@ -655,6 +723,9 @@ void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t
         break;
     case FRM_DOWNLINK_TRANSPARENT_REQ:
         handle_wifi_config(state, data, data_len);
+        break;
+    case FRM_WIFI_INFO_DIRECT_REQ:
+        handle_wifi_config_direct(state, data, data_len);
         break;
     case TUYA_BLE_FRM_BIGDATA_DOWNLINK_REQ:
         (void)tuya_ble_bigdata_on_downlink(state, data, data_len);

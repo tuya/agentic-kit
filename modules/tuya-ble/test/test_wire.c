@@ -129,6 +129,20 @@ static int legacy_roundtrip(void) {
     tuya_ble_prov_close(&s);CHECK(!s.paired&&!s.authenticated&&!s.handshake_ready&&s.connection_generation==1);
     CHECK(!deliver(&s,wire,n,20));CHECK(callbacks==1);return 0;
 }
+/* 0x0021 "send provisioning info": pure-HarmonyOS apps deliver credentials as
+ * a NUL-terminated JSON string with no flag/subcommand prefix, and expect a
+ * single STATE byte back. Exercises the happy path, the ack frame, and replay
+ * rejection. */
+static int direct_provisioning_roundtrip(void) {
+    tuya_ble_prov_state_t s;peer_t p;uint8_t key[16],wire[512],plain[512];CHECK(!handshake(&s,&p,key,20));
+    /* sizeof(json) keeps the terminating NUL, mirroring the 63-byte on-wire frame. */
+    const char json[]="{\"ssid\":\"router\",\"pwd\":\"password\",\"token\":\"1234567890123456\"}";
+    size_t n=packet(wire,0x0021,3,json,sizeof(json),key,0);CHECK(!deliver(&s,wire,n,20));CHECK(callbacks==1 && p.complete==4);
+    CHECK(!crypt(0,key,p.packet[3]+1,p.packet[3]+17,p.sizes[3]-17,plain));
+    CHECK(plain[8]==0x00 && plain[9]==0x21 && plain[10]==0 && plain[11]==1 && plain[12]==0x00);
+    CHECK(!deliver(&s,wire,n,20));CHECK(callbacks==1 && p.complete==4);
+    tuya_ble_prov_close(&s);return 0;
+}
 static int unauthorized_and_invalid(void) {
     tuya_ble_prov_state_t s;peer_t p;uint8_t k[16],wire[512];CHECK(!setup(&s,&p,k));
     const char json[]="\0\0\0\1{\"ssid\":\"router\",\"pwd\":\"password\",\"token\":\"1234567890123456\"}";
@@ -481,6 +495,7 @@ int test_wire(void)
     unsigned passed = 0;
 #define RUN(fn) do { CHECK(fn() == 0); passed++; } while (0)
     RUN(legacy_roundtrip);
+    RUN(direct_provisioning_roundtrip);
     RUN(device_info_requery_restarts_pairing);
     RUN(unauthorized_and_invalid);
     RUN(malformed_credentials);
