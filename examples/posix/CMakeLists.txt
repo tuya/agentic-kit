@@ -71,6 +71,16 @@ add_custom_command(TARGET activate_demo POST_BUILD
         "$<TARGET_FILE_DIR:activate_demo>/activate-demo.sh"
 )
 
+# -- pair / ble-only-activate ------------------------------------------------
+# BLE single-point (WiFi-less) provisioning: App-assisted cloud activation
+# plus the 0x001B activation delivery over an in-process BLE loopback.
+add_executable(ble_only_activate
+    "${CMAKE_CURRENT_SOURCE_DIR}/pair/ble-only-activate/ble_only_demo.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/pair/ble-only-activate/ble_only_demo_main.c"
+)
+target_include_directories(ble_only_activate PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/pair/ble-only-activate")
+target_link_libraries(ble_only_activate PRIVATE tuya_iot_client tuya_ble)
+
 # -- pair / scan-by-app ------------------------------------------------------
 add_executable(scan_by_app_pair_demo
     "${CMAKE_CURRENT_SOURCE_DIR}/pair/scan-by-app/scan_by_app_pair_demo.c"

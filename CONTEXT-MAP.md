@@ -30,6 +30,10 @@ and decisions.
   and `modules/rtc-tcp-client/docs/adr/0001-receive-backpressure-pauses-the-connection.md`.
 - **Tuya BLE → IoT Client**: BLE provisioning runs first and hands the device its WiFi
   credentials (incl. the pairing token); once on WiFi, the IoT Client uses them to activate
-  against the cloud.
+  against the cloud. For an activated device the application supplies the saved
+  `local_key` and `secret_key` to BLE, then copies validated DP commands from the
+  BLE owner to the IoT owner. The public local-DP input reuses the IoT schema,
+  state and callbacks; explicit BLE reports return through the BLE owner.
+  BLE never publishes MQTT or calls IoT APIs from its receive callback.
 - All contexts share the Platform Abstraction Layer (`pal/pal.h`) for sockets, memory,
   mutex, threads, and time.

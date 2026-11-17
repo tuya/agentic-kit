@@ -114,7 +114,7 @@ static int handshake(tuya_ble_prov_state_t *s,peer_t *p,uint8_t key12[16],size_t
     CHECK(plain[8]==0 && plain[9]==0 && plain[10]==0 && plain[11]==135);
     CHECK(plain[144] == 0 && plain[145] == 1 && plain[146] == 3);
     CHECK(crc(plain,147)==((uint16_t)plain[147]<<8|plain[148]));
-    CHECK(plain[12+2]==4 && plain[12+3]==4);
+    CHECK(plain[12+2]==4 && plain[12+3]==8);
     memcpy(input,k,16);memcpy(input+16,plain+18,6);CHECK(!mbedtls_md5(input,sizeof(input),key12));
     CHECK(!deliver(s,wire,packet(wire,1,2,uuid,16,key12,0),20));
     CHECK(s->authenticated && s->paired && p->complete==3);
@@ -126,7 +126,8 @@ static int legacy_roundtrip(void) {
     const char json[]="\0\0\0\1{\"ssid\":\"router\",\"pwd\":\"password\",\"token\":\"1234567890123456\"}";
     size_t n=packet(wire,0x801b,3,json,sizeof(json)-1,key,0);CHECK(!deliver(&s,wire,n,20));CHECK(callbacks==1 && p.complete==4);
     CHECK(!deliver(&s,wire,n,20));CHECK(callbacks==1 && p.complete==4);
-    tuya_ble_prov_close(&s);CHECK(!s.paired&&!s.authenticated&&!s.handshake_ready&&s.connection_generation==1);
+    uint32_t generation = s.connection_generation;
+    tuya_ble_prov_close(&s);CHECK(!s.paired&&!s.authenticated&&!s.handshake_ready&&s.connection_generation==generation+1);
     CHECK(!deliver(&s,wire,n,20));CHECK(callbacks==1);return 0;
 }
 static int unauthorized_and_invalid(void) {
@@ -145,12 +146,14 @@ static int device_info_requery_restarts_pairing(void) {
     uint8_t size[2] = {0, 253};
 
     CHECK(!handshake(&state, &peer, key12, 244));
+    uint32_t generation = state.connection_generation;
     memcpy(input, auth, 32);
     memcpy(input + 32, uuid, 16);
     memcpy(input + 48, server_iv, 16);
     CHECK(!mbedtls_md5(input, sizeof(input), key11));
     CHECK(!deliver(&state, wire, packet(wire, 0, 3, size, sizeof(size), key11, 0), 20));
     CHECK(state.handshake_ready && !state.authenticated && !state.paired);
+    CHECK(state.connection_generation == generation + 1);
     CHECK(state.last_rx_sn == 3 && peer.complete == 4);
     CHECK(!crypt(0, key11, peer.packet[3] + 1, peer.packet[3] + 17,
                  peer.sizes[3] - 17, plain));
@@ -376,7 +379,7 @@ static int permanent_send_failure(void)
     peer.fail = 1;
     CHECK(!deliver(&state, wire, packet(wire, 0, 1, size, 2, key, 0), 20));
     CHECK(!state.handshake_ready && !state.authenticated && !state.tx_count);
-    CHECK(state.connection_generation == 1);
+    CHECK(state.connection_generation == 2); /* Device-info exchange, then failed TX closes. */
     return 0;
 }
 

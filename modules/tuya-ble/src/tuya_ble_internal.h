@@ -12,6 +12,12 @@
 
 #include "tuya_ble_config_defaults.h"
 
+/* DP Frame commands shared by authorization, dispatch and reporting. */
+#define DP_CMD_QUERY       0x0003
+#define DP_CMD_WRITE       0x0027
+#define DP_CMD_REPORT      0x8006
+#define DP_CMD_REPORT_TIME 0x8007
+
 /* Shared SDK-internal binding of the HAL log macros onto the global log
  * facade: every module diagnostic carries the "[ble] " prefix. The
  * ceiling is min(AGENTIC_KIT_LOG_LEVEL, AGENTIC_KIT_TUYA_BLE_LOG_LEVEL):
@@ -73,4 +79,9 @@ void tuya_ble_prov_flush_credentials(tuya_ble_prov_state_t *state);
 
 /* Called only after bounded Trsmitr reassembly, on the BLE owner context. */
 void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t packet_len);
+int tuya_ble_dp_on_frame(tuya_ble_prov_state_t *state, uint16_t cmd,
+                         const uint8_t *data, uint16_t len);
+/* Unsolicited/query-result DP reports have Frame ACK_SN zero (TuyaOpen). */
+int tuya_ble_prov_send_report_frame(tuya_ble_prov_state_t *state, uint16_t cmd,
+                                   const uint8_t *data, uint16_t len);
 #endif

@@ -323,10 +323,50 @@ static int test_on_boarding_with_token_flow(void)
         printf("  response missing devid\n");
         return -1;
     }
+    /* The mock returns "schema" as an empty JSON array (not a string): the
+     * activation must still succeed and the response carries no schema. */
+    if (resp.schema != NULL) {
+        printf("  expected no schema for the array-shaped mock response\n");
+        return -1;
+    }
     printf("  devid      : %s\n", resp.devid);
     printf("  secret_key : %s\n", resp.secret_key);
     printf("  local_key  : %s\n", resp.local_key);
     printf("  region     : %d\n", resp.region);
+    return OPRT_OK;
+}
+
+/* ---------- Test: activation without any schema still succeeds ---------- */
+
+/* A product with no datapoint schema on the cloud (e.g. a BLE-only product)
+ * gets an activation result with neither schemaId nor schema. Activation
+ * itself must succeed: the schema is optional everywhere downstream (the DP
+ * layer enters loose mode); it must never gate the activation result. The
+ * mock omits both fields for a token containing the NOSCHEMA sentinel. */
+static int test_on_boarding_token_without_schema(void)
+{
+    const pal_t *pal = get_default_pal();
+    on_boarding_config_t cfg = {0};
+    strncpy(cfg.uuid, TEST_UUID, sizeof(cfg.uuid) - 1);
+    strncpy(cfg.authkey, TEST_AUTHKEY, sizeof(cfg.authkey) - 1);
+    strncpy(cfg.sw_ver, TEST_SW_VER, sizeof(cfg.sw_ver) - 1);
+    strncpy(cfg.product_key, TEST_PK, sizeof(cfg.product_key) - 1);
+    strncpy(cfg.pv, TEST_PV, sizeof(cfg.pv) - 1);
+    strncpy(cfg.bv, TEST_BV, sizeof(cfg.bv) - 1);
+    cfg.env = TEST;
+    cfg.cacert = g_cacert;
+
+    on_boarding_response_t resp = {0};
+    int ret = on_boarding_with_token(pal, &cfg, "AYNOSCHEMA_tkn0000", &resp);
+    if (ret != OPRT_OK) {
+        printf("  activation failed without schema: %d\n", ret);
+        return -1;
+    }
+    if (resp.devid[0] == '\0' || resp.schema != NULL || resp.schema_id[0] != '\0') {
+        printf("  expected devid but no schema/schema_id\n");
+        return -1;
+    }
+    printf("  devid=%s schema=(none) schema_id=(none)\n", resp.devid);
     return OPRT_OK;
 }
 
@@ -400,6 +440,7 @@ int main(void)
     RUN_TEST(test_on_boarding_with_token_null_response);
     RUN_TEST(test_on_boarding_timeout);
     RUN_TEST(test_on_boarding_with_token_flow);
+    RUN_TEST(test_on_boarding_token_without_schema);
     RUN_TEST(test_on_boarding_qrcode_flow);
 
     stop_mock(&dns_mock_pid, "DNS mock");

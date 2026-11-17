@@ -57,6 +57,33 @@ static int tests_run = 0;
 static int tests_passed = 0;
 static char *g_cacert = NULL;
 
+/* One process-wide cJSON binding, with allocation failures normally disabled.
+ * Every wrapper delegates to the default PAL's heap; legacy cases may continue
+ * using the default PAL directly without introducing a second heap. */
+static const pal_t *local_test_base_pal;
+static pal_t local_test_pal;
+static long local_alloc_fail_after = -1;
+static int local_lock_depth;
+
+static void *local_test_malloc(size_t len)
+{
+    if (local_alloc_fail_after == 0) return NULL;
+    if (local_alloc_fail_after > 0) --local_alloc_fail_after;
+    return local_test_base_pal->malloc(len);
+}
+
+static void local_test_lock(void *mutex)
+{
+    local_test_base_pal->mutex_lock(mutex);
+    ++local_lock_depth;
+}
+
+static void local_test_unlock(void *mutex)
+{
+    --local_lock_depth;
+    local_test_base_pal->mutex_unlock(mutex);
+}
+
 #define RUN_TEST(fn)                                       \
     do {                                                   \
         tests_run++;                                       \
@@ -581,6 +608,248 @@ out:
     return rc;
 }
 
+/* A local DP set updates the shared cache without needing an MQTT connection. */
+static int test_local_dps_apply(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *c = make_client(pal, TEST_SCHEMA);
+    int rc = -1;
+    if (!c) return -1;
+    reset_dp_cb();
+    save_cb_count = 0;
+    iot_dp_set_callback(c, dp_callback, NULL);
+    iot_dp_set_save_callback(c, save_callback, NULL);
+    /* The final 'X' proves the slice need not have a terminating NUL. */
+    const char request[] = " \n{\"1\":true,\"2\":250,\"3\":\"cold\"}\tX";
+    if (iot_client_apply_local_dps(c, request, sizeof(request) - 2) != OPRT_OK ||
+        dp_cb_count != 3 || save_cb_count != 1 ||
+        dp_cb_ids[0] != 1 || dp_cb_ids[1] != 2 || dp_cb_ids[2] != 3 ||
+        !dp_cb_vals[0].value.boolean || dp_cb_vals[1].value.integer != 250 ||
+        dp_cb_vals[2].value.enum_index != 2 ||
+        !strstr(save_cb_last, "\"2\":250") || !strstr(save_cb_last, "\"3\":\"cold\"")) {
+        printf("  local batch, notifications, or bounded input failed\n"); goto out;
+    }
+    /* An explicit report now attempts MQTT: local changes remained dirty. */
+    if (iot_dp_report_all_dirty(c) == OPRT_OK) {
+        printf("  local batch was not marked dirty\n"); goto out;
+    }
+    rc = 0;
+out:
+    destroy_client(c);
+    return rc;
+}
+
+static int test_local_dps_reject_atomically(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *c = make_client(pal, TEST_SCHEMA);
+    int rc = -1;
+    if (!c) return -1;
+    iot_dp_restore_json(c, "{\"dps\":{\"1\":false,\"2\":100,\"4\":\"old\"}}");
+    reset_dp_cb();
+    save_cb_count = 0;
+    iot_dp_set_callback(c, dp_callback, NULL);
+    iot_dp_set_save_callback(c, save_callback, NULL);
+    const struct { const char *json; int error; } cases[] = {
+        {"{\"1\":true,\"2\":1001}", OPRT_DP_VALUE_OUT_OF_RANGE},
+        {"{\"1\":true,\"99\":1}", OPRT_DP_INVALID_ID},
+        {"{\"1\":true,\"2\":false}", OPRT_DP_TYPE_MISMATCH},
+        {"{\"4\":\"new\",\"5\":\"!bad!\"}", OPRT_DP_TYPE_MISMATCH},
+        {"{\"4\":\"longer than sixteen bytes\"}", OPRT_DP_VALUE_OUT_OF_RANGE},
+        {"{\"2\":1.5}", OPRT_DP_VALUE_OUT_OF_RANGE},
+        {"{\"3\":1.5}", OPRT_DP_VALUE_OUT_OF_RANGE},
+        {"{\"2\":1e400}", OPRT_DP_VALUE_OUT_OF_RANGE},
+        {"{\"1\":null}", OPRT_DP_TYPE_MISMATCH},
+        {"{}", OPRT_INVALID_PARAMETER},
+        {"[]", OPRT_INVALID_PARAMETER},
+        {"{\"01\":true}", OPRT_INVALID_PARAMETER},
+        {"{\"0\":true}", OPRT_INVALID_PARAMETER},
+        {"{\"256\":true}", OPRT_DP_INVALID_ID},
+        {"{\"1x\":true}", OPRT_INVALID_PARAMETER},
+        {"{\"\\u0031\":true}", OPRT_INVALID_PARAMETER},
+        {"{\"1\":true,\"1\":false}", OPRT_INVALID_PARAMETER},
+        {"{\"1\":true}garbage", OPRT_INVALID_PARAMETER},
+        {"{\"1\":true},{}", OPRT_INVALID_PARAMETER},
+        {"{\"1\":true,}", OPRT_INVALID_PARAMETER},
+        {"{\"2\":01}", OPRT_INVALID_PARAMETER},
+        {"{\"2\":1.}", OPRT_INVALID_PARAMETER},
+        {"{\"2\":1e-}", OPRT_INVALID_PARAMETER},
+        {"{\"4\":\"a\\u0000b\"}", OPRT_INVALID_PARAMETER},
+        {"{\"4\":\"\\ud800\"}", OPRT_INVALID_PARAMETER},
+        {"{\"4\":\"\xc0\x80\"}", OPRT_INVALID_PARAMETER},
+        {"{\"4\":\"\xe0\x9f\xbf\"}", OPRT_INVALID_PARAMETER},
+        {"{\"4\":\"\xf0\x8f\xbf\xbf\"}", OPRT_INVALID_PARAMETER},
+        {"{\"4\":\"\xed\xa0\x80\"}", OPRT_INVALID_PARAMETER},
+        {"{\"4\":\"\xf4\x90\x80\x80\"}", OPRT_INVALID_PARAMETER},
+        {"{\"4\":\"\xe1\x80x\"}", OPRT_INVALID_PARAMETER},
+        {"{\"4\":\"\\udc00\"}", OPRT_INVALID_PARAMETER},
+        {"{\"4\":\"\\ud800\\u0041\"}", OPRT_INVALID_PARAMETER},
+        {"{\"1\":true}\v", OPRT_INVALID_PARAMETER},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+        int rt = iot_client_apply_local_dps(c, cases[i].json, strlen(cases[i].json));
+        if (rt != cases[i].error) {
+            printf("  reject case %zu returned %d, expected %d\n", i, rt, cases[i].error); goto out;
+        }
+    }
+    const char embedded_nul[] = "{\"1\":true}\0{\"1\":false}";
+    if (iot_client_apply_local_dps(c, embedded_nul, sizeof(embedded_nul) - 1) != OPRT_INVALID_PARAMETER ||
+        iot_client_apply_local_dps(c, "{\"1\":true}", 9) != OPRT_INVALID_PARAMETER ||
+        iot_client_apply_local_dps(c, NULL, 1) != OPRT_INVALID_PARAMETER ||
+        iot_client_apply_local_dps(c, "", 0) != OPRT_INVALID_PARAMETER ||
+        iot_client_apply_local_dps(NULL, "{\"1\":true}", 10) != OPRT_INVALID_PARAMETER) {
+        printf("  invalid slice accepted\n"); goto out;
+    }
+    iot_dp_value_t got;
+    if (iot_dp_get(c, 1, &got) != OPRT_OK || got.value.boolean ||
+        iot_dp_get(c, 2, &got) != OPRT_OK || got.value.integer != 100 ||
+        iot_dp_get(c, 4, &got) != OPRT_OK || strcmp(got.value.string, "old") != 0 ||
+        dp_cb_count != 0 || save_cb_count != 0 || iot_dp_report_all_dirty(c) != OPRT_OK) {
+        printf("  rejected batch changed state, dirty flags, or notifications\n"); goto out;
+    }
+    rc = 0;
+out:
+    destroy_client(c);
+    return rc;
+}
+
+/* Shared lexical checks must retain every valid Unicode scalar, not only reject
+ * invalid UTF-8. Both literal UTF-8 and escaped surrogate pairs reach DP state. */
+static int test_local_dps_unicode_strings(void)
+{
+    const struct { const char *json; const char *decoded; } inputs[] = {
+        {"{\"4\":\"\xc2\xa2\"}", "\xc2\xa2"},
+        {"{\"4\":\"\xe4\xb8\xad\"}", "\xe4\xb8\xad"},
+        {"{\"4\":\"\xf0\x9f\x98\x80\"}", "\xf0\x9f\x98\x80"},
+        {"{\"4\":\"\xed\x9f\xbf\"}", "\xed\x9f\xbf"},
+        {"{\"4\":\"\xf4\x8f\xbf\xbf\"}", "\xf4\x8f\xbf\xbf"},
+        {"{\"4\":\"\\uD83D\\uDE00\"}", "\xf0\x9f\x98\x80"},
+        {"{\"4\":\"\\\\u0000\"}", "\\u0000"},
+    };
+    iot_client_t *c = make_client(get_default_pal(), TEST_SCHEMA);
+    int rc = -1;
+    if (!c) return -1;
+    for (size_t i = 0; i < sizeof(inputs) / sizeof(inputs[0]); ++i) {
+        iot_dp_value_t value;
+        if (iot_client_apply_local_dps(c, inputs[i].json, strlen(inputs[i].json)) != OPRT_OK ||
+            iot_dp_get(c, 4, &value) != OPRT_OK || value.type != IOT_DP_TYPE_STRING ||
+            strcmp(value.value.string, inputs[i].decoded) != 0) {
+            printf("  valid Unicode case %zu was lost or changed\n", i);
+            goto out;
+        }
+    }
+    rc = 0;
+out:
+    destroy_client(c);
+    return rc;
+}
+
+static int test_local_dps_requires_schema(void)
+{
+    const pal_t *pal = get_default_pal();
+    iot_client_t *c = make_client(pal, NULL);
+    int rc = -1;
+    if (!c) return -1;
+    const char request[] = "{\"1\":true}";
+    if (iot_client_apply_local_dps(c, request, sizeof(request) - 1) != OPRT_DP_INVALID_ID) goto out;
+    iot_dp_deinit(c);
+    if (iot_client_apply_local_dps(c, request, sizeof(request) - 1) != OPRT_UNINITIALIZED) goto out;
+    rc = 0;
+out:
+    destroy_client(c);
+    return rc;
+}
+
+typedef struct {
+    iot_client_t *client;
+    int callbacks;
+    bool failed;
+} local_callback_state_t;
+
+static void local_ownership_save(const char *json, void *user)
+{
+    local_callback_state_t *state = user;
+    if (local_lock_depth != 0) state->failed = true;
+    save_callback(json, NULL);
+}
+
+static void local_ownership_callback(uint8_t id, const iot_dp_value_t *value, void *user)
+{
+    local_callback_state_t *state = user;
+    if (local_lock_depth != 0) state->failed = true;
+    ++state->callbacks;
+    if (id == 4) {
+        /* Replacing both live buffers must not invalidate this callback or the
+         * raw callback that the original batch will invoke next. */
+        iot_dp_value_t s = { .type = IOT_DP_TYPE_STRING, .value.string = "replacement" };
+        const uint8_t bytes[] = {9};
+        iot_dp_value_t r = { .type = IOT_DP_TYPE_RAW, .value.raw = {bytes, sizeof(bytes)} };
+        if (save_cb_count != 1 || iot_dp_set(state->client, 4, &s) != OPRT_OK ||
+            iot_dp_set(state->client, 5, &r) != OPRT_OK ||
+            strcmp(value->value.string, "original") != 0) state->failed = true;
+    } else if (id == 5) {
+        const uint8_t expected[] = {0, 1, 255};
+        if (value->value.raw.len != sizeof(expected) ||
+            memcmp(value->value.raw.data, expected, sizeof(expected)) != 0) state->failed = true;
+    } else state->failed = true;
+}
+
+static int test_local_dps_callback_ownership(void)
+{
+    iot_client_t *c = make_client(&local_test_pal, TEST_SCHEMA);
+    if (!c) return -1;
+    local_callback_state_t state = {.client = c};
+    save_cb_count = 0;
+    iot_dp_set_callback(c, local_ownership_callback, &state);
+    iot_dp_set_save_callback(c, local_ownership_save, &state);
+    char request[] = "{\"4\":\"original\",\"5\":\"AAH/\"}";
+    int rt = iot_client_apply_local_dps(c, request, sizeof(request) - 1);
+    memset(request, 'x', sizeof(request));
+    iot_dp_value_t got;
+    int ok = rt == OPRT_OK && state.callbacks == 2 && !state.failed && local_lock_depth == 0 &&
+             iot_dp_get(c, 4, &got) == OPRT_OK && strcmp(got.value.string, "replacement") == 0 &&
+             iot_dp_get(c, 5, &got) == OPRT_OK && got.value.raw.len == 1 && got.value.raw.data[0] == 9 &&
+             !strstr(save_cb_last, "\"5\"");
+    destroy_client(c);
+    return ok ? 0 : -1;
+}
+
+/* Exhaust every allocation prefix, including cJSON parsing and persistence
+ * snapshots. An OOM at any stage must leave the original clean batch intact. */
+static int test_local_dps_allocation_rollback(void)
+{
+    int failures = 0;
+    for (long fail_at = 0; fail_at < 128; ++fail_at) {
+        iot_client_t *c = make_client(&local_test_pal, TEST_SCHEMA);
+        if (!c) return -1;
+        iot_dp_restore_json(c, "{\"dps\":{\"1\":false,\"4\":\"old\"}}");
+        reset_dp_cb();
+        save_cb_count = 0;
+        iot_dp_set_callback(c, dp_callback, NULL);
+        iot_dp_set_save_callback(c, save_callback, NULL);
+        const char request[] = "{\"1\":true,\"4\":\"original\",\"5\":\"AAH/\"}";
+        local_alloc_fail_after = fail_at;
+        int rt = iot_client_apply_local_dps(c, request, sizeof(request) - 1);
+        local_alloc_fail_after = -1;
+        if (rt == OPRT_OK) {
+            int ok = failures > 4 && dp_cb_count == 3 && save_cb_count == 1;
+            destroy_client(c);
+            return ok ? 0 : -1;
+        }
+        ++failures;
+        iot_dp_value_t got;
+        int ok = rt == OPRT_MALLOC_FAILED && dp_cb_count == 0 && save_cb_count == 0 &&
+                 iot_dp_get(c, 1, &got) == OPRT_OK && !got.value.boolean &&
+                 iot_dp_get(c, 4, &got) == OPRT_OK && strcmp(got.value.string, "old") == 0 &&
+                 iot_dp_get(c, 5, &got) == OPRT_INVALID_RESULT &&
+                 iot_dp_report_all_dirty(c) == OPRT_OK && local_lock_depth == 0;
+        destroy_client(c);
+        if (!ok) { printf("  allocation rollback failed at prefix %ld (%d)\n", fail_at, rt); return -1; }
+    }
+    printf("  never reached a successful allocation prefix\n");
+    return -1;
+}
+
 /* ============================================================================
  * Mock-backed tests
  * ============================================================================ */
@@ -799,7 +1068,12 @@ int main(void)
     printf("========== IoT DP Test Suite ==========\n");
 
     const pal_t *pal = get_default_pal();
-    iot_init(pal);
+    local_test_base_pal = pal;
+    local_test_pal = *pal;
+    local_test_pal.malloc = local_test_malloc;
+    local_test_pal.mutex_lock = local_test_lock;
+    local_test_pal.mutex_unlock = local_test_unlock;
+    iot_init(&local_test_pal);
 
     g_cacert = load_file(pal, TEST_CONFIG_DIR "/root_cert.pem");
     if (!g_cacert) fprintf(stderr, "Warning: CA cert not loaded; mock tests may fail\n");
@@ -822,6 +1096,12 @@ int main(void)
     RUN_TEST(test_writability_modes);
     RUN_TEST(test_validate_json);
     RUN_TEST(test_empty_reports_do_not_warn_when_utc_unavailable);
+    RUN_TEST(test_local_dps_apply);
+    RUN_TEST(test_local_dps_reject_atomically);
+    RUN_TEST(test_local_dps_unicode_strings);
+    RUN_TEST(test_local_dps_requires_schema);
+    RUN_TEST(test_local_dps_callback_ownership);
+    RUN_TEST(test_local_dps_allocation_rollback);
 
     /* mock-backed */
     RUN_TEST(test_report_roundtrip);
