@@ -25,26 +25,14 @@ static void default_output(log_level_t level, const char *fmt, va_list args)
     char ts[16];
     time_t t = time(NULL);
     struct tm tm_buf;
-#if defined(_WIN32)
-    localtime_s(&tm_buf, &t);
-#else
     localtime_r(&t, &tm_buf);
-#endif
     strftime(ts, sizeof ts, "%H:%M:%S", &tm_buf);
 
-#if defined(_WIN32)
-    _lock_file(stderr);
-#else
     flockfile(stderr);
-#endif
     fprintf(stderr, "%s [%s] ", ts, lc);
     vfprintf(stderr, fmt ? fmt : "", args);
     fputc('\n', stderr);
-#if defined(_WIN32)
-    _unlock_file(stderr);
-#else
     funlockfile(stderr);
-#endif
 }
 
 void log_emit_valist(log_level_t level, const char *fmt, va_list args)
