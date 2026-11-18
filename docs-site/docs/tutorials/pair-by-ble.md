@@ -64,8 +64,7 @@ iot_client_init_on_boarding_with_token(token)  // 6. 用 Token 激活设备
 static void on_tuya_ble_prov_complete(const tuya_ble_wifi_creds_t *creds)
 {
     // 收到来自 App 的 WiFi 凭据
-    // creds 仅在回调期间有效；复制到应用持有的缓冲区（示例把日志开到 DEBUG，
-    // SDK 的 [ble] 协议日志会打印含密码/Token 的凭据 JSON 原文，便于真机联调）
+    // creds 仅在回调期间有效，需复制到应用持有的缓冲区
     s_wifi_creds = *creds;
     // 通知主线程继续
     xEventGroupSetBits(s_prov_event_group, PROV_DONE_BIT);
@@ -208,4 +207,6 @@ Trsmitr 的乱序及超时诊断通过 SDK 日志 facade 输出。
 端口工作任务执行 WiFi 扫描，通过队列复制原始 scan token 和结果，由 BLE 执行上下文交付给 SDK。
 取消后不立即中断无线扫描，旧任务结束并被处理前不接收新扫描，避免旧结果冒用新 token。
 状态查询仅返回固定 CFG 状态，没有主动阶段报告或完整 PSK3.0 activation exchange。
-凭据仍通过传统 Token 配网流程接收；完成 BLE 凭据接收不表示已经完成云端激活。
+SDK 通过 `0x801B` 透明通道或纯鸿蒙应用使用的 `0x0021` 直接配网命令接收 WiFi 凭据。
+`0x0021` 携带恰好以一个 NUL 结尾的 JSON，成功应答为单字节 `0`。BLE 协议日志省略凭据内容。
+收到凭据后，应用继续使用配网 Token 完成云端激活。

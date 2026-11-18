@@ -13,10 +13,10 @@
 #define FRM_RPT_NET_STAT_REQ         0x001E
 #define FRM_DOWNLINK_TRANSPARENT_REQ 0x801B
 #define FRM_UPLINK_TRANSPARENT_REQ   0x801C
-#define FRM_WIFI_INFO_DIRECT_REQ     0x0021
+#define FRM_DIRECT_CREDS_REQ        0x0021
 
-/* Max accepted WiFi-credentials JSON length, in bytes. */
-#define TUYA_BLE_WIFI_JSON_MAX       512
+/* WiFi credentials JSON buffer capacity, including the terminating NUL. */
+#define WIFI_CREDS_JSON_CAPACITY     512
 
 #define ENCRYPTION_MODE_NONE        TUYA_BLE_ENCRYPTION_MODE_NONE
 #define ENCRYPTION_MODE_KEY_11      TUYA_BLE_ENCRYPTION_MODE_KEY_11
@@ -431,7 +431,7 @@ static int wifi_creds_from_json(tuya_ble_prov_state_t *state, const char *json_s
 {
     cJSON *root = cJSON_ParseWithOpts(json_str, NULL, true);
     if (root == NULL) {
-        TUYA_BLE_HAL_LOGE("JSON parse failed: %s", json_str);
+        TUYA_BLE_HAL_LOGE("[PROTO] WiFi credentials JSON parse failed");
         return -1;
     }
 
@@ -456,101 +456,62 @@ static int wifi_creds_from_json(tuya_ble_prov_state_t *state, const char *json_s
     return 0;
 }
 
-static void handle_wifi_config(tuya_ble_prov_state_t *state, const uint8_t *data, uint16_t data_len)
+static void handle_wifi_credentials(tuya_ble_prov_state_t *state, uint16_t cmd,
+                                    const uint8_t *data, uint16_t data_len)
 {
-    TUYA_BLE_HAL_LOGI("[PROTO] FRM_DOWNLINK_TRANSPARENT_REQ (%d bytes):", data_len);
-
     if (state->credentials_pending) {
         TUYA_BLE_HAL_LOGW("[PROTO] Credentials awaiting acknowledgement; ignoring replacement");
         return;
     }
 
-    if (data_len < 4) {
-        TUYA_BLE_HAL_LOGW("[PROTO] Transparent data too short");
-        return;
+    const uint8_t direct_ack[] = {0x00}; /* STATE: 0 = accepted */
+    const uint8_t transparent_ack[] = {0x00, 0x00, 0x00, 0x01, 0x00};
+    const uint8_t *ack_data = direct_ack;
+    uint16_t ack_cmd = FRM_DIRECT_CREDS_REQ;
+    uint16_t ack_len = sizeof(direct_ack);
+
+    if (cmd == FRM_DIRECT_CREDS_REQ) {
+        /* Protocol 8.37 carries bare JSON with exactly one trailing NUL. */
+        if (data_len < 2 || data[data_len - 1] != '\0') {
+            TUYA_BLE_HAL_LOGW("[PROTO] Direct credentials require NUL-terminated JSON");
+            return;
+        }
+        data_len--;
+    } else {
+        /* The transparent channel has a flag and subcommand before its JSON. */
+        const uint16_t prefix_len = 4;
+        if (data_len < prefix_len) {
+            TUYA_BLE_HAL_LOGW("[PROTO] Transparent data too short");
+            return;
+        }
+        uint16_t flag = (data[0] << 8) | data[1];
+        uint16_t subcmd = (data[2] << 8) | data[3];
+        if (flag != 0x0000 || subcmd != 0x0001) {
+            TUYA_BLE_HAL_LOGW("[PROTO] Unexpected transparent flag 0x%04X or subcommand 0x%04X",
+                              flag, subcmd);
+            return;
+        }
+        data += prefix_len;
+        data_len -= prefix_len;
+        ack_data = transparent_ack;
+        ack_cmd = FRM_UPLINK_TRANSPARENT_REQ;
+        ack_len = sizeof(transparent_ack);
     }
 
-    uint16_t flag = (data[0] << 8) | data[1];
-    uint16_t offset = 2;
-
-    if (flag != 0x0000) {
-        TUYA_BLE_HAL_LOGW("[PROTO] Unexpected transparent flag 0x%04X", flag);
+    char json_str[WIFI_CREDS_JSON_CAPACITY];
+    if (data_len == 0 || data_len >= sizeof(json_str) || memchr(data, '\0', data_len)) {
+        TUYA_BLE_HAL_LOGW("[PROTO] WiFi credentials JSON empty, too long or contains NUL (%u)", data_len);
         return;
     }
-
-    uint16_t subcmd = (data[offset] << 8) | data[offset + 1];
-    offset += 2;
-
-    TUYA_BLE_HAL_LOGI("[PROTO] flag=0x%04X, subcmd=0x%04X", flag, subcmd);
-
-    if (subcmd != 0x0001) {
-        TUYA_BLE_HAL_LOGW("[PROTO] Unhandled subcmd 0x%04X", subcmd);
-        return;
-    }
-
-    char json_str[TUYA_BLE_WIFI_JSON_MAX];
-    uint16_t json_len = data_len - offset;
-    if (json_len >= sizeof(json_str) || memchr(data + offset, 0, json_len)) {
-        TUYA_BLE_HAL_LOGW("[PROTO] WiFi JSON too long or embedded NUL (%u)", data_len - offset);
-        return;
-    }
-    memcpy(json_str, &data[offset], json_len);
-    json_str[json_len] = '\0';
-    TUYA_BLE_HAL_LOGI("[PROTO] WiFi JSON: %s", json_str);
-
+    memcpy(json_str, data, data_len);
+    json_str[data_len] = '\0';
 
     if (wifi_creds_from_json(state, json_str) != 0) {
         return;
     }
 
-    uint8_t resp[5] = {0x00, 0x00, 0x00, 0x01, 0x00};
-    if (tuya_ble_send(state, FRM_UPLINK_TRANSPARENT_REQ, resp, sizeof(resp), ENCRYPTION_MODE_KEY_12) != 0) {
-        TUYA_BLE_HAL_LOGE("[PROTO] Creds ack send failed");
-        return;
-    }
-
-    state->credentials_pending = true;
-    tuya_ble_prov_flush_credentials(state);
-}
-
-/* 0x0021 "send provisioning info" (protocol 8.37): the payload is a single
- * NUL-terminated JSON string carrying ssid/pwd/token DIRECTLY, with no 2-byte
- * flag + 2-byte subcommand prefix -- unlike the legacy 0x801B transparent
- * channel. Pure-HarmonyOS apps provision exclusively through this command, so
- * a device that handles only 0x801B never receives credentials from them. The
- * response is a single STATE byte (0 = accepted) under the same command. */
-static void handle_wifi_config_direct(tuya_ble_prov_state_t *state, const uint8_t *data, uint16_t data_len)
-{
-    TUYA_BLE_HAL_LOGI("[PROTO] FRM_WIFI_INFO_DIRECT_REQ (%d bytes):", data_len);
-
-    if (state->credentials_pending) {
-        TUYA_BLE_HAL_LOGW("[PROTO] Credentials awaiting acknowledgement; ignoring replacement");
-        return;
-    }
-
-    /* The spec appends a terminating NUL to DATA; strip any trailing NUL(s)
-     * so the length reflects the JSON body, then reject an empty payload or
-     * one with an embedded NUL. */
-    uint16_t json_len = data_len;
-    while (json_len > 0 && data[json_len - 1] == '\0') {
-        json_len--;
-    }
-    char json_str[TUYA_BLE_WIFI_JSON_MAX];
-    if (json_len == 0 || json_len >= sizeof(json_str) || memchr(data, 0, json_len)) {
-        TUYA_BLE_HAL_LOGW("[PROTO] WiFi JSON empty, too long or embedded NUL (%u)", data_len);
-        return;
-    }
-    memcpy(json_str, data, json_len);
-    json_str[json_len] = '\0';
-    TUYA_BLE_HAL_LOGI("[PROTO] WiFi JSON: %s", json_str);
-
-    if (wifi_creds_from_json(state, json_str) != 0) {
-        return;
-    }
-
-    uint8_t resp = 0x00; /* STATE: 0 = received OK */
-    if (tuya_ble_send(state, FRM_WIFI_INFO_DIRECT_REQ, &resp, sizeof(resp), ENCRYPTION_MODE_KEY_12) != 0) {
-        TUYA_BLE_HAL_LOGE("[PROTO] Creds ack send failed");
+    if (tuya_ble_send(state, ack_cmd, ack_data, ack_len, ENCRYPTION_MODE_KEY_12) != 0) {
+        TUYA_BLE_HAL_LOGE("[PROTO] Credentials ACK send failed");
         return;
     }
 
@@ -569,7 +530,6 @@ void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t
 
     uint8_t encrypt_mode = packet[0];
     TUYA_BLE_HAL_LOGI("[RX] encrypt_mode=0x%02X", encrypt_mode);
-    TUYA_BLE_HAL_HEXDUMP(packet, packet_len > 64 ? 64 : packet_len);
 
     uint8_t candidate_key[16] = {0};
     uint8_t *frame = state->rx_frame;
@@ -618,14 +578,13 @@ void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t
             return;
         }
 
+        TUYA_BLE_HAL_HEXDUMP(packet, packet_len > 64 ? 64 : packet_len);
         ret = aes_cbc_decrypt(dec_key, iv, enc_data, enc_len,
                               frame, &frame_len);
         if (ret != 0) {
             TUYA_BLE_HAL_LOGE("[RX] Decryption failed, ret=%d", ret);
             return;
         }
-        TUYA_BLE_HAL_LOGI("[RX] Decrypted frame (%d bytes):", frame_len);
-        TUYA_BLE_HAL_HEXDUMP(frame, frame_len > 64 ? 64 : frame_len);
     }
 
     if (frame_len < BLE_FRAME_MIN_LEN) {
@@ -635,6 +594,7 @@ void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t
 
     uint32_t sn = ((uint32_t)frame[0] << 24) | ((uint32_t)frame[1] << 16) | ((uint32_t)frame[2] << 8) | frame[3];
     uint16_t cmd = (frame[8] << 8) | frame[9];
+    bool carries_credentials = cmd == FRM_DOWNLINK_TRANSPARENT_REQ || cmd == FRM_DIRECT_CREDS_REQ;
     uint16_t data_len = (frame[10] << 8) | frame[11];
     const uint8_t *data = &frame[12];
 
@@ -658,6 +618,11 @@ void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t
     if (recv_crc != calc_crc) {
         TUYA_BLE_HAL_LOGW("[RX] CRC mismatch: recv=0x%04X calc=0x%04X", recv_crc, calc_crc);
         return;
+    }
+
+    /* Inspect only validated non-credential Frames in plaintext traces. */
+    if (encrypt_mode != ENCRYPTION_MODE_NONE && !carries_credentials) {
+        TUYA_BLE_HAL_HEXDUMP(frame, exact_len > 64 ? 64 : exact_len);
     }
 
     TUYA_BLE_HAL_LOGI("[RX] SN=%lu, CMD=0x%04X, LEN=%d, CRC=OK",
@@ -690,22 +655,10 @@ void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t
                               encrypt_mode, state->handshake_ready, state->authenticated, data_len);
             return;
         }
-    } else if (cmd == FRM_DOWNLINK_TRANSPARENT_REQ) {
+    } else if (carries_credentials || cmd == TUYA_BLE_FRM_BIGDATA_DOWNLINK_REQ) {
         if (encrypt_mode != ENCRYPTION_MODE_KEY_12 || !state->authenticated || !state->paired) {
-            TUYA_BLE_HAL_LOGW("[RX] Creds gate: mode=0x%02X auth=%d paired=%d",
-                              encrypt_mode, state->authenticated, state->paired);
-            return;
-        }
-    } else if (cmd == FRM_WIFI_INFO_DIRECT_REQ) {
-        if (encrypt_mode != ENCRYPTION_MODE_KEY_12 || !state->authenticated || !state->paired) {
-            TUYA_BLE_HAL_LOGW("[RX] Creds(direct) gate: mode=0x%02X auth=%d paired=%d",
-                              encrypt_mode, state->authenticated, state->paired);
-            return;
-        }
-    } else if (cmd == TUYA_BLE_FRM_BIGDATA_DOWNLINK_REQ) {
-        if (encrypt_mode != ENCRYPTION_MODE_KEY_12 || !state->authenticated || !state->paired) {
-            TUYA_BLE_HAL_LOGW("[RX] Big-data gate: mode=0x%02X auth=%d paired=%d",
-                              encrypt_mode, state->authenticated, state->paired);
+            TUYA_BLE_HAL_LOGW("[RX] CMD=0x%04X gate: mode=0x%02X auth=%d paired=%d",
+                              cmd, encrypt_mode, state->authenticated, state->paired);
             return;
         }
     } else {
@@ -722,10 +675,8 @@ void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t
         handle_pair_req(state, data, data_len);
         break;
     case FRM_DOWNLINK_TRANSPARENT_REQ:
-        handle_wifi_config(state, data, data_len);
-        break;
-    case FRM_WIFI_INFO_DIRECT_REQ:
-        handle_wifi_config_direct(state, data, data_len);
+    case FRM_DIRECT_CREDS_REQ:
+        handle_wifi_credentials(state, cmd, data, data_len);
         break;
     case TUYA_BLE_FRM_BIGDATA_DOWNLINK_REQ:
         (void)tuya_ble_bigdata_on_downlink(state, data, data_len);

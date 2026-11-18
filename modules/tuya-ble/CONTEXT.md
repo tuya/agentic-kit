@@ -197,14 +197,13 @@ _Avoid_: net-status (`0x001E`, the separate legacy notification), activation res
   device-info capability tail `00 01 03` (CombosFlag bits 0 and 1: WiFi list and
   provisioning status). Without a provider these additions are absent; `comm_ability`
   alone does not enable them. The NimBLE example configures a provider. These advertised
-  bits do not establish support for a complete PSK3.0/fallback activation exchange:
-  credential delivery accepts two commands -- the transparent channel
-  `0x801B` subcommand `0x0001` (two-byte flag + two-byte subcommand + JSON) and
-  the direct `0x0021` command (a NUL-terminated JSON string with no prefix,
-  acknowledged by a single STATE byte, `0` = accepted). Pure-HarmonyOS apps
-  provision only through `0x0021`. Both carry the same `{ssid,pwd,token}` object
-  and share the KEY_12 + authenticated + paired gate and the `credentials_pending`
-  single-delivery guard.
+  bits do not establish support for a complete PSK3.0/fallback activation exchange.
+- WiFi credentials arrive through transparent command `0x801B` subcommand `0x0001`
+  (two-byte flag + two-byte subcommand + JSON) or direct command `0x0021` used by
+  pure-HarmonyOS apps. The direct command carries bare JSON with exactly one
+  trailing NUL and returns a single STATE byte (`0` = accepted). Both carry the
+  same `{ssid,pwd,token}` object and use the same Pairing gate and pending credential
+  state. BLE diagnostics omit credential JSON and plaintext credential Frame dumps.
 - Big-data uplinks set flag bit 0 (`0x0001`, response requested). Downlinks with flag
   bit 1 set (big-data segmentation) are rejected; this is separate from supported
   Trsmitr segmentation. Only subcommands `0x0003` and `0x0004` are handled.
@@ -241,10 +240,10 @@ _Avoid_: net-status (`0x001E`, the separate legacy notification), activation res
 > the IV the app just gave us. Only after the app sends a pair request whose BLE ID matches
 > ours do we set `paired = true` and answer under key_12.
 > **Dev:** And the actual WiFi details?
-> **Expert:** Those come last, on a downlink-transparent frame encrypted with key_12 — JSON
-> with ssid, pwd, and token. We parse it into the creds and acknowledge it; after the port
-> accepts the queued Packets, we fire the provisioning callback. WiFi join and activation
-> still belong to the application; Pairing only established authorization.
+> **Expert:** The app sends a Frame encrypted with key_12 containing JSON with ssid, pwd,
+> and token. It uses either the transparent channel or the direct `0x0021` command.
+> The SDK acknowledges the credentials and fires the provisioning callback after the port
+> accepts the queued Packets. The application joins WiFi and completes activation.
 > **Dev:** Why does a single message sometimes arrive in pieces?
 > **Expert:** That's Trsmitr — the link layer splits a Packet bigger than the BLE MTU into
 > sequenced segments and reassembles them before we ever see the Frame. Don't confuse its

@@ -34,7 +34,7 @@ New entries use explicit platform-qualified PR/MR links; see [CONTRIBUTING.md](C
 
 ### Fixed
 
-- tuya-ble — accept the direct `0x0021` provisioning command (a NUL-terminated JSON string with no flag/subcommand prefix, acknowledged by a single STATE byte), so pure-HarmonyOS apps can deliver WiFi credentials; they were previously rejected as an unhandled command and the link dropped (PR pending).
+- tuya-ble — accept direct `0x0021` provisioning for pure-HarmonyOS apps and omit WiFi credentials from BLE logs ([GitLab MR !7](https://registry.code.tuya-inc.top/TuyaAI/agentic-kit/-/merge_requests/7)).
 - rtc-tcp-client — `tai_frame_verify` rejects a declared frame length smaller than the signature before deriving the payload size, preventing a size_t underflow that swept out of bounds inside the HMAC computation (CodeScan high; not reachable through the SDK's own receive path, where the frame-length guard rejects the frame first) (PR pending).
 - pal — FreeRTOS `time_ms` preserves tick wraps and converts non-integral tick periods correctly (#45).
 - biz-client — role request timestamps and the clock gate read PAL UTC instead of libc time, so ports without a synchronized libc clock work (#45).

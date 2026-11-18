@@ -62,9 +62,7 @@ Therefore this is now guaranteed by the default behavior: auto-connect is enable
 static void on_tuya_ble_prov_complete(const tuya_ble_wifi_creds_t *creds)
 {
     // WiFi credentials received from the App
-    // creds is valid only during the callback; copy it into an application-owned buffer
-    // (the example logs at DEBUG, so the SDK's [ble] protocol log prints the raw
-    // credentials JSON including the password/Token, which helps on-device debugging)
+    // creds is valid only during the callback, so copy it into an application-owned buffer
     s_wifi_creds = *creds;
     // Notify the main thread to continue
     xEventGroupSetBits(s_prov_event_group, PROV_DONE_BIT);
@@ -185,4 +183,6 @@ Notifications are at most 20 bytes by default; after MTU negotiation, update the
 
 `tuya_ble_prov_cfg_ext_t.random_fn` is optional and provides a CSPRNG that reports the number of bytes filled; short output fails the handshake. When it is not provided, `tuya_ble_hal_random()` must fill the buffer completely.
 
-Configuring a scan provider enables the WiFi-list and status-query capability declarations; the NimBLE example has a provider configured. The port's worker task performs the WiFi scan, copying the original scan token and results through queues, and the BLE execution context delivers them to the SDK. Cancellation does not immediately interrupt the radio scan; until the old task has finished and been handled, no new scan is accepted, so stale results cannot misappropriate a new token. The status query returns only a fixed CFG status; there is no active stage reporting or a complete PSK3.0 activation exchange. Credentials are still received through the legacy token Provisioning flow; completing BLE credential reception does not mean cloud Activation has completed.
+Configuring a scan provider enables the WiFi-list and status-query capability declarations; the NimBLE example has a provider configured. The port's worker task performs the WiFi scan, copying the original scan token and results through queues, and the BLE execution context delivers them to the SDK. Cancellation does not immediately interrupt the radio scan; until the old task has finished and been handled, no new scan is accepted, so stale results cannot misappropriate a new token. The status query returns only a fixed CFG status; there is no active stage reporting or a complete PSK3.0 activation exchange.
+
+The SDK receives WiFi credentials through the `0x801B` transparent channel or the `0x0021` direct command used by pure-HarmonyOS apps. The direct command carries JSON with exactly one trailing NUL and returns a single `0` byte on success. BLE protocol logs omit credential contents. After receiving the credentials, the application uses the provisioning token to complete cloud Activation.
