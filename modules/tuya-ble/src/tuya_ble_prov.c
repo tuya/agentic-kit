@@ -521,15 +521,17 @@ static void handle_transparent_downlink(tuya_ble_prov_state_t *state,
 
 /* 0x0021 direct WiFi-config command (protocol 8.37): bare JSON with exactly
  * one trailing NUL; acknowledged with a single STATE byte (0 = accepted). */
-static void handle_direct_wifi_config(tuya_ble_prov_state_t *state,
-                                      const uint8_t *data, uint16_t data_len)
+static void handle_direct_wifi_credentials(tuya_ble_prov_state_t *state,
+                                           const uint8_t *data, uint16_t data_len)
 {
-    if (data_len < 2 || data[data_len - 1] != '\0') {
-        TUYA_BLE_HAL_LOGW("[PROTO] Direct WiFi config requires NUL-terminated JSON");
-        return;
+    /* The direct command (protocol 8.37) carries bare JSON; a terminating NUL
+     * is optional and senders vary, so strip any trailing NUL(s).
+     * commit_wifi_credentials() rejects an empty or NUL-embedding body. */
+    while (data_len > 0 && data[data_len - 1] == '\0') {
+        data_len--;
     }
     const uint8_t ack[] = {0x00}; /* STATE: 0 = accepted */
-    commit_wifi_credentials(state, data, data_len - 1,
+    commit_wifi_credentials(state, data, data_len,
                             FRM_DIRECT_CREDS_REQ, ack, sizeof(ack));
 }
 
@@ -692,7 +694,7 @@ void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t
         handle_transparent_downlink(state, data, data_len);
         break;
     case FRM_DIRECT_CREDS_REQ:
-        handle_direct_wifi_config(state, data, data_len);
+        handle_direct_wifi_credentials(state, data, data_len);
         break;
     case TUYA_BLE_FRM_BIGDATA_DOWNLINK_REQ:
         (void)tuya_ble_bigdata_on_downlink(state, data, data_len);

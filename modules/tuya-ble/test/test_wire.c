@@ -174,31 +174,50 @@ static int direct_provisioning_roundtrip(void)
     return 0;
 }
 
-static int direct_credentials_require_one_trailing_nul(void)
+static int direct_credentials_tolerate_trailing_nul(void)
 {
     tuya_ble_prov_state_t state;
     peer_t peer;
     uint8_t key12[16], wire[512];
-    CHECK(!handshake(&state, &peer, key12, 20));
 
+    /* The direct command may carry the JSON with zero, one, or several trailing
+     * NUL bytes (real HarmonyOS apps vary); each variant delivers the credentials. */
+    char no_nul[sizeof(direct_creds_data) - 1];
+    memcpy(no_nul, direct_creds_data, sizeof(no_nul));
     char extra_nul[sizeof(direct_creds_data) + 1] = {0};
     memcpy(extra_nul, direct_creds_data, sizeof(direct_creds_data));
+    const struct {
+        const char *data;
+        size_t data_len;
+    } accepted[] = {
+        {no_nul, sizeof(no_nul)},                       /* bare JSON, no trailing NUL */
+        {direct_creds_data, sizeof(direct_creds_data)}, /* JSON + one trailing NUL */
+        {extra_nul, sizeof(extra_nul)},                 /* JSON + two trailing NULs */
+    };
+    for (size_t i = 0; i < sizeof(accepted) / sizeof(accepted[0]); i++) {
+        CHECK(!handshake(&state, &peer, key12, 20));
+        size_t packet_len = packet(wire, 0x0021, 3, accepted[i].data, accepted[i].data_len, key12, 0);
+        CHECK(!deliver(&state, wire, packet_len, 20));
+        CHECK(callbacks == 1 && peer.complete == 4);
+        tuya_ble_prov_close(&state);
+    }
+
+    /* Rejected: an embedded NUL, an empty body, or NUL-only data. */
     char embedded_nul[sizeof(direct_creds_data)];
     memcpy(embedded_nul, direct_creds_data, sizeof(direct_creds_data));
     embedded_nul[1] = '\0';
     const struct {
         const char *data;
         size_t data_len;
-    } invalid[] = {
-        {direct_creds_data, sizeof(direct_creds_data) - 1},
-        {extra_nul, sizeof(extra_nul)},
-        {embedded_nul, sizeof(embedded_nul)},
-        {"", 0},
-        {"", 1},
+    } rejected[] = {
+        {embedded_nul, sizeof(embedded_nul)}, /* NUL inside the JSON */
+        {"", 0},                              /* empty */
+        {"", 1},                              /* NUL only */
     };
-    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+    CHECK(!handshake(&state, &peer, key12, 20));
+    for (size_t i = 0; i < sizeof(rejected) / sizeof(rejected[0]); i++) {
         uint32_t sn = 3 + (uint32_t)i;
-        size_t packet_len = packet(wire, 0x0021, sn, invalid[i].data, invalid[i].data_len, key12, 0);
+        size_t packet_len = packet(wire, 0x0021, sn, rejected[i].data, rejected[i].data_len, key12, 0);
         CHECK(!deliver(&state, wire, packet_len, 20));
         CHECK(state.last_rx_sn == sn && !state.credentials_pending && !state.creds.ssid[0]);
         CHECK(!callbacks && peer.complete == 3);
@@ -608,7 +627,7 @@ int test_wire(void)
 #define RUN(fn) do { CHECK(fn() == 0); passed++; } while (0)
     RUN(legacy_roundtrip);
     RUN(direct_provisioning_roundtrip);
-    RUN(direct_credentials_require_one_trailing_nul);
+    RUN(direct_credentials_tolerate_trailing_nul);
     RUN(credentials_are_absent_from_logs);
     RUN(device_info_requery_restarts_pairing);
     RUN(unauthorized_and_invalid);
