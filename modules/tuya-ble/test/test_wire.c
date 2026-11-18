@@ -121,13 +121,133 @@ static int handshake(tuya_ble_prov_state_t *s,peer_t *p,uint8_t key12[16],size_t
     CHECK(!crypt(0,key12,p->packet[1]+1,p->packet[1]+17,p->sizes[1]-17,plain));
     CHECK(plain[9]==1 && plain[11]==1 && plain[12]==0);return 0;
 }
-static int legacy_roundtrip(void) {
-    tuya_ble_prov_state_t s;peer_t p;uint8_t key[16],wire[512];CHECK(!handshake(&s,&p,key,20));CHECK(p.notifications>10);
-    const char json[]="\0\0\0\1{\"ssid\":\"router\",\"pwd\":\"password\",\"token\":\"1234567890123456\"}";
-    size_t n=packet(wire,0x801b,3,json,sizeof(json)-1,key,0);CHECK(!deliver(&s,wire,n,20));CHECK(callbacks==1 && p.complete==4);
-    CHECK(!deliver(&s,wire,n,20));CHECK(callbacks==1 && p.complete==4);
-    tuya_ble_prov_close(&s);CHECK(!s.paired&&!s.authenticated&&!s.handshake_ready&&s.connection_generation==1);
-    CHECK(!deliver(&s,wire,n,20));CHECK(callbacks==1);return 0;
+#define TEST_WIFI_CREDS_JSON "{\"ssid\":\"router\",\"pwd\":\"password\",\"token\":\"1234567890123456\"}"
+static const char direct_creds_data[] = TEST_WIFI_CREDS_JSON;
+static const char transparent_creds_data[] = "\0\0\0\1" TEST_WIFI_CREDS_JSON;
+#undef TEST_WIFI_CREDS_JSON
+
+static int check_credential_replay(tuya_ble_prov_state_t *state, const peer_t *peer,
+                                   const uint8_t *wire, size_t packet_len)
+{
+    CHECK(callbacks == 1 && peer->complete == 4);
+    CHECK(!deliver(state, wire, packet_len, 20));
+    CHECK(callbacks == 1 && peer->complete == 4);
+    return 0;
+}
+
+static int legacy_roundtrip(void)
+{
+    tuya_ble_prov_state_t state;
+    peer_t peer;
+    uint8_t key12[16], wire[512];
+    CHECK(!handshake(&state, &peer, key12, 20));
+    CHECK(peer.notifications > 10);
+    size_t packet_len = packet(wire, 0x801b, 3, transparent_creds_data,
+                               sizeof(transparent_creds_data) - 1, key12, 0);
+    CHECK(!deliver(&state, wire, packet_len, 20));
+    CHECK(!check_credential_replay(&state, &peer, wire, packet_len));
+    tuya_ble_prov_close(&state);
+    CHECK(!state.paired && !state.authenticated && !state.handshake_ready && state.connection_generation == 1);
+    CHECK(!deliver(&state, wire, packet_len, 20));
+    CHECK(callbacks == 1);
+    return 0;
+}
+
+static int direct_provisioning_roundtrip(void)
+{
+    tuya_ble_prov_state_t state;
+    peer_t peer;
+    uint8_t key12[16], wire[512], frame[512];
+    CHECK(!handshake(&state, &peer, key12, 20));
+
+    /* The direct command includes the terminating NUL in the Frame data. */
+    size_t packet_len = packet(wire, 0x0021, 3, direct_creds_data, sizeof(direct_creds_data), NULL, 0);
+    CHECK(!deliver(&state, wire, packet_len, 20));
+    CHECK(!callbacks && peer.complete == 3 && state.last_rx_sn == 2);
+
+    packet_len = packet(wire, 0x0021, 3, direct_creds_data, sizeof(direct_creds_data), key12, 0);
+    CHECK(!deliver(&state, wire, packet_len, 20));
+    CHECK(!check_credential_replay(&state, &peer, wire, packet_len));
+    CHECK(!crypt(0, key12, peer.packet[3] + 1, peer.packet[3] + 17, peer.sizes[3] - 17, frame));
+    CHECK(frame[8] == 0 && frame[9] == 0x21 && frame[10] == 0 && frame[11] == 1 && frame[12] == 0);
+    tuya_ble_prov_close(&state);
+    return 0;
+}
+
+static int direct_credentials_tolerate_trailing_nul(void)
+{
+    tuya_ble_prov_state_t state;
+    peer_t peer;
+    uint8_t key12[16], wire[512];
+
+    /* The direct command may carry the JSON with zero, one, or several trailing
+     * NUL bytes (real HarmonyOS apps vary); each variant delivers the credentials. */
+    char no_nul[sizeof(direct_creds_data) - 1];
+    memcpy(no_nul, direct_creds_data, sizeof(no_nul));
+    char extra_nul[sizeof(direct_creds_data) + 1] = {0};
+    memcpy(extra_nul, direct_creds_data, sizeof(direct_creds_data));
+    const struct {
+        const char *data;
+        size_t data_len;
+    } accepted[] = {
+        {no_nul, sizeof(no_nul)},                       /* bare JSON, no trailing NUL */
+        {direct_creds_data, sizeof(direct_creds_data)}, /* JSON + one trailing NUL */
+        {extra_nul, sizeof(extra_nul)},                 /* JSON + two trailing NULs */
+    };
+    for (size_t i = 0; i < sizeof(accepted) / sizeof(accepted[0]); i++) {
+        CHECK(!handshake(&state, &peer, key12, 20));
+        size_t packet_len = packet(wire, 0x0021, 3, accepted[i].data, accepted[i].data_len, key12, 0);
+        CHECK(!deliver(&state, wire, packet_len, 20));
+        CHECK(callbacks == 1 && peer.complete == 4);
+        tuya_ble_prov_close(&state);
+    }
+
+    /* Rejected: an embedded NUL, an empty body, or NUL-only data. */
+    char embedded_nul[sizeof(direct_creds_data)];
+    memcpy(embedded_nul, direct_creds_data, sizeof(direct_creds_data));
+    embedded_nul[1] = '\0';
+    const struct {
+        const char *data;
+        size_t data_len;
+    } rejected[] = {
+        {embedded_nul, sizeof(embedded_nul)}, /* NUL inside the JSON */
+        {"", 0},                              /* empty */
+        {"", 1},                              /* NUL only */
+    };
+    CHECK(!handshake(&state, &peer, key12, 20));
+    for (size_t i = 0; i < sizeof(rejected) / sizeof(rejected[0]); i++) {
+        uint32_t sn = 3 + (uint32_t)i;
+        size_t packet_len = packet(wire, 0x0021, sn, rejected[i].data, rejected[i].data_len, key12, 0);
+        CHECK(!deliver(&state, wire, packet_len, 20));
+        CHECK(state.last_rx_sn == sn && !state.credentials_pending && !state.creds.ssid[0]);
+        CHECK(!callbacks && peer.complete == 3);
+    }
+    return 0;
+}
+
+static int credentials_are_absent_from_logs(void)
+{
+    tuya_ble_prov_state_t state;
+    peer_t peer;
+    uint8_t key12[16], wire[512];
+    CHECK(!handshake(&state, &peer, key12, 20));
+
+    const char malformed[] = "\0\0\0\1{\"pwd\":\"password\",\"token\":\"1234567890123456\"";
+    char captured[8192];
+    test_log_capture_begin(captured, sizeof(captured));
+    size_t packet_len = packet(wire, 0x0021, 3, direct_creds_data, sizeof(direct_creds_data), NULL, 0);
+    int plaintext_rc = deliver(&state, wire, packet_len, 20);
+    packet_len = packet(wire, 0x0021, 3, direct_creds_data, sizeof(direct_creds_data), key12, 0);
+    int direct_rc = deliver(&state, wire, packet_len, 20);
+    packet_len = packet(wire, 0x801b, 4, malformed, sizeof(malformed) - 1, key12, 0);
+    int malformed_rc = deliver(&state, wire, packet_len, 20);
+    test_log_capture_end();
+
+    CHECK(!plaintext_rc && !direct_rc && !malformed_rc && callbacks == 1 && peer.complete == 4);
+    CHECK(strstr(captured, "WiFi credentials JSON parse failed"));
+    CHECK(!strstr(captured, "password") && !strstr(captured, "1234567890123456"));
+    CHECK(!strstr(captured, "70 61 73 73 77 6F 72 64")); /* Hexadecimal password bytes. */
+    return 0;
 }
 static int unauthorized_and_invalid(void) {
     tuya_ble_prov_state_t s;peer_t p;uint8_t k[16],wire[512];CHECK(!setup(&s,&p,k));
@@ -158,6 +278,9 @@ static int device_info_requery_restarts_pairing(void) {
     memcpy(input, key11, 16);
     memcpy(input + 16, plain + 18, 6);
     CHECK(!mbedtls_md5(input, 22, key12));
+    size_t packet_len = packet(wire, 0x0021, 4, direct_creds_data, sizeof(direct_creds_data), key12, 0);
+    CHECK(!deliver(&state, wire, packet_len, 20));
+    CHECK(state.last_rx_sn == 3 && peer.complete == 4 && !callbacks);
     CHECK(!deliver(&state, wire, packet(wire, 1, 4, uuid, 16, key12, 0), 20));
     CHECK(state.authenticated && state.paired && peer.complete == 6);
     return 0;
@@ -290,18 +413,40 @@ static int isolated_connections(void)
 
 static int credential_ack_backpressure(void)
 {
-    tuya_ble_prov_state_t state;
-    peer_t peer;
-    uint8_t key[16], wire[512];
-    CHECK(!handshake(&state, &peer, key, 20));
-    peer.busy = 1;
-    const char json[] = "\0\0\0\1{\"ssid\":\"router\",\"pwd\":\"password\",\"token\":\"1234567890123456\"}";
-    CHECK(!deliver(&state, wire, packet(wire, 0x801b, 3, json, sizeof(json)-1, key, 0), 20));
-    CHECK(callbacks == 0 && state.credentials_pending);
-    peer.busy = 0;
-    CHECK(!tuya_ble_prov_tx_ready(&state));
-    CHECK(callbacks == 1 && !state.credentials_pending);
-    CHECK(!tuya_ble_prov_tx_ready(&state) && callbacks == 1);
+    const char replacement[] = "\0\0\0\1{\"ssid\":\"other\",\"pwd\":\"different\",\"token\":\"6543210987654321\"}";
+    const struct {
+        uint16_t cmd;
+        const char *data;
+        size_t data_len;
+        const char *replacement_data;
+        size_t replacement_len;
+    } channels[] = {
+        {0x801b, transparent_creds_data, sizeof(transparent_creds_data) - 1,
+         replacement, sizeof(replacement) - 1},
+        {0x0021, direct_creds_data, sizeof(direct_creds_data), replacement + 4, sizeof(replacement) - 4},
+    };
+    for (size_t i = 0; i < 2; i++) {
+        size_t other = 1 - i;
+        tuya_ble_prov_state_t state;
+        peer_t peer;
+        uint8_t key12[16], wire[512];
+        CHECK(!handshake(&state, &peer, key12, 20));
+        peer.busy = 1;
+        size_t packet_len = packet(wire, channels[i].cmd, 3, channels[i].data, channels[i].data_len, key12, 0);
+        CHECK(!deliver(&state, wire, packet_len, 20));
+        CHECK(!callbacks && state.credentials_pending && state.tx_count == 1);
+
+        packet_len = packet(wire, channels[other].cmd, 4, channels[other].replacement_data,
+                            channels[other].replacement_len, key12, 0);
+        CHECK(!deliver(&state, wire, packet_len, 20));
+        CHECK(state.last_rx_sn == 4 && !callbacks && state.credentials_pending && state.tx_count == 1);
+        CHECK(!strcmp(state.creds.ssid, "router"));
+
+        peer.busy = 0;
+        CHECK(!tuya_ble_prov_tx_ready(&state));
+        CHECK(callbacks == 1 && !state.credentials_pending && peer.complete == 4);
+        CHECK(!tuya_ble_prov_tx_ready(&state) && callbacks == 1);
+    }
     return 0;
 }
 
@@ -481,6 +626,9 @@ int test_wire(void)
     unsigned passed = 0;
 #define RUN(fn) do { CHECK(fn() == 0); passed++; } while (0)
     RUN(legacy_roundtrip);
+    RUN(direct_provisioning_roundtrip);
+    RUN(direct_credentials_tolerate_trailing_nul);
+    RUN(credentials_are_absent_from_logs);
     RUN(device_info_requery_restarts_pairing);
     RUN(unauthorized_and_invalid);
     RUN(malformed_credentials);
