@@ -133,18 +133,21 @@ or the Chinese `README.md`. File-content language exceptions never apply to thes
    initialization, and share that PAL across IoT and TAI. The app owns UTC
    synchronization. When TLS certificate-time checks are enabled, the port must
    also expose that UTC source to libc/mbedTLS.
-6. **CHANGELOG entries are terse, and carry a platform-qualified PR/MR link.** One line per change —
-   `- <module> — <what changed> ([GitLab MR !N](full-MR-URL)).` — with indented sub-bullets only
+6. **CHANGELOG entries are terse, and carry a platform-qualified PR/MR reference.** One line per change —
+   `- <module> — <what changed> (GitLab MR !N).` — with indented sub-bullets only
    for specifics a reader acts on (a new symbol, a changed default, a migration step).
    `## [0.3.0]` is the reference for
    length and shape; put the entry under the right `Added` / `Changed` / `Fixed` heading, since
    release notes are generated from those. Motivation, rejected alternatives, verification detail
    and anything else answering *why* belong in the commit body — that is where a reader who wants
    them will look, and repeating them here produces release notes nobody finishes reading. Historical
-   entries link to their original `GitHub PR #N`; existing bare `(#N)` references refer to GitHub.
-   New GitHub-origin contributions link both the canonical GitLab MR and the original GitHub PR.
-   Never infer an MR number from a PR number. New entries must use an actual full URL; replace
-   this change's pending references before merge and all references in the release scope before release.
+   entries reference their original `GitHub PR #N`; existing bare `(#N)` references refer to GitHub.
+   New GitHub-origin contributions reference both, as `GitLab MR !N` and `GitHub PR #N`.
+   Never infer an MR number from a PR number. Use the **plain-text `GitLab MR !N` reference, not a
+   Markdown link to a full URL**: GitLab auto-links `!N` to the MR when it renders the CHANGELOG,
+   while GitHub (where this CHANGELOG also ships) shows it as plain text — so the public CHANGELOG
+   carries no internal-GitLab URL that would be a dead link off-platform. Replace this change's
+   pending references before merge and all references in the release scope before release.
 
 ## Invariants
 
