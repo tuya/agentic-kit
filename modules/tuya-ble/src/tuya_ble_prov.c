@@ -456,55 +456,26 @@ static int wifi_creds_from_json(tuya_ble_prov_state_t *state, const char *json_s
     return 0;
 }
 
-static void handle_wifi_credentials(tuya_ble_prov_state_t *state, uint16_t cmd,
-                                    const uint8_t *data, uint16_t data_len)
+/* Shared core: validate the bare JSON span, parse it into creds, send the
+ * channel's ACK, and fire delivery. Each channel normalizes its own wire
+ * format to (json, json_len) and picks the ACK; this core has no cmd branch. */
+static void commit_wifi_credentials(tuya_ble_prov_state_t *state,
+                                    const uint8_t *json, uint16_t json_len,
+                                    uint16_t ack_cmd, const uint8_t *ack_data,
+                                    uint16_t ack_len)
 {
     if (state->credentials_pending) {
         TUYA_BLE_HAL_LOGW("[PROTO] Credentials awaiting acknowledgement; ignoring replacement");
         return;
     }
 
-    const uint8_t direct_ack[] = {0x00}; /* STATE: 0 = accepted */
-    const uint8_t transparent_ack[] = {0x00, 0x00, 0x00, 0x01, 0x00};
-    const uint8_t *ack_data = direct_ack;
-    uint16_t ack_cmd = FRM_DIRECT_CREDS_REQ;
-    uint16_t ack_len = sizeof(direct_ack);
-
-    if (cmd == FRM_DIRECT_CREDS_REQ) {
-        /* Protocol 8.37 carries bare JSON with exactly one trailing NUL. */
-        if (data_len < 2 || data[data_len - 1] != '\0') {
-            TUYA_BLE_HAL_LOGW("[PROTO] Direct credentials require NUL-terminated JSON");
-            return;
-        }
-        data_len--;
-    } else {
-        /* The transparent channel has a flag and subcommand before its JSON. */
-        const uint16_t prefix_len = 4;
-        if (data_len < prefix_len) {
-            TUYA_BLE_HAL_LOGW("[PROTO] Transparent data too short");
-            return;
-        }
-        uint16_t flag = (data[0] << 8) | data[1];
-        uint16_t subcmd = (data[2] << 8) | data[3];
-        if (flag != 0x0000 || subcmd != 0x0001) {
-            TUYA_BLE_HAL_LOGW("[PROTO] Unexpected transparent flag 0x%04X or subcommand 0x%04X",
-                              flag, subcmd);
-            return;
-        }
-        data += prefix_len;
-        data_len -= prefix_len;
-        ack_data = transparent_ack;
-        ack_cmd = FRM_UPLINK_TRANSPARENT_REQ;
-        ack_len = sizeof(transparent_ack);
-    }
-
     char json_str[WIFI_CREDS_JSON_CAPACITY];
-    if (data_len == 0 || data_len >= sizeof(json_str) || memchr(data, '\0', data_len)) {
-        TUYA_BLE_HAL_LOGW("[PROTO] WiFi credentials JSON empty, too long or contains NUL (%u)", data_len);
+    if (json_len == 0 || json_len >= sizeof(json_str) || memchr(json, '\0', json_len)) {
+        TUYA_BLE_HAL_LOGW("[PROTO] WiFi credentials JSON empty, too long or contains NUL (%u)", json_len);
         return;
     }
-    memcpy(json_str, data, data_len);
-    json_str[data_len] = '\0';
+    memcpy(json_str, json, json_len);
+    json_str[json_len] = '\0';
 
     if (wifi_creds_from_json(state, json_str) != 0) {
         return;
@@ -517,6 +488,49 @@ static void handle_wifi_credentials(tuya_ble_prov_state_t *state, uint16_t cmd,
 
     state->credentials_pending = true;
     tuya_ble_prov_flush_credentials(state);
+}
+
+/* General transparent downlink channel (0x801B): a two-byte flag plus a
+ * two-byte subcommand select the function. Only the WiFi-config subcommand
+ * (0x0001) is handled today; other subcommands are reserved. */
+static void handle_transparent_downlink(tuya_ble_prov_state_t *state,
+                                        const uint8_t *data, uint16_t data_len)
+{
+    if (data_len < 4) {
+        TUYA_BLE_HAL_LOGW("[PROTO] Transparent data too short");
+        return;
+    }
+    uint16_t flag = (data[0] << 8) | data[1];
+    uint16_t subcmd = (data[2] << 8) | data[3];
+    if (flag != 0x0000) {
+        TUYA_BLE_HAL_LOGW("[PROTO] Unexpected transparent flag 0x%04X", flag);
+        return;
+    }
+    switch (subcmd) {
+    case 0x0001: { /* WiFi credentials */
+        const uint8_t ack[] = {0x00, 0x00, 0x00, 0x01, 0x00};
+        commit_wifi_credentials(state, data + 4, data_len - 4,
+                                FRM_UPLINK_TRANSPARENT_REQ, ack, sizeof(ack));
+        break;
+    }
+    default:
+        TUYA_BLE_HAL_LOGW("[PROTO] Unhandled transparent subcommand 0x%04X", subcmd);
+        break;
+    }
+}
+
+/* 0x0021 direct WiFi-config command (protocol 8.37): bare JSON with exactly
+ * one trailing NUL; acknowledged with a single STATE byte (0 = accepted). */
+static void handle_direct_wifi_config(tuya_ble_prov_state_t *state,
+                                      const uint8_t *data, uint16_t data_len)
+{
+    if (data_len < 2 || data[data_len - 1] != '\0') {
+        TUYA_BLE_HAL_LOGW("[PROTO] Direct WiFi config requires NUL-terminated JSON");
+        return;
+    }
+    const uint8_t ack[] = {0x00}; /* STATE: 0 = accepted */
+    commit_wifi_credentials(state, data, data_len - 1,
+                            FRM_DIRECT_CREDS_REQ, ack, sizeof(ack));
 }
 
 void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t packet_len)
@@ -675,8 +689,10 @@ void tuya_ble_recv(tuya_ble_prov_state_t *state, const uint8_t *packet, uint16_t
         handle_pair_req(state, data, data_len);
         break;
     case FRM_DOWNLINK_TRANSPARENT_REQ:
+        handle_transparent_downlink(state, data, data_len);
+        break;
     case FRM_DIRECT_CREDS_REQ:
-        handle_wifi_credentials(state, cmd, data, data_len);
+        handle_direct_wifi_config(state, data, data_len);
         break;
     case TUYA_BLE_FRM_BIGDATA_DOWNLINK_REQ:
         (void)tuya_ble_bigdata_on_downlink(state, data, data_len);
